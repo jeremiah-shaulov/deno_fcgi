@@ -6,7 +6,7 @@ FastCGI implementation for Deno
 ```ts
 import {Server} from './mod.ts';
 
-let listener = Deno.listen({transport: 'unix', path: '/tmp/deno-fcgi.sock'});
+let listener = Deno.listen({port: 8080});
 const server = new Server(listener);
 console.log(`Started`);
 

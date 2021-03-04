@@ -395,39 +395,66 @@ export class ServerRequest
 	private write_nvp(value: Map<string, string>)
 	{	this.schedule
 		(	async () =>
-			{	for (let [k, v] of value)
+			{	let all = new Uint8Array(BUFFER_LEN/2);
+				let offset = 8; // after header (that will be added later)
+				for (let [k, v] of value)
 				{	let k_buf = this.encoder.encode(k);
 					let v_buf = this.encoder.encode(v);
 					assert(k_buf.length<=0x7FFFFFFF && v_buf.length<=0x7FFFFFFF); // i don't write such nvp
-					let header = new Uint8Array(8);
-					let offset = 0;
+					let add_len = 8 + k_buf.length + v_buf.length;
+					if (offset+add_len > all.length)
+					{	// realloc
+						let new_all = new Uint8Array(Math.max(offset+add_len, all.length*2));
+						new_all.set(all);
+						all = new_all;
+					}
 					// name
 					if (k_buf.length <= 127)
-					{	header[offset++] = k_buf.length;
+					{	all[offset++] = k_buf.length;
 					}
 					else
-					{	header[0] = k_buf.length >> 24;
-						header[1] = (k_buf.length >> 16) & 0xFF;
-						header[2] = (k_buf.length >> 8) & 0xFF;
-						header[3] = k_buf.length & 0xFF;
+					{	all[0] = k_buf.length >> 24;
+						all[1] = (k_buf.length >> 16) & 0xFF;
+						all[2] = (k_buf.length >> 8) & 0xFF;
+						all[3] = k_buf.length & 0xFF;
 						offset += 4;
 					}
 					// value
 					if (v_buf.length <= 127)
-					{	header[offset++] = v_buf.length;
+					{	all[offset++] = v_buf.length;
 					}
 					else
-					{	header[offset++] = v_buf.length >> 24;
-						header[offset++] = (v_buf.length >> 16) & 0xFF;
-						header[offset++] = (v_buf.length >> 8) & 0xFF;
-						header[offset++] = v_buf.length & 0xFF;
+					{	all[offset++] = v_buf.length >> 24;
+						all[offset++] = (v_buf.length >> 16) & 0xFF;
+						all[offset++] = (v_buf.length >> 8) & 0xFF;
+						all[offset++] = v_buf.length & 0xFF;
 					}
-					let all = new Uint8Array(offset + k_buf.length + v_buf.length);
-					all.set(header.subarray(0, offset));
 					all.set(k_buf, offset);
-					all.set(v_buf, offset+k_buf.length);
-					await Deno.writeAll(this.conn, all);
+					offset += k_buf.length;
+					all.set(v_buf, offset);
+					offset += v_buf.length;
 				}
+				// add header
+				assert(offset <= 0xFFF8); // i don't write such nvp
+				let padding_length = (8 - offset%8) % 8;
+				all[0] = 1; // version
+				all[1] = FCGI_GET_VALUES_RESULT; // record_type
+				//buffer[2] = 0; // request_id[1]
+				//buffer[3] = 0; // request_id[0]
+				all[4] = offset >> 8; // content_length[1]
+				all[5] = offset & 0xFF; // content_length[0]
+				all[6] = padding_length;
+				//buffer[7] = 0; // reserved
+				// add padding
+				if (offset+padding_length > all.length)
+				{	// realloc
+					let new_all = new Uint8Array(offset+padding_length);
+					new_all.set(all);
+					all = new_all;
+				}
+				offset += padding_length;
+				// write
+				await Deno.writeAll(this.conn, all.subarray(0, offset));
 			}
 		);
 	}
