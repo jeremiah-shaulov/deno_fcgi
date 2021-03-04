@@ -1,6 +1,7 @@
 import {assert} from './assert.ts';
-import {Cookies} from "./cookies.ts";
 import {Server} from './server.ts';
+import {Cookies} from "./cookies.ts";
+import {Post} from "./post.ts";
 import {ServerResponse} from './server_response.ts';
 
 const BUFFER_LEN = 4*1024;
@@ -36,21 +37,34 @@ assert(MAX_PARAM_NAME_LEN <= BUFFER_LEN);
 assert(MAX_PARAM_VALUE_LEN <= BUFFER_LEN);
 
 export class ServerRequest
-{	public url = '';
-	public method = ''; // like 'GET'
-	public proto = ''; // like 'HTTP/1.1'
+{	/// The SCRIPT_URL of the request, like '/path/index.html'
+	public url = '';
+	/// Request method, like 'GET'
+	public method = '';
+	/// Request protocol, like 'HTTP/1.1' or 'HTTP/2'
+	public proto = '';
 	public protoMinor = 0;
 	public protoMajor = 0;
+	/// Environment params sent from FascCGI worker. This usually includes 'REQUEST_URI', 'SCRIPT_URI', 'SCRIPT_FILENAME', 'DOCUMENT_ROOT', can contain 'CONTEXT_DOCUMENT_ROOT' (if using apache MultiViews), etc.
 	public params = new Map<string, string>();
+	/// Request HTTP headers
 	public headers = new Headers;
+	/// Set this at any time before calling respond() to be default response HTTP status code (like 200 or 404). However status provided to respond() overrides this. Leave 0 for default 200 status.
 	public responseStatus = 0;
+	/// You can set response HTTP headers before calling respond(). Headers provided to respond() will override them. Header called "status" acts as default HTTP status code, if responseStatus is not set.
 	public responseHeaders = new Headers;
 
+	/// Request cookies can be read from here, and modified. Setting or deleting a cookie sets corresponding HTTP headers.
 	public cookies = new Cookies;
 
-	public body: Deno.Reader;
+	/// Post body can be read from here. Also it can be read from "this" directly (`request.body` and `request` are the same `Deno.Reader` implementors).
+	public body: Deno.Reader = this;
 
+	/// True if headers have been sent to client. They will be sent if you write some response data to this request object (it implements `Deno.Writer`).
 	public headersSent = false;
+
+	/// Access POST body and uploaded files from here.
+	public post = new Post(this);
 
 	private request_id = 0;
 	private stdin_length = 0;
@@ -72,17 +86,17 @@ export class ServerRequest
 	private encoder = new TextEncoder;
 	private decoder = new TextDecoder;
 
-	constructor(private server: Server, public conn: Deno.Conn, buffer: Uint8Array|null, private max_conns: number, private is_overload: boolean)
-	{	this.body = this;
-		this.buffer = buffer ?? new Uint8Array(BUFFER_LEN);
+	constructor(private server: Server, public conn: Deno.Conn, buffer: Uint8Array|null, private max_conns: number, private post_with_structure: boolean, private is_overload: boolean)
+	{	this.buffer = buffer ?? new Uint8Array(BUFFER_LEN);
 	}
 
 	async read(buffer: Uint8Array): Promise<number|null>
 	{	while (true)
 		{	if (this.stdin_length)
-			{	let chunk = Math.min(this.stdin_length, buffer.length);
+			{	let chunk = Math.min(this.stdin_length, this.buffer_end-this.buffer_start);
 				buffer.set(this.buffer.subarray(this.buffer_start, this.buffer_start+chunk));
 				this.buffer_start += chunk;
+				this.stdin_length -= chunk;
 				return chunk;
 			}
 			else if (this.stdin_complete)
@@ -148,18 +162,21 @@ export class ServerRequest
 		if (this.no_keep_conn)
 		{	this.is_terminated = true;
 			this.conn.close();
+			this.post.close();
 			this.server.retired();
 		}
 		else
-		{	let new_obj = new ServerRequest(this.server, this.conn, this.buffer, this.max_conns, false);
+		{	this.post.close();
+			let new_obj = new ServerRequest(this.server, this.conn, this.buffer, this.max_conns, this.post_with_structure, false);
 			this.is_terminated = true;
 			this.server.retired(new_obj);
 		}
 	}
 
-	terminate()
+	close()
 	{	this.is_terminated = true;
 		this.conn.close();
+		this.post.close();
 		this.server.retired();
 	}
 
@@ -544,9 +561,26 @@ export class ServerRequest
 								this.proto = this.params.get('SERVER_PROTOCOL') ?? '';
 								let pos = this.proto.indexOf('/');
 								let pos_2 = this.proto.indexOf('.', pos);
-								this.protoMajor = parseInt(this.proto.slice(pos+1, pos_2)) ?? 0;
-								this.protoMinor = parseInt(this.proto.slice(pos_2+1)) ?? 0;
+								this.protoMajor = parseInt(this.proto.slice(pos+1, pos_2==-1 ? this.proto.length : pos_2)) ?? 0;
+								this.protoMinor = pos_2==-1 ? 0 : parseInt(this.proto.slice(pos_2+1)) ?? 0;
 								this.cookies = new Cookies(this.params.get('HTTP_COOKIE') ?? '');
+								let contentType = this.params.get('CONTENT_TYPE') ?? '';
+								let boundary = '';
+								pos = contentType.indexOf(';');
+								if (pos != -1)
+								{	let pos_2 = contentType.indexOf('boundary=', pos+1);
+									if (pos_2 != -1)
+									{	boundary = contentType.slice(pos_2 + 'boundary='.length);
+										pos_2 = boundary.indexOf(';');
+										if (pos_2 != -1)
+										{	boundary = boundary.slice(0, pos_2);
+										}
+									}
+									contentType = contentType.slice(0, pos);
+								}
+								this.post.contentType = contentType.toLocaleLowerCase();
+								this.post.formDataBoundary = boundary;
+								this.post.withStructure = this.post_with_structure;
 								// done read params, stdin remaining
 								return this;
 							}

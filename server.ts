@@ -5,12 +5,14 @@ const FCGI_MAX_CONNS = 128;
 
 export class Server
 {	private max_conns: number;
+	private post_with_structure: boolean;
 	private n_conns = 0;
 	private requests: ServerRequest[] = [];
 	private promises: Promise<Deno.Conn | ServerRequest>[] = []; // promises[0] is promise for accepting new conn, and promises.length-1 == requests.length
 
-	constructor(private socket: Deno.Listener, options?: {maxConns: number})
-	{	this.max_conns = options?.maxConns ?? FCGI_MAX_CONNS;
+	constructor(private socket: Deno.Listener, options?: {maxConns: number, postWithStructure: boolean})
+	{	this.max_conns = options?.maxConns || FCGI_MAX_CONNS;
+		this.post_with_structure = options?.postWithStructure || false;
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<ServerRequest>
@@ -21,7 +23,7 @@ export class Server
 		{	let ready = await Promise.race(this.promises);
 			if (!(ready instanceof ServerRequest))
 			{	// Accepted connection
-				let request = new ServerRequest(this, ready, null, this.max_conns, false);
+				let request = new ServerRequest(this, ready, null, this.max_conns, this.post_with_structure, false);
 				this.requests.push(request);
 				this.promises.push(request.poll());
 				// Immediately start waiting for new
@@ -56,7 +58,7 @@ export class Server
 
 	close()
 	{	for (let request of this.requests)
-		{	request.terminate();
+		{	request.close();
 		}
 		this.requests.length = 0;
 		this.promises.length = 0;
