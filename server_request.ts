@@ -1,4 +1,5 @@
 import {assert} from './assert.ts';
+import {Cookies} from "./cookies.ts";
 import {Server} from './server.ts';
 import {ServerResponse} from './server_response.ts';
 
@@ -41,9 +42,15 @@ export class ServerRequest
 	public protoMinor = 0;
 	public protoMajor = 0;
 	public params = new Map<string, string>();
-	public headers = new Headers();
+	public headers = new Headers;
+	public responseStatus = 0;
+	public responseHeaders = new Headers;
+
+	public cookies = new Cookies;
 
 	public body: Deno.Reader;
+
+	public headersSent = false;
 
 	private request_id = 0;
 	private stdin_length = 0;
@@ -106,6 +113,16 @@ export class ServerRequest
 		{	await this.poll();
 		}
 		let {status, headers, body} = response;
+		if (!this.headersSent)
+		{	if (headers)
+			{	for (let [k, v] of headers)
+				{	this.responseHeaders.set(k, v);
+				}
+			}
+			if (status)
+			{	this.responseStatus = status;
+			}
+		}
 		try
 		{	if (body)
 			{	if (typeof(body) == 'string')
@@ -295,6 +312,26 @@ export class ServerRequest
 				if (this.is_terminated)
 				{	throw new Error('Request already terminated');
 				}
+				// Send response headers
+				if (!this.headersSent && record_type==FCGI_STDOUT)
+				{	this.headersSent = true;
+					let status = this.responseStatus ? this.responseStatus+'' : (this.responseHeaders.get('status') ?? '200');
+					let headers_str = `        status: ${status}\r\n`; // 8-byte header
+					for (let [k, v] of this.responseHeaders)
+					{	if (k != 'status')
+						{	headers_str += `${k}: ${v}\r\n`;
+						}
+					}
+					for (let v of this.cookies.headers.values())
+					{	headers_str += `set-cookie: ${v}\r\n`;
+					}
+					headers_str += "\r\n        "; // 8-byte (at most) padding
+					let headers_bytes = this.encoder.encode(headers_str);
+					let padding_length = (8 - headers_bytes.length%8) % 8;
+					set_record_stdout(headers_bytes, 0, FCGI_STDOUT, this.request_id, headers_bytes.length-16, padding_length);
+					await Deno.writeAll(this.conn, headers_bytes.subarray(0, headers_bytes.length-(8 - padding_length)));
+				}
+				// Send body
 				let orig_len = value.length;
 				while (true)
 				{	if (value.length > 0xFFF8) // 0xFFF9 .. 0xFFFF will be padded to 0x10000
@@ -509,6 +546,7 @@ export class ServerRequest
 								let pos_2 = this.proto.indexOf('.', pos);
 								this.protoMajor = parseInt(this.proto.slice(pos+1, pos_2)) ?? 0;
 								this.protoMinor = parseInt(this.proto.slice(pos_2+1)) ?? 0;
+								this.cookies = new Cookies(this.params.get('HTTP_COOKIE') ?? '');
 								// done read params, stdin remaining
 								return this;
 							}
