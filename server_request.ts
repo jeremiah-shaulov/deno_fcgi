@@ -50,20 +50,19 @@ export class ServerRequest
 	public params = new Map<string, string>();
 	/// Request HTTP headers
 	public headers = new Headers;
-	/// Set this at any time before calling respond() to be default response HTTP status code (like 200 or 404). However status provided to respond() overrides this. Leave 0 for default 200 status.
-	public responseStatus = 0;
-	/// You can set response HTTP headers before calling respond(). Headers provided to respond() will override them. Header called "status" acts as default HTTP status code, if responseStatus is not set.
-	public responseHeaders = new Headers;
-
 	/// Access POST body and uploaded files from here.
 	public get = new Get;
 	/// Access POST body and uploaded files from here.
 	public post = new Post(this);
 	/// Request cookies can be read from here, and modified. Setting or deleting a cookie sets corresponding HTTP headers.
 	public cookies = new Cookies;
-
 	/// Post body can be read from here. Also it can be read from "this" directly (`request.body` and `request` are the same `Deno.Reader` implementors).
 	public body: Deno.Reader = this;
+
+	/// Set this at any time before calling respond() to be default response HTTP status code (like 200 or 404). However status provided to respond() overrides this. Leave 0 for default 200 status.
+	public responseStatus = 0;
+	/// You can set response HTTP headers before calling respond(). Headers provided to respond() will override them. Header called "status" acts as default HTTP status code, if responseStatus is not set.
+	public responseHeaders = new Headers;
 
 	/// True if headers have been sent to client. They will be sent if you write some response data to this request object (it implements `Deno.Writer`).
 	public headersSent = false;
@@ -88,7 +87,7 @@ export class ServerRequest
 	private encoder = new TextEncoder;
 	private decoder = new TextDecoder;
 
-	constructor(private server: Server, public conn: Deno.Conn, buffer: Uint8Array|null, private max_conns: number, private post_with_structure: boolean, private is_overload: boolean)
+	constructor(private server: Server, public conn: Deno.Conn, buffer: Uint8Array|null, private max_conns: number, private structured_params: boolean, private is_overload: boolean)
 	{	this.buffer = buffer ?? new Uint8Array(BUFFER_LEN);
 	}
 
@@ -121,14 +120,16 @@ export class ServerRequest
 	{	return this.write_stdout(buffer);
 	}
 
-	async respond(response: ServerResponse)
+	async respond(response?: ServerResponse)
 	{	if (this.is_terminated)
 		{	throw new Error('Request already terminated');
 		}
 		while (!this.stdin_complete && !this.is_eof && !this.is_aborted)
 		{	await this.poll();
 		}
-		let {status, headers, body} = response;
+		if (response)
+		{	var {status, headers, body} = response;
+		}
 		if (!this.headersSent)
 		{	if (headers)
 			{	for (let [k, v] of headers)
@@ -169,7 +170,7 @@ export class ServerRequest
 		}
 		else
 		{	this.post.close();
-			let new_obj = new ServerRequest(this.server, this.conn, this.buffer, this.max_conns, this.post_with_structure, false);
+			let new_obj = new ServerRequest(this.server, this.conn, this.buffer, this.max_conns, this.structured_params, false);
 			this.is_terminated = true;
 			this.server.retired(new_obj);
 		}
@@ -560,7 +561,7 @@ export class ServerRequest
 								this.buffer_start += padding_length;
 								// done read params, stdin remaining
 								// init this request object before handing it to user
-								this.url = this.params.get('SCRIPT_URL') ?? '';
+								this.url = this.params.get('REQUEST_URI') ?? '';
 								this.method = this.params.get('REQUEST_METHOD') ?? '';
 								this.proto = this.params.get('SERVER_PROTOCOL') ?? '';
 								let pos = this.proto.indexOf('/');
@@ -585,7 +586,7 @@ export class ServerRequest
 								}
 								if (query_string)
 								{	this.get.setQueryString(query_string);
-									this.get.withStructure = this.post_with_structure;
+									this.get.withStructure = this.structured_params;
 								}
 								if (cookie_header)
 								{	this.cookies.setHeader(cookie_header);
@@ -594,7 +595,7 @@ export class ServerRequest
 								{	this.post.contentType = contentType.toLocaleLowerCase();
 									this.post.formDataBoundary = boundary;
 									this.post.contentLength = Number(this.params.get('CONTENT_LENGTH')) || -1;
-									this.post.withStructure = this.post_with_structure;
+									this.post.withStructure = this.structured_params;
 								}
 								return this;
 							}

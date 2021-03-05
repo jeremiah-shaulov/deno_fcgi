@@ -1,3 +1,4 @@
+import {exists} from "https://deno.land/std/fs/mod.ts";
 import {StructuredMap} from "./structured_map.ts";
 
 const BUFFER_LEN = 4*1024;
@@ -50,7 +51,7 @@ export class Post extends StructuredMap
 
 	close()
 	{	for (let f of this.uploaded_files)
-		{	Deno.remove(f).catch(e => console.error(e));
+		{	exists(f).then(yes => yes ? Deno.remove(f) : null).catch(e => console.error(e));
 		}
 		this.uploaded_files.length = 0;
 	}
