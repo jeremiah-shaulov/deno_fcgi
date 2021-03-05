@@ -3,6 +3,11 @@ import {ServerRequest} from './server_request.ts';
 
 const FCGI_MAX_CONNS = 128;
 
+export interface ServerOptions
+{	maxConns?: number,
+	postWithStructure?: boolean,
+}
+
 export class Server
 {	private max_conns: number;
 	private post_with_structure: boolean;
@@ -10,7 +15,7 @@ export class Server
 	private requests: ServerRequest[] = [];
 	private promises: Promise<Deno.Conn | ServerRequest>[] = []; // promises[0] is promise for accepting new conn, and promises.length-1 == requests.length
 
-	constructor(private socket: Deno.Listener, options?: {maxConns: number, postWithStructure: boolean})
+	constructor(private socket: Deno.Listener, options?: ServerOptions)
 	{	this.max_conns = options?.maxConns || FCGI_MAX_CONNS;
 		this.post_with_structure = options?.postWithStructure || false;
 	}

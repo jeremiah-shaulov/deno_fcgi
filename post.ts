@@ -1,3 +1,5 @@
+import {StructuredMap} from "./structured_map.ts";
+
 const BUFFER_LEN = 4*1024;
 const MAX_BOUNDARY_LEN = 100;
 
@@ -21,29 +23,29 @@ export class UploadedFile
 	}
 }
 
-export class Post extends Map<string, any>
-{	/// Post body "Content-Type". Lowercased, and part starting with ';' is cut (if any)
-	public contentType = '';
-	/// If contentType is 'multipart/form-data', this will be data boundary.
-	public formDataBoundary = '';
-	/// the "Content-Length" HTTP header
-	public contentLength = -1;
-	/// Was parse() called?
+export class Post extends StructuredMap
+{	/// Was parse() called?
 	public isParsed = false;
 	/// Uploaded files are stored to temporary files that will be deleted at the end of request. You can read them, or move to a different location (from where they will not be deleted).
 	public files = new Map<string, UploadedFile>();
-	/// Parse params like "items[]=a&items[]=b" to arrays, like PHP does. And params like "items[a]=b" to objects.
-	public withStructure = false;
 
 	private is_parse_error = false;
 	private uploaded_files: string[] = [];
 
 	constructor
 	(	private reader: Deno.Reader,
+		/// Post body "Content-Type". Lowercased, and part starting with ';' is cut (if any)
+		public contentType = '',
+		/// If contentType is 'multipart/form-data', this will be data boundary.
+		public formDataBoundary = '',
+		/// the "Content-Length" HTTP header
+		public contentLength = -1,
+		/// Parse params like "items[]=a&items[]=b" and "items[a][b]=c" to Map objects, like PHP does.
+		public withStructure = false,
 		/// What decoder to use to decode bytes of the post data (not for uploaded files - they are written binary as is)
 		public decoder = new TextDecoder
 	)
-	{	super();
+	{	super(withStructure);
 	}
 
 	close()
@@ -63,7 +65,7 @@ export class Post extends Map<string, any>
 				let data = await Deno.readAll(this.reader); // TODO: ...
 				let i = 0;
 				while (i < data.length)
-				{	let i_end = data.indexOf(AMP);
+				{	let i_end = data.indexOf(AMP, i);
 					if (i_end == -1)
 					{	i_end = data.length;
 					}
@@ -77,7 +79,7 @@ export class Post extends Map<string, any>
 					else
 					{	name = decodeURIComponent(this.decoder.decode(data.subarray(i, i_end)));
 					}
-					this.set_field(name, value);
+					this.setStructured(name, value);
 					i = i_end + 1;
 				}
 			}
@@ -261,7 +263,7 @@ L:			while (i < data_len)
 						if (state != S_BODY)
 						{	if (!filename)
 							{	// is regular field
-								this.set_field(name, this.decoder.decode(value.subarray(0, value_len)));
+								this.setStructured(name, this.decoder.decode(value.subarray(0, value_len)));
 							}
 							else
 							{	// is file
@@ -323,10 +325,6 @@ L:			while (i < data_len)
 			}
 			return false;
 		}
-	}
-
-	private set_field(name: string, value: string|UploadedFile)
-	{	super.set(name, value); // TODO: withStructure
 	}
 }
 

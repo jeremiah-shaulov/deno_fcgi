@@ -1,7 +1,8 @@
 import {assert} from './assert.ts';
 import {Server} from './server.ts';
-import {Cookies} from "./cookies.ts";
+import {Get} from "./get.ts";
 import {Post} from "./post.ts";
+import {Cookies} from "./cookies.ts";
 import {ServerResponse} from './server_response.ts';
 
 const BUFFER_LEN = 4*1024;
@@ -54,6 +55,10 @@ export class ServerRequest
 	/// You can set response HTTP headers before calling respond(). Headers provided to respond() will override them. Header called "status" acts as default HTTP status code, if responseStatus is not set.
 	public responseHeaders = new Headers;
 
+	/// Access POST body and uploaded files from here.
+	public get = new Get;
+	/// Access POST body and uploaded files from here.
+	public post = new Post(this);
 	/// Request cookies can be read from here, and modified. Setting or deleting a cookie sets corresponding HTTP headers.
 	public cookies = new Cookies;
 
@@ -62,9 +67,6 @@ export class ServerRequest
 
 	/// True if headers have been sent to client. They will be sent if you write some response data to this request object (it implements `Deno.Writer`).
 	public headersSent = false;
-
-	/// Access POST body and uploaded files from here.
-	public post = new Post(this);
 
 	private request_id = 0;
 	private stdin_length = 0;
@@ -93,11 +95,11 @@ export class ServerRequest
 	async read(buffer: Uint8Array): Promise<number|null>
 	{	while (true)
 		{	if (this.stdin_length)
-			{	let chunk = Math.min(this.stdin_length, this.buffer_end-this.buffer_start);
-				buffer.set(this.buffer.subarray(this.buffer_start, this.buffer_start+chunk));
-				this.buffer_start += chunk;
-				this.stdin_length -= chunk;
-				return chunk;
+			{	let chunk_size = Math.min(this.stdin_length, this.buffer_end-this.buffer_start);
+				buffer.set(this.buffer.subarray(this.buffer_start, this.buffer_start+chunk_size));
+				this.buffer_start += chunk_size;
+				this.stdin_length -= chunk_size;
+				return chunk_size;
 			}
 			else if (this.stdin_complete)
 			{	return null;
@@ -556,6 +558,8 @@ export class ServerRequest
 								{	await this.read_at_least(padding_length);
 								}
 								this.buffer_start += padding_length;
+								// done read params, stdin remaining
+								// init this request object before handing it to user
 								this.url = this.params.get('SCRIPT_URL') ?? '';
 								this.method = this.params.get('REQUEST_METHOD') ?? '';
 								this.proto = this.params.get('SERVER_PROTOCOL') ?? '';
@@ -563,7 +567,8 @@ export class ServerRequest
 								let pos_2 = this.proto.indexOf('.', pos);
 								this.protoMajor = parseInt(this.proto.slice(pos+1, pos_2==-1 ? this.proto.length : pos_2)) ?? 0;
 								this.protoMinor = pos_2==-1 ? 0 : parseInt(this.proto.slice(pos_2+1)) ?? 0;
-								this.cookies = new Cookies(this.params.get('HTTP_COOKIE') ?? '');
+								let query_string = this.params.get('QUERY_STRING');
+								let cookie_header = this.params.get('HTTP_COOKIE');
 								let contentType = this.params.get('CONTENT_TYPE') ?? '';
 								let boundary = '';
 								pos = contentType.indexOf(';');
@@ -578,10 +583,19 @@ export class ServerRequest
 									}
 									contentType = contentType.slice(0, pos);
 								}
-								this.post.contentType = contentType.toLocaleLowerCase();
-								this.post.formDataBoundary = boundary;
-								this.post.withStructure = this.post_with_structure;
-								// done read params, stdin remaining
+								if (query_string)
+								{	this.get.setQueryString(query_string);
+									this.get.withStructure = this.post_with_structure;
+								}
+								if (cookie_header)
+								{	this.cookies.setHeader(cookie_header);
+								}
+								if (contentType)
+								{	this.post.contentType = contentType.toLocaleLowerCase();
+									this.post.formDataBoundary = boundary;
+									this.post.contentLength = Number(this.params.get('CONTENT_LENGTH')) || -1;
+									this.post.withStructure = this.post_with_structure;
+								}
 								return this;
 							}
 							await this.read_nvp(content_length, this.params, this.headers);
