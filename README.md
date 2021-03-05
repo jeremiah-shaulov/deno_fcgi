@@ -4,7 +4,7 @@ FastCGI implementation for Deno.
 ## Example
 
 ```ts
-import {Server} from './mod.ts';
+import {Server} from 'https://deno.land/x/fcgi/mod.ts';
 
 const listener = Deno.listen({port: 8080});
 const server = new Server(listener);
@@ -29,11 +29,11 @@ First need to proxy HTTP requests from a FastCGI-capable web server, like Apache
 <VirtualHost *:80>
 	ServerName deno-server.loc
 	DocumentRoot /var/www/deno-server-root
-    DirectoryIndex index.html
-    SetInputFilter DEFLATE
-    Protocols h2 h2c http/1.1
+	DirectoryIndex index.html
+	SetInputFilter DEFLATE
+	Protocols h2 h2c http/1.1
 
-    SetHandler "proxy:fcgi://localhost:8080"
+	SetHandler "proxy:fcgi://localhost:8080"
 </VirtualHost>
 ```
 In this configuration i assume that the following Apache modules are enabled: proxy_fcgi, http2, deflate.
@@ -49,12 +49,12 @@ To use fake domain name `deno-server.loc` from localhost, add it to `/etc/hosts`
 Run Deno application like this:
 
 ```bash
-deno run --unstable --allow-net  main.ts
+deno run --unstable --allow-net main.ts
 ```
 
 ### Using unix-domain socket
 ```ts
-import {Server} from './mod.ts';
+import {Server} from 'https://deno.land/x/fcgi/mod.ts';
 
 const listener = Deno.listen({transport: 'unix', path: '/run/deno-server/main.sock'});
 const server = new Server(listener);
@@ -74,11 +74,11 @@ for await (let req of server)
 <VirtualHost *:80>
 	ServerName deno-server.loc
 	DocumentRoot /var/www/deno-server-root
-    DirectoryIndex index.html
-    SetInputFilter DEFLATE
-    Protocols h2 h2c http/1.1
+	DirectoryIndex index.html
+	SetInputFilter DEFLATE
+	Protocols h2 h2c http/1.1
 
-    SetHandler "proxy:unix:/run/deno-server/main.sock|fcgi://localhost"
+	SetHandler "proxy:unix:/run/deno-server/main.sock|fcgi://localhost"
 </VirtualHost>
 ```
 We want to use a socket file, and both Apache and our application must have access permission to it.
@@ -136,7 +136,7 @@ It's your responsibility to call `respond()` when you're finished with this requ
 Response headers and data can be set before calling `respond()`, or they can be given to the `response()`.
 
 ```ts
-import {Server} from './mod.ts';
+import {Server} from 'https://deno.land/x/fcgi/mod.ts';
 
 const listener = Deno.listen({port: 8080});
 const server = new Server(listener);
@@ -155,7 +155,7 @@ for await (let req of server)
 Or:
 
 ```ts
-import {Server} from './mod.ts';
+import {Server} from 'https://deno.land/x/fcgi/mod.ts';
 
 const listener = Deno.listen({port: 8080});
 const server = new Server(listener);
