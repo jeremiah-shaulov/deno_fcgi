@@ -2,13 +2,13 @@ export type PathNode = string | Map<string, PathNode>;
 
 /// Extends `Map` and provides `setStructured()` method.
 export class StructuredMap extends Map<string, PathNode>
-{	constructor(public withStructure=true)
+{	constructor(public structuredParams=true)
 	{	super();
 	}
 
 	/// If key is like "items[]=a&items[]=b" or "items[a][b]=c", follows the path, creating additional `Map<string, PathNode>` objects. The algorithm is similar to how PHP parses GET parameters.
 	setStructured(name: string, value: string)
-	{	let pos = !this.withStructure ? -1 : name.indexOf('[');
+	{	let pos = !this.structuredParams ? -1 : name.indexOf('[');
 		if (pos == -1)
 		{	return this.set(name, value);
 		}

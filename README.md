@@ -11,10 +11,9 @@ const server = new Server(listener);
 console.log(`Started on ${(listener.addr as Deno.NetAddr).port}`);
 
 for await (let req of server)
-{	Deno.readAll(req.body).then
-	(	async postData =>
-		{	let postStr = new TextDecoder().decode(postData);
-			console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${postStr}`);
+{	req.post.parse().then
+	(	async () =>
+		{	console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${[...req.post.entries()]}`);
 			await req.respond({body: 'Hello'});
 		}
 	);
@@ -29,16 +28,14 @@ First need to proxy HTTP requests from a FastCGI-capable web server, like Apache
 <VirtualHost *:80>
 	ServerName deno-server.loc
 	DocumentRoot /var/www/deno-server-root
-	DirectoryIndex index.html
-	SetInputFilter DEFLATE
-	Protocols h2 h2c http/1.1
+    DirectoryIndex index.html
 
 	SetHandler "proxy:fcgi://localhost:8080"
 </VirtualHost>
 ```
-In this configuration i assume that the following Apache modules are enabled: proxy_fcgi, http2, deflate.
+For FastCGI to work, enable apache module called "proxy_fcgi" (`sudo a2enmod proxy_fcgi`).
 
-DocumentRoot directory must exist, and only requests to existing files from that path will be forwarded to Deno. If there's file `/var/www/deno-server-root/index.html` it can be accessed as `http://deno-server.loc/index.html` or `http://deno-server.loc/`.
+DocumentRoot directory must exist.
 
 To use fake domain name `deno-server.loc` from localhost, add it to `/etc/hosts`:
 
@@ -51,6 +48,7 @@ Run Deno application like this:
 ```bash
 deno run --unstable --allow-net main.ts
 ```
+Now requests to `http://deno-server.loc/` will be forwarded to our Deno application.
 
 ### Using unix-domain socket
 ```ts
@@ -61,10 +59,9 @@ const server = new Server(listener);
 console.log(`Started on ${(listener.addr as Deno.UnixAddr).path}`);
 
 for await (let req of server)
-{	Deno.readAll(req.body).then
-	(	async postData =>
-		{	let postStr = new TextDecoder().decode(postData);
-			console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${postStr}`);
+{	req.post.parse().then
+	(	async () =>
+		{	console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${[...req.post.entries()]}`);
 			await req.respond({body: 'Hello'});
 		}
 	);
@@ -75,8 +72,6 @@ for await (let req of server)
 	ServerName deno-server.loc
 	DocumentRoot /var/www/deno-server-root
 	DirectoryIndex index.html
-	SetInputFilter DEFLATE
-	Protocols h2 h2c http/1.1
 
 	SetHandler "proxy:unix:/run/deno-server/main.sock|fcgi://localhost"
 </VirtualHost>
@@ -147,7 +142,7 @@ for await (let req of server)
 	(	async postData =>
 		{	let postStr = new TextDecoder().decode(postData);
 			console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${postStr}`);
-			req.respond({body: 'Hello', headers: new Headers([['Content-Type', 'text/html']])});
+			await req.respond({body: 'Hello', headers: new Headers([['Content-Type', 'text/html']])});
 		}
 	);
 }
@@ -168,7 +163,7 @@ for await (let req of server)
 			console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${postStr}`);
 			req.responseHeaders.set('Content-Type', 'text/html');
 			await Deno.writeAll(req, new TextEncoder().encode('Hello'));
-			req.respond();
+			await req.respond();
 		}
 	);
 }

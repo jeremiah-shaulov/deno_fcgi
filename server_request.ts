@@ -5,7 +5,7 @@ import {Post} from "./post.ts";
 import {Cookies} from "./cookies.ts";
 import {ServerResponse} from './server_response.ts';
 
-const BUFFER_LEN = 4*1024;
+const BUFFER_LEN = 8*1024;
 const MAX_PARAM_NAME_LEN = BUFFER_LEN;
 const MAX_PARAM_VALUE_LEN = BUFFER_LEN;
 const MAX_NVP = 256;
@@ -87,14 +87,24 @@ export class ServerRequest
 	private encoder = new TextEncoder;
 	private decoder = new TextDecoder;
 
-	constructor(private server: Server, public conn: Deno.Conn, buffer: Uint8Array|null, private max_conns: number, private structured_params: boolean, private is_overload: boolean)
+	constructor
+	(	private server: Server,
+		public conn: Deno.Conn,
+		buffer: Uint8Array|null,
+		private structuredParams: boolean,
+		private maxConns: number,
+		private maxNameLength: number,
+		private maxValueLength: number,
+		private maxFileSize: number,
+		private is_overload: boolean
+	)
 	{	this.buffer = buffer ?? new Uint8Array(BUFFER_LEN);
 	}
 
 	async read(buffer: Uint8Array): Promise<number|null>
 	{	while (true)
 		{	if (this.stdin_length)
-			{	let chunk_size = Math.min(this.stdin_length, this.buffer_end-this.buffer_start);
+			{	let chunk_size = Math.min(this.stdin_length, buffer.length);
 				buffer.set(this.buffer.subarray(this.buffer_start, this.buffer_start+chunk_size));
 				this.buffer_start += chunk_size;
 				this.stdin_length -= chunk_size;
@@ -170,7 +180,8 @@ export class ServerRequest
 		}
 		else
 		{	this.post.close();
-			let new_obj = new ServerRequest(this.server, this.conn, this.buffer, this.max_conns, this.structured_params, false);
+			// return to this.server a new object that uses the same this.conn and this.buffer, and leave this object invalid and "is_terminated", so further usage will throw exception
+			let new_obj = new ServerRequest(this.server, this.conn, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize, false);
 			this.is_terminated = true;
 			this.server.retired(new_obj);
 		}
@@ -184,16 +195,15 @@ export class ServerRequest
 	}
 
 	private async read_at_least(n_bytes: number, can_eof=false)
-	{	if (this.buffer_start == this.buffer_end)
+	{	assert(n_bytes <= BUFFER_LEN);
+		if (this.buffer_start == this.buffer_end)
 		{	this.buffer_start = 0;
 			this.buffer_end = 0;
-			assert(n_bytes <= BUFFER_LEN);
 		}
 		else if (this.buffer_start > BUFFER_LEN-n_bytes)
 		{	this.buffer.copyWithin(0, this.buffer_start, this.buffer_end);
+			this.buffer_end -= this.buffer_start;
 			this.buffer_start = 0;
-			this.buffer_end = 0;
-			assert(n_bytes <= BUFFER_LEN);
 		}
 		let till = this.buffer_start + n_bytes;
 		while (this.buffer_end < till)
@@ -212,14 +222,16 @@ export class ServerRequest
 	private async read_string(len: number): Promise<string>
 	{	let {buffer} = this;
 		if (len <= BUFFER_LEN)
-		{	if (this.buffer_end-this.buffer_start < len)
+		{	// the whole string can be placed to buffer
+			if (this.buffer_end-this.buffer_start < len)
 			{	await this.read_at_least(len);
 			}
 			this.buffer_start += len;
 			return this.decoder.decode(buffer.subarray(this.buffer_start-len, this.buffer_start));
 		}
 		else
-		{	let result_buffer = new Uint8Array(len);
+		{	// want to read a string longer than my buffer, so create a new large buffer
+			let result_buffer = new Uint8Array(len);
 			result_buffer.set(buffer.subarray(this.buffer_start, this.buffer_end));
 			let offset = this.buffer_end - this.buffer_start;
 			this.buffer_start = this.buffer_end;
@@ -319,7 +331,7 @@ export class ServerRequest
 	}
 
 	private write_raw(value: Uint8Array)
-	{	this.schedule(() => Deno.writeAll(this.conn, value));
+	{	return this.schedule(() => Deno.writeAll(this.conn, value));
 	}
 
 	private write_stdout(value: Uint8Array, record_type=FCGI_STDOUT, is_last=false): Promise<number>
@@ -586,7 +598,7 @@ export class ServerRequest
 								}
 								if (query_string)
 								{	this.get.setQueryString(query_string);
-									this.get.withStructure = this.structured_params;
+									this.get.structuredParams = this.structuredParams;
 								}
 								if (cookie_header)
 								{	this.cookies.setHeader(cookie_header);
@@ -595,7 +607,10 @@ export class ServerRequest
 								{	this.post.contentType = contentType.toLocaleLowerCase();
 									this.post.formDataBoundary = boundary;
 									this.post.contentLength = Number(this.params.get('CONTENT_LENGTH')) || -1;
-									this.post.withStructure = this.structured_params;
+									this.post.structuredParams = this.structuredParams;
+									this.post.maxNameLength = this.maxNameLength;
+									this.post.maxValueLength = this.maxValueLength;
+									this.post.maxFileSize = this.maxFileSize;
 								}
 								return this;
 							}
@@ -628,17 +643,14 @@ export class ServerRequest
 					case FCGI_GET_VALUES:
 					{	let values = new Map<string, string>();
 						await this.read_nvp(content_length, values);
-						let max_conns = values.get('FCGI_MAX_CONNS');
-						let max_reqs = values.get('FCGI_MAX_REQS');
-						let mpxs_conns = values.get('FCGI_MPXS_CONNS');
 						let result = new Map<string, string>();
-						if (max_conns != undefined)
-						{	result.set('FCGI_MAX_CONNS', this.max_conns+'');
+						if (values.has('FCGI_MAX_CONNS'))
+						{	result.set('FCGI_MAX_CONNS', this.maxConns+'');
 						}
-						if (max_reqs != undefined)
-						{	result.set('FCGI_MAX_REQS', this.max_conns+'');
+						if (values.has('FCGI_MAX_REQS'))
+						{	result.set('FCGI_MAX_REQS', this.maxConns+'');
 						}
-						if (mpxs_conns != undefined)
+						if (values.has('FCGI_MPXS_CONNS'))
 						{	result.set('FCGI_MPXS_CONNS', '0');
 						}
 						this.write_nvp(result);

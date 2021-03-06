@@ -6,9 +6,9 @@ export class Get extends StructuredMap
 	constructor
 	(	private query_string='',
 		/// Parse params like "items[]=a&items[]=b" and "items[a][b]=c" to Map objects, like PHP does.
-		public withStructure = false,
+		public structuredParams = false,
 	)
-	{	super(withStructure);
+	{	super(structuredParams);
 	}
 
 	setQueryString(query_string: string)
@@ -40,7 +40,7 @@ export class Get extends StructuredMap
 				let eq = query_string.indexOf('=', i);
 				let name;
 				let value = '';
-				if (eq < i_end)
+				if (eq<i_end && eq!=-1)
 				{	name = decodeURIComponent(query_string.slice(i, eq));
 					value = decodeURIComponent(query_string.slice(eq+1, i_end));
 				}

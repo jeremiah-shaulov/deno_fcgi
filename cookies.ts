@@ -45,7 +45,7 @@ export class Cookies extends Map<string, string>
 				{	i_end = cookie_header.length;
 				}
 				let eq = cookie_header.indexOf('=', i);
-				if (eq < i_end)
+				if (eq<i_end && eq!=-1)
 				{	let name = decodeURIComponent(cookie_header.slice(i, eq));
 					let value = decodeURIComponent(cookie_header.slice(eq+1, i_end));
 					super.set(name, value);

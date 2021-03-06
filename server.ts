@@ -1,23 +1,35 @@
 import {assert} from './assert.ts';
 import {ServerRequest} from './server_request.ts';
 
-const FCGI_MAX_CONNS = 128;
+const MAX_CONNS = 128;
+const MAX_NAME_LENGTH = 256;
+const MAX_VALUE_LENGTH = 256;
+const MAX_FILE_SIZE = 256;
 
 export interface ServerOptions
-{	maxConns?: number,
-	structuredParams?: boolean,
+{	structuredParams?: boolean,
+	maxConns?: number,
+	maxNameLength?: number,
+	maxValueLength?: number,
+	maxFileSize?: number,
 }
 
 export class Server
-{	private max_conns: number;
-	private structured_params: boolean;
+{	private structuredParams: boolean;
+	private maxConns: number;
+	private maxNameLength: number;
+	private maxValueLength: number;
+	private maxFileSize: number;
 	private n_conns = 0;
 	private requests: ServerRequest[] = [];
 	private promises: Promise<Deno.Conn | ServerRequest>[] = []; // promises[0] is promise for accepting new conn, and promises.length-1 == requests.length
 
 	constructor(private socket: Deno.Listener, options?: ServerOptions)
-	{	this.max_conns = options?.maxConns || FCGI_MAX_CONNS;
-		this.structured_params = options?.structuredParams || false;
+	{	this.structuredParams = options?.structuredParams || false;
+		this.maxConns = options?.maxConns || MAX_CONNS;
+		this.maxNameLength = options?.maxNameLength || MAX_NAME_LENGTH;
+		this.maxValueLength = options?.maxValueLength || MAX_VALUE_LENGTH;
+		this.maxFileSize = options?.maxFileSize || MAX_FILE_SIZE;
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<ServerRequest>
@@ -28,11 +40,11 @@ export class Server
 		{	let ready = await Promise.race(this.promises);
 			if (!(ready instanceof ServerRequest))
 			{	// Accepted connection
-				let request = new ServerRequest(this, ready, null, this.max_conns, this.structured_params, false);
+				let request = new ServerRequest(this, ready, null, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize, false);
 				this.requests.push(request);
 				this.promises.push(request.poll());
 				// Immediately start waiting for new
-				if (++this.n_conns < this.max_conns)
+				if (++this.n_conns < this.maxConns)
 				{	this.promises[0] = this.socket.accept();
 				}
 				else
@@ -51,7 +63,7 @@ export class Server
 	}
 
 	retired(request?: ServerRequest)
-	{	if (this.n_conns-- >= this.max_conns)
+	{	if (this.n_conns-- >= this.maxConns)
 		{	this.promises[0] = this.socket.accept();
 		}
 		assert(this.n_conns >= 0);
