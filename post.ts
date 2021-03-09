@@ -39,6 +39,7 @@ export class Post extends StructuredMap
 
 	constructor
 	(	private reader: Deno.Reader,
+		private onerror: (error: Error) => void,
 		/// Post body "Content-Type". Lowercased, and part starting with ';' is cut (if any)
 		public contentType = '',
 		/// If contentType is 'multipart/form-data', this will be data boundary.
@@ -62,7 +63,7 @@ export class Post extends StructuredMap
 	close()
 	{	let promises = [];
 		for (let f of this.uploaded_files)
-		{	promises[promises.length] = exists(f).then(yes => yes ? Deno.remove(f) : null).catch(e => console.error(e));
+		{	promises[promises.length] = exists(f).then(yes => yes ? Deno.remove(f) : null).catch(e => this.onerror(e));
 		}
 		this.uploaded_files.length = 0;
 		return Promise.all(promises);
@@ -369,7 +370,7 @@ L:		while (true)
 								}
 								catch (e)
 								{	// maybe disk full
-									console.error(e);
+									this.onerror(e);
 									ignored_some_param = true;
 									fh.close();
 									fh = undefined;
@@ -378,7 +379,7 @@ L:		while (true)
 										await Deno.remove(tmp_name);
 									}
 									catch (e2)
-									{	console.error(e2);
+									{	this.onerror(e2);
 									}
 									tmp_name = '';
 								}

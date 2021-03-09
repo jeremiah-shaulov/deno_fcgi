@@ -23,6 +23,7 @@ export class Server
 	private n_conns = 0;
 	private requests: ServerRequest[] = [];
 	private promises: Promise<Deno.Conn | ServerRequest>[] = []; // promises[0] is promise for accepting new conn, and promises.length-1 == requests.length
+	private onerror: (error: Error) => void = () => {};
 
 	constructor(private socket: Deno.Listener, options?: ServerOptions)
 	{	this.structuredParams = options?.structuredParams || false;
@@ -40,7 +41,7 @@ export class Server
 		{	let ready = await Promise.race(this.promises);
 			if (!(ready instanceof ServerRequest))
 			{	// Accepted connection
-				let request = new ServerRequest(this, ready, null, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize, false);
+				let request = new ServerRequest(this, ready, this.onerror, null, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize, false);
 				this.requests.push(request);
 				this.promises.push(request.poll());
 				// Immediately start waiting for new
@@ -70,6 +71,19 @@ export class Server
 		if (request)
 		{	this.requests.push(request);
 			this.promises.push(request.poll());
+		}
+	}
+
+	on(event_name: string, callback: (error: Error) => void)
+	{	if (event_name == 'error')
+		{	this.onerror = error =>
+			{	try
+				{	callback(error);
+				}
+				catch (e)
+				{	console.error(e);
+				}
+			};
 		}
 	}
 

@@ -1,28 +1,7 @@
 import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
 import {exists} from "https://deno.land/std/fs/mod.ts";
 import {Post} from "../post.ts";
-
-const TEST_CHUNK_SIZES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 16, 20, 25, 30, 33, 44, 55, 80, 81, 91, 100, 110, 123, 150, 201, 300, 400, 500, 1000, 10_000, 100_000];
-//const TEST_CHUNK_SIZES = [100];
-
-class StringReader
-{	private buffer: Uint8Array;
-	private pos = 0;
-
-	constructor(private str: string, private chunk_size=10)
-	{	this.buffer = new TextEncoder().encode(str);
-	}
-
-	async read(buffer: Uint8Array): Promise<number|null>
-	{	if (this.pos == this.buffer.length)
-		{	return null;
-		}
-		let chunk_size = Math.min(this.buffer.length-this.pos, buffer.length, this.chunk_size);
-		buffer.set(this.buffer.subarray(this.pos, this.pos+chunk_size));
-		this.pos += chunk_size;
-		return chunk_size;
-	}
-}
+import {TEST_CHUNK_SIZES, MockConn} from './mock.ts';
 
 function map_to_obj(map: any)
 {	let j = JSON.stringify
@@ -45,7 +24,7 @@ Deno.test
 (	'Urlencoded',
 	async () =>
 	{	for (let chunk_size of TEST_CHUNK_SIZES)
-		{	let post = new Post(new StringReader('item[]=v0&item[1]=v1&item[]=v2&item[amount]=10', chunk_size), 'application/x-www-form-urlencoded', '', 0, true);
+		{	let post = new Post(new MockConn('item[]=v0&item[1]=v1&item[]=v2&item[amount]=10', chunk_size), console.error.bind(console), 'application/x-www-form-urlencoded', '', 0, true);
 			await post.parse();
 			assertEquals(map_to_obj(post), {item: {'0': 'v0', '1': 'v1', '2': 'v2', amount: '10'}});
 			assertEquals(post.files.size, 0);
@@ -57,7 +36,7 @@ Deno.test
 (	'Urlencoded long name',
 	async () =>
 	{	for (let chunk_size of TEST_CHUNK_SIZES)
-		{	let post = new Post(new StringReader('123=v0&1234=v1&12345=v2', chunk_size), 'application/x-www-form-urlencoded', '', 0, true, 3);
+		{	let post = new Post(new MockConn('123=v0&1234=v1&12345=v2', chunk_size), console.error.bind(console), 'application/x-www-form-urlencoded', '', 0, true, 3);
 			await post.parse();
 			assertEquals(map_to_obj(post), {'123': 'v0'});
 			assertEquals(post.files.size, 0);
@@ -69,7 +48,7 @@ Deno.test
 (	'Urlencoded long value',
 	async () =>
 	{	for (let chunk_size of TEST_CHUNK_SIZES)
-		{	let post = new Post(new StringReader('item[]=12345&item[]=123&item[]=1234', chunk_size), 'application/x-www-form-urlencoded', '', 0, true, 100, 4);
+		{	let post = new Post(new MockConn('item[]=12345&item[]=123&item[]=1234', chunk_size), console.error.bind(console), 'application/x-www-form-urlencoded', '', 0, true, 100, 4);
 			await post.parse();
 			assertEquals(map_to_obj(post), {item: {'0': '123', '1': '1234'}});
 			assertEquals(post.files.size, 0);
@@ -94,7 +73,7 @@ Deno.test
 
 		for (let chunk_size of TEST_CHUNK_SIZES)
 		{	for (let i=0; i<2; i++)
-			{	let post = new Post(new StringReader(data, chunk_size), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
+			{	let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
 				await post.parse();
 				assertEquals(map_to_obj(post), {name: 'Orange', weight: '0.3'});
 				assertEquals(post.files.size, 0);
@@ -132,7 +111,7 @@ Deno.test
 					'------WebKitFormBoundaryAmvtsvCs9WGC03jH--\r\n'
 				);
 
-				let post = new Post(new StringReader(data, chunk_size), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
+				let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
 				await post.parse();
 				assertEquals(map_to_obj(post), i==0 ? {name: 'Orange'} : {name: 'Orange', weight: '0.3'});
 				assertEquals(post.files.size, 1);
@@ -169,7 +148,7 @@ Deno.test
 
 		for (let chunk_size of TEST_CHUNK_SIZES)
 		{	for (let i=0; i<2; i++)
-			{	let post = new Post(new StringReader(data, chunk_size), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 4);
+			{	let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 4);
 				await post.parse();
 				assertEquals(map_to_obj(post), {name: 'Orange'});
 				assertEquals(post.files.size, 0);
@@ -197,7 +176,7 @@ Deno.test
 
 		for (let chunk_size of TEST_CHUNK_SIZES)
 		{	for (let i=0; i<2; i++)
-			{	let post = new Post(new StringReader(data, chunk_size), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 2);
+			{	let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 2);
 				await post.parse();
 				assertEquals(map_to_obj(post), {});
 				assertEquals(post.files.size, 0);
@@ -209,7 +188,7 @@ Deno.test
 
 		for (let chunk_size of TEST_CHUNK_SIZES)
 		{	for (let i=0; i<2; i++)
-			{	let post = new Post(new StringReader(data, chunk_size), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 3);
+			{	let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 3);
 				await post.parse();
 				assertEquals(map_to_obj(post), {weight: '0.3'});
 				assertEquals(post.files.size, 0);
@@ -221,7 +200,7 @@ Deno.test
 
 		for (let chunk_size of TEST_CHUNK_SIZES)
 		{	for (let i=0; i<2; i++)
-			{	let post = new Post(new StringReader(data, chunk_size), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 5);
+			{	let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 5);
 				await post.parse();
 				assertEquals(map_to_obj(post), {weight: '0.3'});
 				assertEquals(post.files.size, 0);
@@ -233,7 +212,7 @@ Deno.test
 
 		for (let chunk_size of TEST_CHUNK_SIZES)
 		{	for (let i=0; i<2; i++)
-			{	let post = new Post(new StringReader(data, chunk_size), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 6);
+			{	let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 6);
 				await post.parse();
 				assertEquals(map_to_obj(post), {name: 'Orange', weight: '0.3'});
 				assertEquals(post.files.size, 0);
@@ -263,7 +242,7 @@ Deno.test
 		);
 		for (let chunk_size of TEST_CHUNK_SIZES)
 		{	for (let i=0; i<2; i++)
-			{	let post = new Post(new StringReader(data, chunk_size), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100, i==0 ? file_contents.length-1 : file_contents.length);
+			{	let post = new Post(new MockConn(data, chunk_size), () => {}, 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100, i==0 ? file_contents.length-1 : file_contents.length);
 				await post.parse();
 				assertEquals(map_to_obj(post), {name: 'Orange'});
 				assertEquals(post.files.size, 1);

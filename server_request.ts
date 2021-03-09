@@ -1,5 +1,4 @@
 import {assert} from './assert.ts';
-import {Server} from './server.ts';
 import {Get} from "./get.ts";
 import {Post} from "./post.ts";
 import {Cookies} from "./cookies.ts";
@@ -53,7 +52,7 @@ export class ServerRequest
 	/// Access POST body and uploaded files from here.
 	public get = new Get;
 	/// Access POST body and uploaded files from here.
-	public post = new Post(this);
+	public post: Post;
 	/// Request cookies can be read from here, and modified. Setting or deleting a cookie sets corresponding HTTP headers.
 	public cookies = new Cookies;
 	/// Post body can be read from here. Also it can be read from "this" directly (`request.body` and `request` are the same `Deno.Reader` implementors).
@@ -88,8 +87,9 @@ export class ServerRequest
 	private decoder = new TextDecoder;
 
 	constructor
-	(	private server: Server,
-		public conn: Deno.Conn,
+	(	private server: {retired: (request?: ServerRequest) => void},
+		public conn: Deno.Reader & Deno.Writer & Deno.Closer,
+		private onerror: (error: Error) => void,
 		buffer: Uint8Array|null,
 		private structuredParams: boolean,
 		private maxConns: number,
@@ -99,6 +99,7 @@ export class ServerRequest
 		private is_overload: boolean
 	)
 	{	this.buffer = buffer ?? new Uint8Array(BUFFER_LEN);
+		this.post = new Post(this, onerror);
 	}
 
 	async read(buffer: Uint8Array): Promise<number|null>
@@ -168,7 +169,7 @@ export class ServerRequest
 			}
 		}
 		catch (e)
-		{	console.error(e);
+		{	this.onerror(e);
 			this.no_keep_conn = true;
 		}
 		// Prepare for further requests on this connection
@@ -181,7 +182,7 @@ export class ServerRequest
 		else
 		{	this.post.close();
 			// return to this.server a new object that uses the same this.conn and this.buffer, and leave this object invalid and "is_terminated", so further usage will throw exception
-			let new_obj = new ServerRequest(this.server, this.conn, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize, false);
+			let new_obj = new ServerRequest(this.server, this.conn, this.onerror, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize, false);
 			this.is_terminated = true;
 			this.server.retired(new_obj);
 		}
@@ -400,70 +401,7 @@ export class ServerRequest
 	}
 
 	private write_nvp(value: Map<string, string>)
-	{	this.schedule
-		(	async () =>
-			{	let all = new Uint8Array(BUFFER_LEN/2);
-				let offset = 8; // after packet header (that will be added later)
-				for (let [k, v] of value)
-				{	let k_buf = this.encoder.encode(k);
-					let v_buf = this.encoder.encode(v);
-					assert(k_buf.length<=0x7FFFFFFF && v_buf.length<=0x7FFFFFFF); // i don't write such nvp
-					let add_len = 8 + k_buf.length + v_buf.length;
-					if (offset+add_len > all.length)
-					{	// realloc
-						let new_all = new Uint8Array(Math.max(offset+add_len, all.length*2));
-						new_all.set(all);
-						all = new_all;
-					}
-					// name
-					if (k_buf.length <= 127)
-					{	all[offset++] = k_buf.length;
-					}
-					else
-					{	all[0] = k_buf.length >> 24;
-						all[1] = (k_buf.length >> 16) & 0xFF;
-						all[2] = (k_buf.length >> 8) & 0xFF;
-						all[3] = k_buf.length & 0xFF;
-						offset += 4;
-					}
-					// value
-					if (v_buf.length <= 127)
-					{	all[offset++] = v_buf.length;
-					}
-					else
-					{	all[offset++] = v_buf.length >> 24;
-						all[offset++] = (v_buf.length >> 16) & 0xFF;
-						all[offset++] = (v_buf.length >> 8) & 0xFF;
-						all[offset++] = v_buf.length & 0xFF;
-					}
-					all.set(k_buf, offset);
-					offset += k_buf.length;
-					all.set(v_buf, offset);
-					offset += v_buf.length;
-				}
-				// add packet header
-				assert(offset <= 0xFFF8); // i don't write such nvp
-				let padding_length = (8 - offset%8) % 8;
-				all[0] = 1; // version
-				all[1] = FCGI_GET_VALUES_RESULT; // record_type
-				//buffer[2] = 0; // request_id[1]
-				//buffer[3] = 0; // request_id[0]
-				all[4] = offset >> 8; // content_length[1]
-				all[5] = offset & 0xFF; // content_length[0]
-				all[6] = padding_length;
-				//buffer[7] = 0; // reserved
-				// add padding
-				if (offset+padding_length > all.length)
-				{	// realloc
-					let new_all = new Uint8Array(offset+padding_length);
-					new_all.set(all);
-					all = new_all;
-				}
-				offset += padding_length;
-				// write
-				await Deno.writeAll(this.conn, all.subarray(0, offset));
-			}
-		);
+	{	this.schedule(() => Deno.writeAll(this.conn, pack_nvp(FCGI_GET_VALUES_RESULT, 0, value, this.maxNameLength, this.maxValueLength)));
 	}
 
 	/**	This function doesn't throw exceptions. It always returns "this".
@@ -483,7 +421,8 @@ export class ServerRequest
 		}
 
 		try
-		{	if (this.stdin_content_length != 0)
+		{	this.buffer_start += this.stdin_length; // discard stdin part if not read
+			if (this.stdin_content_length != 0)
 			{	// is in the middle of reading FCGI_STDIN
 				if (this.stdin_content_length > BUFFER_LEN)
 				{	await this.read_at_least(BUFFER_LEN);
@@ -494,7 +433,6 @@ export class ServerRequest
 				}
 				else
 				{	await this.read_at_least(this.stdin_content_length);
-					this.buffer_start += this.stdin_content_length;
 					this.stdin_length = this.stdin_content_length;
 					this.stdin_content_length = 0;
 					return this;
@@ -671,12 +609,12 @@ export class ServerRequest
 			}
 		}
 		catch (e)
-		{	console.error(e);
+		{	this.onerror(e);
 			try
 			{	await this.ongoing;
 			}
 			catch (e2)
-			{	console.error(e2);
+			{	this.onerror(e2);
 			}
 			this.conn.close();
 			this.is_eof = true;
@@ -729,4 +667,69 @@ function set_record_stdout(buffer: Uint8Array, offset: number, record_type: numb
 	v.setUint8(offset+6, padding_length); // padding_length
 	//v.setUint8(offset+7, 0); // reserved
 	return buffer;
+}
+
+export function pack_nvp(record_type: number, request_id: number, value: Map<string, string>, maxNameLength: number, maxValueLength: number): Uint8Array
+{	let all = new Uint8Array(BUFFER_LEN/2);
+	let offset = 8; // after packet header (that will be added later)
+	let encoder = new TextEncoder;
+	for (let [k, v] of value)
+	{	let k_buf = encoder.encode(k);
+		let v_buf = encoder.encode(v);
+		if (k_buf.length>maxNameLength || v_buf.length>maxValueLength)
+		{	continue;
+		}
+		let add_len = (k_buf.length>127 ? 4 : 1) + (v_buf.length>127 ? 4 : 1) + k_buf.length + v_buf.length;
+		if (offset+add_len > all.length)
+		{	if (offset+add_len > 0xFFF0)
+			{	throw new Error('NVP is too large'); // i use pack_nvp() only to send FCGI_GET_VALUES_RESULT, and in MockServer
+			}
+			// realloc
+			let new_all = new Uint8Array(Math.max(offset+add_len, all.length*2));
+			new_all.set(all);
+			all = new_all;
+		}
+		// name
+		if (k_buf.length <= 127)
+		{	all[offset++] = k_buf.length;
+		}
+		else
+		{	all[offset++] = k_buf.length >> 24;
+			all[offset++] = (k_buf.length >> 16) & 0xFF;
+			all[offset++] = (k_buf.length >> 8) & 0xFF;
+			all[offset++] = k_buf.length & 0xFF;
+		}
+		// value
+		if (v_buf.length <= 127)
+		{	all[offset++] = v_buf.length;
+		}
+		else
+		{	all[offset++] = v_buf.length >> 24;
+			all[offset++] = (v_buf.length >> 16) & 0xFF;
+			all[offset++] = (v_buf.length >> 8) & 0xFF;
+			all[offset++] = v_buf.length & 0xFF;
+		}
+		all.set(k_buf, offset);
+		offset += k_buf.length;
+		all.set(v_buf, offset);
+		offset += v_buf.length;
+	}
+	// add packet header
+	let padding_length = (8 - offset%8) % 8;
+	let header = new DataView(all.buffer);
+	header.setUint8(0, 1); // version
+	header.setUint8(1, record_type); // record_type
+	header.setUint16(2, request_id); // request_id
+	header.setUint16(4, offset-8); // content_length
+	header.setUint8(6, padding_length); // padding_length
+	// add padding
+	if (offset+padding_length > all.length)
+	{	// realloc
+		let new_all = new Uint8Array(offset+padding_length);
+		new_all.set(all);
+		all = new_all;
+	}
+	offset += padding_length;
+	// write
+	return all.subarray(0, offset);
 }
