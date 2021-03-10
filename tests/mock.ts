@@ -75,7 +75,7 @@ export class MockServer extends MockConn
 {	public is_retired = false;
 	public is_retired_self = false;
 
-	constructor(private options: ServerOptions, chunk_size: number, private with_padding=true, private split_stream_records=false)
+	constructor(private options: ServerOptions, chunk_size: number, private without_padding=false, private split_stream_records=false)
 	{	super('', chunk_size);
 	}
 
@@ -90,7 +90,7 @@ export class MockServer extends MockConn
 	pend_read_fcgi(record_type: number, request_id: number, payload: string|Uint8Array)
 	{	let offset = this.read_data.length;
 		let payload_bytes = typeof(payload)!='string' ? payload : new TextEncoder().encode(payload);
-		let padding = !this.with_padding ? 0 : (8 - payload_bytes.length%8) % 8;
+		let padding = this.without_padding ? 0 : (8 - payload_bytes.length%8) % 8;
 		let tmp_2 = new Uint8Array(offset + 8 + payload_bytes.length + padding);
 		tmp_2.set(this.read_data);
 		tmp_2.set(payload_bytes, offset + 8);
@@ -112,16 +112,35 @@ export class MockServer extends MockConn
 	}
 
 	pend_read_fcgi_params(request_id: number, params: any)
-	{	let map = new Map<string, string>(Object.entries(params));
-		if (!this.split_stream_records || map.size<=1)
-		{	this.pend_read(pack_nvp(FCGI_PARAMS, request_id, map, 100000, 100000));
+	{	let data = pack_nvp(FCGI_PARAMS, request_id, new Map(Object.entries(params)), 100000, 100000);
+		let break_at = Math.min(this.chunk_size % 10, data.length-9); // choose break boundary depending on "chunk_size" (so will test many possibilities)
+		if (!this.split_stream_records || break_at<=0)
+		{	this.pend_read(data);
 		}
 		else
-		{	let k_0 = [...map.keys()][0];
-			let map_0 = new Map<string, string>([[k_0, map.get(k_0)+'']]);
-			map.delete(k_0);
-			this.pend_read(pack_nvp(FCGI_PARAMS, request_id, map_0, 100000, 100000));
-			this.pend_read(pack_nvp(FCGI_PARAMS, request_id, map, 100000, 100000));
+		{	let part_0 = data.slice(0, 8+break_at); // header + "break_at" bytes
+			let part_1 = data.slice(break_at); // space for new header + data starting at byte "break_at"
+			let header_0 = new DataView(part_0.buffer);
+			let header_1 = new DataView(part_1.buffer);
+			let content_length = header_0.getUint16(4);
+			let padding_length = header_0.getUint8(6);
+			// header_0
+			header_0.setUint8(0, 1); // version
+			header_0.setUint8(1, FCGI_PARAMS); // record_type
+			header_0.setUint16(2, request_id); // request_id
+			header_0.setUint16(4, break_at); // content_length
+			header_0.setUint8(6, 0); // padding_length
+			header_0.setUint8(7, 0); // reserved
+			// header_1
+			header_1.setUint8(0, 1); // version
+			header_1.setUint8(1, FCGI_PARAMS); // record_type
+			header_1.setUint16(2, request_id); // request_id
+			header_1.setUint16(4, content_length-break_at); // content_length
+			header_1.setUint8(6, padding_length); // padding_length
+			header_1.setUint8(7, 0); // reserved
+			// send
+			this.pend_read(part_0);
+			this.pend_read(part_1);
 		}
 		this.pend_read_fcgi(FCGI_PARAMS, request_id, new Uint8Array); // empty record terminates stream
 	}

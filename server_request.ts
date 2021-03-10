@@ -66,16 +66,24 @@ export class ServerRequest
 	/// True if headers have been sent to client. They will be sent if you write some response data to this request object (it implements `Deno.Writer`).
 	public headersSent = false;
 
+	/// Id that FastCGI server assigned to this request
 	private request_id = 0;
+	/// If reading STDIN stream, how many bytes are available in this.buffer[this.buffer_start ..]. Calling `poll()` without consuming these bytes will discard them. Call `poll()` to fetch more bytes.
 	private stdin_length = 0;
+	/// Finished reading STDIN. This means that FastCGI server is now waiting for response (it's possible to send response earlier, but after reading PARAMS).
 	private stdin_complete = false;
+	/// FastCGI server disconnected.
 	private is_eof = false;
+	/// FastCGI server send ABORT record. The request is assumed to respond soon, and it's response will be probably ignored.
 	private is_aborted = false;
+	/// Response sent back to FastCGI server, and this object is unusable. This can happen after `respond()` called, or if exception thrown during communication.
 	private is_terminated = false;
 
 	private buffer: Uint8Array;
 	private buffer_start = 0;
 	private buffer_end = 0;
+
+	private cur_nvp_read_state: AsyncGenerator<undefined> | undefined;
 
 	private stdin_content_length = 0;
 	private stdin_padding_length = 0;
@@ -220,93 +228,119 @@ export class ServerRequest
 		return true;
 	}
 
-	private async read_string(len: number): Promise<string>
-	{	let {buffer} = this;
-		if (len <= BUFFER_LEN)
-		{	// the whole string can be placed to buffer
-			if (this.buffer_end-this.buffer_start < len)
-			{	await this.read_at_least(len);
-			}
-			this.buffer_start += len;
-			return this.decoder.decode(buffer.subarray(this.buffer_start-len, this.buffer_start));
-		}
-		else
-		{	// want to read a string longer than my buffer, so create a new large buffer
-			let result_buffer = new Uint8Array(len);
-			result_buffer.set(buffer.subarray(this.buffer_start, this.buffer_end));
-			let offset = this.buffer_end - this.buffer_start;
-			this.buffer_start = this.buffer_end;
-			while (len-offset > BUFFER_LEN)
-			{	await this.read_at_least(BUFFER_LEN);
-				result_buffer.set(buffer, offset);
-				offset += BUFFER_LEN;
-				this.buffer_start = this.buffer_end;
-			}
-			len -= offset;
-			await this.read_at_least(len);
-			result_buffer.set(buffer.subarray(this.buffer_start, this.buffer_start+len));
-			this.buffer_start += len;
-			return this.decoder.decode(result_buffer);
-		}
-	}
+	private async *read_nvp(len: number, map: Map<string, string>, http_headers?: Headers)
+	{	len |= 0;
+		let {buffer} = this;
 
-	private async read_nvp(len: number, map: Map<string, string>, http_headers?: Headers)
-	{	let {buffer} = this;
+		assert(len > 0);
+
 		while (len > 0)
-		{	// Read name length
-			if (this.buffer_end-this.buffer_start < 2)
-			{	await this.read_at_least(2);
-			}
-			let name_len = buffer[this.buffer_start+0];
-			if (name_len > 127)
-			{	if (this.buffer_end-this.buffer_start < 8)
-				{	await this.read_at_least(8);
+		{	// Read name_len and value_len
+			let name_len = -1;
+			let value_len = -1;
+			while (true)
+			{	if (len == 0)
+				{	assert(name_len!=-1 && value_len==-1);
+					len = (yield)|0; // stand by till next NVP record
+					assert(len > 0);
 				}
-				name_len = ((buffer[this.buffer_start+0]&0x7F) << 24) | (buffer[this.buffer_start+1] << 16) | (buffer[this.buffer_start+2] << 8) | buffer[this.buffer_start+3];
-				this.buffer_start += 3;
-				len -= 3;
-			}
-			this.buffer_start++;
-			len--;
-			// Read value length
-			assert(this.buffer_end-this.buffer_start >= 1); // i reserved above, when read name length
-			let value_len = buffer[this.buffer_start+0];
-			if (value_len > 127)
-			{	if (this.buffer_end-this.buffer_start < 4)
-				{	await this.read_at_least(4);
+				if (this.buffer_end-this.buffer_start < 1)
+				{	await this.read_at_least(1);
 				}
-				value_len = ((buffer[this.buffer_start+0]&0x7F) << 24) | (buffer[this.buffer_start+1] << 16) | (buffer[this.buffer_start+2] << 8) | buffer[this.buffer_start+3];
-				this.buffer_start += 3;
-				len -= 3;
+				let nv_len = buffer[this.buffer_start++];
+				len--;
+				if (nv_len > 127)
+				{	if (len < 3)
+					{	let rest = new Uint8Array(3);
+						let rest_len = len;
+						rest.set(buffer.slice(this.buffer_start, this.buffer_start+len)); // rest is 1 or 2 bytes of record, after first byte (which is "nv_len")
+						this.buffer_start += len;
+						while (rest_len < rest.length)
+						{	len = (yield)|0; // stand by till next NVP record
+							assert(len > 0);
+							let add_len = Math.min(len, rest.length-rest_len);
+							rest.set(buffer.slice(this.buffer_start, this.buffer_start+add_len), rest_len);
+							rest_len += add_len;
+							this.buffer_start += add_len;
+							len -= add_len;
+						}
+						nv_len = ((nv_len&0x7F) << 24) | (rest[0] << 16) | (rest[1] << 8) | rest[2];
+					}
+					else
+					{	if (this.buffer_end-this.buffer_start < 3)
+						{	await this.read_at_least(3);
+						}
+						nv_len = ((nv_len&0x7F) << 24) | (buffer[this.buffer_start+1] << 16) | (buffer[this.buffer_start+2] << 8) | buffer[this.buffer_start+3];
+						this.buffer_start += 3;
+						len -= 3;
+					}
+				}
+				assert(nv_len >= 0);
+				if (name_len == -1)
+				{	name_len = nv_len;
+				}
+				else
+				{	value_len = nv_len;
+					break;
+				}
 			}
-			this.buffer_start++;
-			len--;
-			// Read name and value
-			len -= name_len + value_len;
+
+			// Read or skip name and value
 			if (name_len>MAX_PARAM_NAME_LEN || value_len>MAX_PARAM_VALUE_LEN || map.size>=MAX_NVP)
 			{	// Skip if name or value is too long
-				this.skip_bytes(name_len+value_len);
+				let n_skip = name_len + value_len;
+				while (true)
+				{	let cur_n = Math.min(n_skip, len);
+					n_skip -= cur_n;
+					len -= cur_n;
+					this.skip_bytes(cur_n);
+					if (n_skip <= 0)
+					{	break;
+					}
+					assert(len == 0);
+					len = (yield)|0; // stand by till next NVP record
+					assert(len > 0);
+				}
 			}
 			else
-			{	let name;
-				if (this.buffer_end-this.buffer_start >= name_len)
-				{	name = this.decoder.decode(buffer.subarray(this.buffer_start, this.buffer_start+name_len));
-					this.buffer_start += name_len;
-				}
-				else
-				{	name = await this.read_string(name_len);
-				}
-				let value;
-				if (this.buffer_end-this.buffer_start >= value_len)
-				{	value = this.decoder.decode(buffer.subarray(this.buffer_start, this.buffer_start+value_len));
-					this.buffer_start += value_len;
-				}
-				else
-				{	value = await this.read_string(value_len);
-				}
-				map.set(name, value);
-				if (http_headers && name.startsWith('HTTP_'))
-				{	http_headers.set(name.slice(5).replaceAll('_', '-'), value);
+			{	// Read name and value
+				let name: string | undefined;
+				while (true)
+				{	let str;
+					let str_len = name==undefined ? name_len : value_len;
+					if (str_len<=len && str_len<=BUFFER_LEN)
+					{	await this.read_at_least(str_len);
+						str = this.decoder.decode(buffer.subarray(this.buffer_start, this.buffer_start+str_len));
+						this.buffer_start += str_len;
+						len -= str_len;
+					}
+					else
+					{	let bytes = new Uint8Array(str_len);
+						let bytes_len = 0;
+						while (bytes_len < bytes.length)
+						{	if (len <= 0)
+							{	len = (yield)|0; // stand by till next NVP record
+								assert(len > 0);
+							}
+							let has = Math.min(bytes.length-bytes_len, len, BUFFER_LEN);
+							await this.read_at_least(has);
+							bytes.set(buffer.subarray(this.buffer_start, this.buffer_start+has), bytes_len);
+							bytes_len += has;
+							this.buffer_start += has;
+							len -= has;
+						}
+						str = this.decoder.decode(bytes);
+					}
+					if (name == undefined)
+					{	name = str;
+					}
+					else
+					{	map.set(name, str);
+						if (http_headers && name.startsWith('HTTP_'))
+						{	http_headers.set(name.slice(5).replaceAll('_', '-'), str);
+						}
+						break;
+					}
 				}
 			}
 		}
@@ -504,7 +538,8 @@ export class ServerRequest
 					case FCGI_PARAMS:
 					{	if (request_id == this.request_id)
 						{	if (content_length == 0) // empty record terminates records stream
-							{	// skip padding_length
+							{	this.cur_nvp_read_state = undefined;
+								// skip padding_length
 								if (this.buffer_end-this.buffer_start < padding_length)
 								{	await this.read_at_least(padding_length);
 								}
@@ -552,7 +587,10 @@ export class ServerRequest
 								}
 								return this;
 							}
-							await this.read_nvp(content_length, this.params, this.headers);
+							if (!this.cur_nvp_read_state)
+							{	this.cur_nvp_read_state = this.read_nvp(content_length, this.params, this.headers);
+							}
+							await this.cur_nvp_read_state.next(content_length);
 						}
 						else
 						{	this.skip_bytes(content_length);
@@ -580,7 +618,7 @@ export class ServerRequest
 					}
 					case FCGI_GET_VALUES:
 					{	let values = new Map<string, string>();
-						await this.read_nvp(content_length, values);
+						await this.read_nvp(content_length, values).next();
 						let result = new Map<string, string>();
 						if (values.has('FCGI_MAX_CONNS'))
 						{	result.set('FCGI_MAX_CONNS', this.maxConns+'');
