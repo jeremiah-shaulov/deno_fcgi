@@ -72,8 +72,6 @@ export class ServerRequest
 	private stdin_length = 0;
 	/// Finished reading STDIN. This means that FastCGI server is now waiting for response (it's possible to send response earlier, but after reading PARAMS).
 	private stdin_complete = false;
-	/// FastCGI server disconnected.
-	private is_eof = false;
 	/// FastCGI server send ABORT record. The request is assumed to respond soon, and it's response will be probably ignored.
 	private is_aborted = false;
 	/// Response sent back to FastCGI server, and this object is unusable. This can happen after `respond()` called, or if exception thrown during communication.
@@ -83,7 +81,7 @@ export class ServerRequest
 	private buffer_start = 0;
 	private buffer_end = 0;
 
-	private cur_nvp_read_state: AsyncGenerator<undefined> | undefined;
+	private cur_nvp_read_state: AsyncGenerator<undefined, void, number> | undefined;
 
 	private stdin_content_length = 0;
 	private stdin_padding_length = 0;
@@ -103,8 +101,7 @@ export class ServerRequest
 		private maxConns: number,
 		private maxNameLength: number,
 		private maxValueLength: number,
-		private maxFileSize: number,
-		private is_overload: boolean
+		private maxFileSize: number
 	)
 	{	this.buffer = buffer ?? new Uint8Array(BUFFER_LEN);
 		this.post = new Post(this, onerror);
@@ -122,15 +119,15 @@ export class ServerRequest
 			else if (this.stdin_complete)
 			{	return null;
 			}
-			else if (this.is_aborted)
-			{	throw new Error('Request aborted');
-			}
-			else if (this.is_eof)
-			{	throw new Error('Incomplete request. Unexpected end of input stream.');
+			else if (this.is_terminated)
+			{	if (this.is_aborted)
+				{	throw new Error('Request aborted');
+				}
+				throw new Error('Request already terminated');
 			}
 			else
 			{	await this.poll();
-				assert(this.stdin_length || this.stdin_complete || this.is_aborted || this.is_eof);
+				assert(this.stdin_length || this.stdin_complete || this.is_terminated);
 			}
 		}
 	}
@@ -140,11 +137,14 @@ export class ServerRequest
 	}
 
 	async respond(response?: ServerResponse)
-	{	if (this.is_terminated)
-		{	throw new Error('Request already terminated');
-		}
-		while (!this.stdin_complete && !this.is_eof && !this.is_aborted)
+	{	while (!this.stdin_complete && !this.is_terminated)
 		{	await this.poll();
+		}
+		if (this.is_terminated)
+		{	if (this.is_aborted)
+			{	throw new Error('Request aborted');
+			}
+			throw new Error('Request already terminated');
 		}
 		if (response)
 		{	var {status, headers, body} = response;
@@ -182,25 +182,28 @@ export class ServerRequest
 		}
 		// Prepare for further requests on this connection
 		if (this.no_keep_conn)
-		{	this.is_terminated = true;
-			this.conn.close();
-			this.post.close();
-			this.server.retired();
+		{	this.close();
 		}
 		else
 		{	this.post.close();
 			// return to this.server a new object that uses the same this.conn and this.buffer, and leave this object invalid and "is_terminated", so further usage will throw exception
-			let new_obj = new ServerRequest(this.server, this.conn, this.onerror, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize, false);
+			let new_obj = new ServerRequest(this.server, this.conn, this.onerror, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize);
 			this.is_terminated = true;
 			this.server.retired(new_obj);
 		}
 	}
 
 	close()
-	{	this.is_terminated = true;
-		this.conn.close();
-		this.post.close();
-		this.server.retired();
+	{	if (!this.is_terminated)
+		{	this.is_terminated = true;
+			this.conn.close();
+			this.post.close();
+			this.server.retired();
+		}
+	}
+
+	isTerminated()
+	{	return this.is_terminated;
 	}
 
 	private async read_at_least(n_bytes: number, can_eof=false)
@@ -228,7 +231,7 @@ export class ServerRequest
 		return true;
 	}
 
-	private async *read_nvp(len: number, map: Map<string, string>, http_headers?: Headers)
+	private async *read_nvp(len: number, map: Map<string, string>, http_headers?: Headers): AsyncGenerator<undefined, void, number>
 	{	len |= 0;
 		let {buffer} = this;
 
@@ -373,11 +376,11 @@ export class ServerRequest
 	{	return this.schedule
 		(	async () =>
 			{	assert(this.request_id);
-				if (this.is_aborted)
-				{	throw new Error('Request aborted');
-				}
 				if (this.is_terminated)
-				{	throw new Error('Request already terminated');
+				{	if (this.is_aborted)
+					{	throw new Error('Request aborted');
+					}
+					throw new Error('Request already terminated');
 				}
 				// Send response headers
 				if (!this.headersSent && record_type==FCGI_STDOUT)
@@ -400,36 +403,40 @@ export class ServerRequest
 				}
 				// Send body
 				let orig_len = value.length;
-				while (true)
-				{	if (value.length > 0xFFF8) // 0xFFF9 .. 0xFFFF will be padded to 0x10000
-					{	await Deno.writeAll(this.conn, set_record_stdout(new Uint8Array(8), 0, record_type, this.request_id, 0xFFF8));
-						await Deno.writeAll(this.conn, value.subarray(0, 0xFFF8));
-						value = value.subarray(0xFFF8);
-					}
-					else if (value.length > BUFFER_LEN) // i don't want to allocate chunks larger than BUFFER_LEN
-					{	let padding_length = (8 - value.length%8) % 8;
-						await Deno.writeAll(this.conn, set_record_stdout(new Uint8Array(8), 0, record_type, this.request_id, value.length, padding_length));
-						await Deno.writeAll(this.conn, value);
-						if (is_last || padding_length>0)
-						{	let all = new Uint8Array(padding_length + (is_last ? 8 : 0));
-							if (is_last)
-							{	set_record_stdout(all, padding_length, record_type, this.request_id);
-							}
-							await Deno.writeAll(this.conn, all);
-						}
-					}
-					else
-					{	let padding_length = (8 - value.length%8) % 8;
-						let all = new Uint8Array((is_last ? 16 : 8) + value.length + padding_length);
-						set_record_stdout(all, 0, record_type, this.request_id, value.length, padding_length);
-						all.set(value, 8);
+				while (value.length > 0xFFF8) // 0xFFF9 .. 0xFFFF will be padded to 0x10000
+				{	await Deno.writeAll(this.conn, set_record_stdout(new Uint8Array(8), 0, record_type, this.request_id, 0xFFF8));
+					await Deno.writeAll(this.conn, value.subarray(0, 0xFFF8));
+					value = value.subarray(0xFFF8);
+				}
+				if (value.length > BUFFER_LEN) // i don't want to allocate chunks larger than BUFFER_LEN
+				{	let padding_length = (8 - value.length%8) % 8;
+					await Deno.writeAll(this.conn, set_record_stdout(new Uint8Array(8), 0, record_type, this.request_id, value.length, padding_length));
+					await Deno.writeAll(this.conn, value);
+					if (is_last || padding_length>0)
+					{	let all = new Uint8Array(padding_length + (!is_last ? 0 : record_type!=FCGI_STDOUT ? 8 : 24));
 						if (is_last)
-						{	set_record_stdout(all, all.length-8, record_type, this.request_id);
+						{	set_record_stdout(all, padding_length, record_type, this.request_id);
+							if (record_type == FCGI_STDOUT)
+							{	set_record_end_request(all, padding_length+8, this.request_id, FCGI_REQUEST_COMPLETE);
+							}
 						}
 						await Deno.writeAll(this.conn, all);
-						return orig_len;
 					}
 				}
+				else
+				{	let padding_length = (8 - value.length%8) % 8;
+					let all = new Uint8Array((!is_last ? 8 : record_type!=FCGI_STDOUT ? 16 : 32) + value.length + padding_length);
+					set_record_stdout(all, 0, record_type, this.request_id, value.length, padding_length);
+					all.set(value, 8);
+					if (is_last)
+					{	set_record_stdout(all, 8+value.length+padding_length, record_type, this.request_id);
+						if (record_type == FCGI_STDOUT)
+						{	set_record_end_request(all, all.length-16, this.request_id, FCGI_REQUEST_COMPLETE);
+						}
+					}
+					await Deno.writeAll(this.conn, all);
+				}
+				return orig_len;
 			}
 		);
 	}
@@ -441,14 +448,13 @@ export class ServerRequest
 	/**	This function doesn't throw exceptions. It always returns "this".
 		Before returning it sets one of the following:
 		- is_terminated
-		- is_eof
-		- is_aborted
+		- is_aborted + is_terminated
 		- params
 		- stdin_length
 		- stdin_complete
 	 **/
 	async poll()
-	{	let {is_overload, buffer} = this;
+	{	let {buffer} = this;
 
 		if (this.is_terminated)
 		{	throw new Error('Request already terminated');
@@ -485,7 +491,7 @@ export class ServerRequest
 			{	// 1. Read packet header
 				if (this.buffer_end-this.buffer_start < 8)
 				{	if (!await this.read_at_least(8, true))
-					{	this.is_eof = true;
+					{	this.close();
 						return this;
 					}
 				}
@@ -508,29 +514,25 @@ export class ServerRequest
 						{	this.no_keep_conn = true;
 						}
 						if (role != FCGI_RESPONDER)
-						{	this.write_raw(record_end_request(request_id, FCGI_UNKNOWN_ROLE));
-						}
-						else if (is_overload)
-						{	this.write_raw(record_end_request(request_id, FCGI_OVERLOADED));
+						{	this.write_raw(set_record_end_request(new Uint8Array(16), 0, request_id, FCGI_UNKNOWN_ROLE));
 						}
 						else if (this.request_id != 0)
-						{	this.write_raw(record_end_request(request_id, FCGI_CANT_MPX_CONN));
+						{	this.write_raw(set_record_end_request(new Uint8Array(16), 0, request_id, FCGI_CANT_MPX_CONN));
 							request_id = this.request_id;
 						}
 						this.request_id = request_id;
 						break;
 					}
 					case FCGI_ABORT_REQUEST:
-					{	// skip padding_length + content_length (assume: content_length == 8)
-						if (this.buffer_end-this.buffer_start < padding_length+8)
-						{	await this.read_at_least(padding_length+8);
-						}
-						this.buffer_start += padding_length+8;
-						padding_length = 0;
-						// process record
-						this.write_raw(record_end_request(request_id, FCGI_REQUEST_COMPLETE));
+					{	this.write_raw(set_record_end_request(new Uint8Array(16), 0, request_id, FCGI_REQUEST_COMPLETE));
 						if (request_id == this.request_id)
 						{	this.is_aborted = true;
+							// skip content_length + padding_length
+							if (this.buffer_end-this.buffer_start < content_length+padding_length)
+							{	await this.read_at_least(content_length+padding_length);
+							}
+							this.buffer_start += content_length + padding_length;
+							this.close();
 							return this;
 						}
 						break;
@@ -605,7 +607,10 @@ export class ServerRequest
 							{	this.stdin_complete = true;
 							}
 							else
-							{	this.stdin_length = Math.min(content_length, this.buffer_end-this.buffer_start);
+							{	if (this.buffer_end == this.buffer_start)
+								{	await this.read_at_least(1);
+								}
+								this.stdin_length = Math.min(content_length, this.buffer_end-this.buffer_start);
 								this.stdin_content_length = content_length - this.stdin_length;
 								this.stdin_padding_length = padding_length;
 							}
@@ -654,17 +659,14 @@ export class ServerRequest
 			catch (e2)
 			{	this.onerror(e2);
 			}
-			this.conn.close();
-			this.is_eof = true;
-			this.is_terminated = true;
+			this.close();
 			return this;
 		}
 	}
 }
 
-function record_end_request(request_id: number, protocol_status: number)
-{	let buffer = new Uint8Array(16);
-	let v = new DataView(buffer.buffer);
+function set_record_end_request(buffer: Uint8Array, offset: number, request_id: number, protocol_status: number)
+{	let v = new DataView(buffer.buffer, offset);
 	v.setUint8(0, 1); // version
 	v.setUint8(1, FCGI_END_REQUEST); // record_type
 	v.setUint16(2, request_id); // request_id
@@ -697,13 +699,13 @@ function record_unknown_type(record_type: number)
 }
 
 function set_record_stdout(buffer: Uint8Array, offset: number, record_type: number, request_id: number, content_length=0, padding_length=0)
-{	let v = new DataView(buffer.buffer);
-	v.setUint8(offset+0, 1); // version
-	v.setUint8(offset+1, record_type); // record_type
-	v.setUint16(offset+2, request_id); // request_id
-	v.setUint16(offset+4, content_length); // content_length
-	v.setUint8(offset+6, padding_length); // padding_length
-	//v.setUint8(offset+7, 0); // reserved
+{	let v = new DataView(buffer.buffer, offset);
+	v.setUint8(0, 1); // version
+	v.setUint8(1, record_type); // record_type
+	v.setUint16(2, request_id); // request_id
+	v.setUint16(4, content_length); // content_length
+	v.setUint8(6, padding_length); // padding_length
+	//v.setUint8(7, 0); // reserved
 	return buffer;
 }
 

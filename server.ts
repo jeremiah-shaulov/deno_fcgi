@@ -20,7 +20,7 @@ export class Server
 	private maxNameLength: number;
 	private maxValueLength: number;
 	private maxFileSize: number;
-	private n_conns = 0;
+	protected n_accepted_conns = 0;
 	private requests: ServerRequest[] = [];
 	private promises: Promise<Deno.Conn | ServerRequest>[] = []; // promises[0] is promise for accepting new conn, and promises.length-1 == requests.length
 	private onerror: (error: Error) => void = () => {};
@@ -41,11 +41,11 @@ export class Server
 		{	let ready = await Promise.race(this.promises);
 			if (!(ready instanceof ServerRequest))
 			{	// Accepted connection
-				let request = new ServerRequest(this, ready, this.onerror, null, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize, false);
+				let request = new ServerRequest(this, ready, this.onerror, null, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize);
 				this.requests.push(request);
 				this.promises.push(request.poll());
 				// Immediately start waiting for new
-				if (++this.n_conns < this.maxConns)
+				if (++this.n_accepted_conns < this.maxConns)
 				{	this.promises[0] = this.socket.accept();
 				}
 				else
@@ -58,16 +58,22 @@ export class Server
 				assert(i != -1);
 				this.requests.splice(i, 1);
 				this.promises.splice(i+1, 1);
-				yield ready;
+				if (!ready.isTerminated())
+				{	yield ready;
+				}
 			}
 		}
 	}
 
+	nAccepted()
+	{	return this.n_accepted_conns;
+	}
+
 	retired(request?: ServerRequest)
-	{	if (this.n_conns-- >= this.maxConns)
+	{	assert(this.n_accepted_conns>=1 && this.n_accepted_conns<=this.maxConns);
+		if (this.n_accepted_conns-- >= this.maxConns)
 		{	this.promises[0] = this.socket.accept();
 		}
-		assert(this.n_conns >= 0);
 		if (request)
 		{	this.requests.push(request);
 			this.promises.push(request.poll());

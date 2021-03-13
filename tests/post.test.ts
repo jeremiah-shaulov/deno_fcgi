@@ -1,24 +1,7 @@
 import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
 import {exists} from "https://deno.land/std/fs/mod.ts";
 import {Post} from "../post.ts";
-import {TEST_CHUNK_SIZES, MockConn} from './mock.ts';
-
-function map_to_obj(map: any)
-{	let j = JSON.stringify
-	(	map,
-		(k, v) =>
-		{	if (v instanceof Map)
-			{	let obj: any = {};
-				for (let [mk, mv] of v)
-				{	obj[mk] = mv;
-				}
-				v = obj;
-			}
-			return v;
-		}
-	);
-	return JSON.parse(j);
-}
+import {TEST_CHUNK_SIZES, map_to_obj, MockConn} from './mock/mod.ts';
 
 Deno.test
 (	'Urlencoded',
