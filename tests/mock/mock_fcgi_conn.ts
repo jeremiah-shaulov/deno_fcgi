@@ -88,12 +88,14 @@ export class MockFcgiConn extends MockConn
 	}
 
 	pend_read_fcgi_stdin(request_id: number, str: string)
-	{	if (!this.split_stream_records || str.length<=1)
-		{	this.pend_read_fcgi(FCGI_STDIN, request_id, str);
-		}
-		else
-		{	this.pend_read_fcgi(FCGI_STDIN, request_id, str.slice(0, 1));
-			this.pend_read_fcgi(FCGI_STDIN, request_id, str.slice(1));
+	{	if (str.length > 0)
+		{	if (!this.split_stream_records || str.length<=1)
+			{	this.pend_read_fcgi(FCGI_STDIN, request_id, str);
+			}
+			else
+			{	this.pend_read_fcgi(FCGI_STDIN, request_id, str.slice(0, 1));
+				this.pend_read_fcgi(FCGI_STDIN, request_id, str.slice(1));
+			}
 		}
 		this.pend_read_fcgi(FCGI_STDIN, request_id, new Uint8Array); // empty record terminates stream
 	}

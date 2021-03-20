@@ -3,6 +3,7 @@ import {Get} from "./get.ts";
 import {Post} from "./post.ts";
 import {Cookies} from "./cookies.ts";
 import {ServerResponse} from './server_response.ts';
+import {AbortedError, TerminatedError, ProtocolError} from './error.ts';
 
 const BUFFER_LEN = 8*1024;
 const MAX_PARAM_NAME_LEN = BUFFER_LEN;
@@ -77,6 +78,8 @@ export class ServerRequest
 	/// Response sent back to FastCGI server, and this object is unusable. This can happen after `respond()` called, or if exception thrown during communication.
 	private is_terminated = false;
 
+	private has_stderr = false;
+
 	private buffer: Uint8Array;
 	private buffer_start = 0;
 	private buffer_end = 0;
@@ -121,9 +124,9 @@ export class ServerRequest
 			}
 			else if (this.is_terminated)
 			{	if (this.is_aborted)
-				{	throw new Error('Request aborted');
+				{	throw new AbortedError('Request aborted');
 				}
-				throw new Error('Request already terminated');
+				throw new TerminatedError('Request already terminated');
 			}
 			else
 			{	await this.poll();
@@ -142,9 +145,10 @@ export class ServerRequest
 		}
 		if (this.is_terminated)
 		{	if (this.is_aborted)
-			{	throw new Error('Request aborted');
+			{	this.is_aborted = false; // after respond() called, only TerminatedError must be thrown
+				throw new AbortedError('Request aborted');
 			}
-			throw new Error('Request already terminated');
+			throw new TerminatedError('Request already terminated');
 		}
 		if (response)
 		{	var {status, headers, body} = response;
@@ -224,7 +228,7 @@ export class ServerRequest
 			{	if (can_eof && this.buffer_end-this.buffer_start==0)
 				{	return false;
 				}
-				throw new Error('Unexpected end of stream');
+				throw new ProtocolError('Unexpected end of stream');
 			}
 			this.buffer_end += n_read;
 		}
@@ -376,30 +380,37 @@ export class ServerRequest
 	{	return this.schedule
 		(	async () =>
 			{	assert(this.request_id);
+				assert(record_type==FCGI_STDOUT || record_type==FCGI_STDERR);
+				assert(!is_last || record_type==FCGI_STDOUT);
 				if (this.is_terminated)
 				{	if (this.is_aborted)
-					{	throw new Error('Request aborted');
+					{	throw new AbortedError('Request aborted');
 					}
-					throw new Error('Request already terminated');
+					throw new TerminatedError('Request already terminated');
 				}
 				// Send response headers
-				if (!this.headersSent && record_type==FCGI_STDOUT)
-				{	this.headersSent = true;
-					let status = this.responseStatus ? this.responseStatus+'' : (this.responseHeaders.get('status') ?? '200');
-					let headers_str = `        status: ${status}\r\n`; // 8-byte header
-					for (let [k, v] of this.responseHeaders)
-					{	if (k != 'status')
-						{	headers_str += `${k}: ${v}\r\n`;
+				if (record_type == FCGI_STDOUT)
+				{	if (!this.headersSent)
+					{	this.headersSent = true;
+						let status = this.responseStatus ? this.responseStatus+'' : (this.responseHeaders.get('status') ?? '200');
+						let headers_str = `        status: ${status}\r\n`; // 8-byte header
+						for (let [k, v] of this.responseHeaders)
+						{	if (k != 'status')
+							{	headers_str += `${k}: ${v}\r\n`;
+							}
 						}
+						for (let v of this.cookies.headers.values())
+						{	headers_str += `set-cookie: ${v}\r\n`;
+						}
+						headers_str += "\r\n        "; // 8-byte (at most) padding
+						let headers_bytes = this.encoder.encode(headers_str);
+						let padding_length = (8 - headers_bytes.length%8) % 8;
+						set_record_stdout(headers_bytes, 0, FCGI_STDOUT, this.request_id, headers_bytes.length-16, padding_length);
+						await Deno.writeAll(this.conn, headers_bytes.subarray(0, headers_bytes.length-(8 - padding_length)));
 					}
-					for (let v of this.cookies.headers.values())
-					{	headers_str += `set-cookie: ${v}\r\n`;
-					}
-					headers_str += "\r\n        "; // 8-byte (at most) padding
-					let headers_bytes = this.encoder.encode(headers_str);
-					let padding_length = (8 - headers_bytes.length%8) % 8;
-					set_record_stdout(headers_bytes, 0, FCGI_STDOUT, this.request_id, headers_bytes.length-16, padding_length);
-					await Deno.writeAll(this.conn, headers_bytes.subarray(0, headers_bytes.length-(8 - padding_length)));
+				}
+				else if (value.length > 0)
+				{	this.has_stderr = true;
 				}
 				// Send body
 				let orig_len = value.length;
@@ -413,26 +424,46 @@ export class ServerRequest
 					await Deno.writeAll(this.conn, set_record_stdout(new Uint8Array(8), 0, record_type, this.request_id, value.length, padding_length));
 					await Deno.writeAll(this.conn, value);
 					if (is_last || padding_length>0)
-					{	let all = new Uint8Array(padding_length + (!is_last ? 0 : record_type!=FCGI_STDOUT ? 8 : 24));
+					{	let all = new Uint8Array(padding_length + (!is_last ? 0 : !this.has_stderr ? 24 : 32));
 						if (is_last)
-						{	set_record_stdout(all, padding_length, record_type, this.request_id);
-							if (record_type == FCGI_STDOUT)
-							{	set_record_end_request(all, padding_length+8, this.request_id, FCGI_REQUEST_COMPLETE);
+						{	let pos = padding_length;
+							set_record_stdout(all, pos, FCGI_STDOUT, this.request_id);
+							pos += 8;
+							if (this.has_stderr)
+							{	set_record_stdout(all, pos, FCGI_STDERR, this.request_id);
+								pos += 8;
 							}
+							set_record_end_request(all, pos, this.request_id, FCGI_REQUEST_COMPLETE);
 						}
 						await Deno.writeAll(this.conn, all);
 					}
 				}
-				else
+				else if (value.length > 0)
 				{	let padding_length = (8 - value.length%8) % 8;
-					let all = new Uint8Array((!is_last ? 8 : record_type!=FCGI_STDOUT ? 16 : 32) + value.length + padding_length);
+					let all = new Uint8Array((!is_last ? 8 : !this.has_stderr ? 32 : 40) + value.length + padding_length);
 					set_record_stdout(all, 0, record_type, this.request_id, value.length, padding_length);
 					all.set(value, 8);
 					if (is_last)
-					{	set_record_stdout(all, 8+value.length+padding_length, record_type, this.request_id);
-						if (record_type == FCGI_STDOUT)
-						{	set_record_end_request(all, all.length-16, this.request_id, FCGI_REQUEST_COMPLETE);
+					{	let pos = 8 + value.length + padding_length;
+						set_record_stdout(all, pos, FCGI_STDOUT, this.request_id);
+						pos += 8;
+						if (this.has_stderr)
+						{	set_record_stdout(all, pos, FCGI_STDERR, this.request_id);
+							pos += 8;
 						}
+						set_record_end_request(all, pos, this.request_id, FCGI_REQUEST_COMPLETE);
+					}
+					await Deno.writeAll(this.conn, all);
+				}
+				else if (is_last)
+				{	let all = new Uint8Array(!this.has_stderr ? 24 : 32);
+					set_record_stdout(all, 0, FCGI_STDOUT, this.request_id);
+					if (this.has_stderr)
+					{	set_record_stdout(all, 8, FCGI_STDERR, this.request_id);
+						set_record_end_request(all, 16, this.request_id, FCGI_REQUEST_COMPLETE);
+					}
+					else
+					{	set_record_end_request(all, 8, this.request_id, FCGI_REQUEST_COMPLETE);
 					}
 					await Deno.writeAll(this.conn, all);
 				}
@@ -457,7 +488,10 @@ export class ServerRequest
 	{	let {buffer} = this;
 
 		if (this.is_terminated)
-		{	throw new Error('Request already terminated');
+		{	if (this.is_aborted)
+			{	throw new AbortedError('Request aborted');
+			}
+			throw new TerminatedError('Request already terminated');
 		}
 
 		try
