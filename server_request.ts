@@ -96,7 +96,7 @@ export class ServerRequest
 	private decoder = new TextDecoder;
 
 	constructor
-	(	private server: {retired: (request?: ServerRequest) => void},
+	(	private onretired: (request: ServerRequest, new_request?: ServerRequest) => void,
 		public conn: Deno.Reader & Deno.Writer & Deno.Closer,
 		private onerror: (error: Error) => void,
 		buffer: Uint8Array|null,
@@ -191,9 +191,12 @@ export class ServerRequest
 		else
 		{	this.post.close();
 			// return to this.server a new object that uses the same this.conn and this.buffer, and leave this object invalid and "is_terminated", so further usage will throw exception
-			let new_obj = new ServerRequest(this.server, this.conn, this.onerror, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize);
+			let new_obj = new ServerRequest(this.onretired, this.conn, this.onerror, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize);
+			new_obj.buffer_start = this.buffer_start;
+			new_obj.buffer_end = this.buffer_end;
+			assert(this.stdin_content_length==0 && this.stdin_padding_length==0 && this.stdin_complete);
 			this.is_terminated = true;
-			this.server.retired(new_obj);
+			this.onretired(this, new_obj);
 		}
 	}
 
@@ -202,7 +205,7 @@ export class ServerRequest
 		{	this.is_terminated = true;
 			this.conn.close();
 			this.post.close();
-			this.server.retired();
+			this.onretired(this);
 		}
 	}
 
@@ -544,9 +547,7 @@ export class ServerRequest
 						let role = (buffer[this.buffer_start+0] << 8) | buffer[this.buffer_start+1];
 						let flags = buffer[this.buffer_start+2];
 						this.buffer_start += 8;
-						if ((flags&FCGI_KEEP_CONN) == 0)
-						{	this.no_keep_conn = true;
-						}
+						this.no_keep_conn = (flags&FCGI_KEEP_CONN) == 0;
 						if (role != FCGI_RESPONDER)
 						{	this.write_raw(set_record_end_request(new Uint8Array(16), 0, request_id, FCGI_UNKNOWN_ROLE));
 						}

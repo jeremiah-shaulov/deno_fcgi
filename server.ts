@@ -20,10 +20,11 @@ export class Server
 	private maxNameLength: number;
 	private maxValueLength: number;
 	private maxFileSize: number;
-	protected n_accepted_conns = 0;
+	private promises: Promise<Deno.Conn | ServerRequest>[] = [];
 	private requests: ServerRequest[] = [];
-	private promises: Promise<Deno.Conn | ServerRequest>[] = []; // promises[0] is promise for accepting new conn, and promises.length-1 == requests.length
+	private requests_processing: ServerRequest[] = [];
 	private onerror: (error: Error) => void = () => {};
+	private is_closed = false;
 
 	constructor(private socket: Deno.Listener, options?: ServerOptions)
 	{	this.structuredParams = options?.structuredParams || false;
@@ -34,50 +35,112 @@ export class Server
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<ServerRequest>
-	{	if (this.promises.length == 0)
-		{	this.promises[0] = this.socket.accept();
-		}
-		while (true)
-		{	let ready = await Promise.race(this.promises);
-			if (!(ready instanceof ServerRequest))
-			{	// Accepted connection
-				let request = new ServerRequest(this, ready, this.onerror, null, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize);
-				this.requests.push(request);
-				this.promises.push(request.poll());
-				// Immediately start waiting for new
-				if (++this.n_accepted_conns < this.maxConns)
-				{	this.promises[0] = this.socket.accept();
+	{	let {socket, promises, requests, requests_processing, onerror, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this;
+		maxConns |= 0;
+		maxNameLength |= 0;
+		maxValueLength |= 0;
+		maxFileSize |= 0;
+		let that = this;
+
+		function onretired(request: ServerRequest, new_request?: ServerRequest)
+		{	let i = requests_processing.indexOf(request);
+			if (i == -1)
+			{	if (that.is_closed)
+				{	i = requests.indexOf(request);
+				}
+				if (i == -1)
+				{	onerror(new Error('retired(): request not found'));
 				}
 				else
-				{	this.promises[0] = new Promise(() => {}); // promise that will never resolve
+				{	let j = promises.length==requests.length ? i : i+1;
+					requests[i] = requests[requests.length-1];
+					promises[j] = promises[promises.length-1];
+					requests.length--;
+					promises.length--;
+				}
+			}
+			else
+			{	if (new_request)
+				{	requests[requests.length] = new_request;
+					promises[promises.length] = new_request.poll();
+				}
+				else if (promises.length == requests.length)
+				{	assert(requests.length + requests_processing.length == maxConns);
+					promises.unshift(socket.accept());
+				}
+				requests_processing[i] = requests_processing[requests_processing.length-1];
+				requests_processing.length--;
+				assert(requests.length + requests_processing.length <= maxConns);
+			}
+		}
+
+		if (promises.length == 0)
+		{	promises[0] = socket.accept();
+		}
+
+		while (!this.is_closed)
+		{	assert(requests.length+requests_processing.length <= maxConns);
+			assert(promises.length == (requests.length+requests_processing.length == maxConns ? requests.length : requests.length+1));
+
+			// If requests.length+requests_processing.length < maxConns, then i can accept new connections,
+			// and promises[0] is a promise for accepting a new connection,
+			// and promises.length == requests.length+1,
+			// and each promises[i+1] corresponds to each requests[i].
+			//
+			// If requests.length+requests_processing.length == maxConns, then i cannot accept new connections,
+			// and promises.length == requests.length,
+			// and each promises[i] corresponds to each requests[i].
+			//
+			// When accepted a connection (promises[0] resolved), i create new "ServerRequest" object, and put it to "requests", and start polling this object, and poll promise i put to "promises".
+			// When some ServerRequest is polled till completion of FCGI_BEGIN_REQUEST and FCGI_PARAMS, i remove it from "requests", and it's resolved promise from "promises",
+			// and put this ServerRequest object to "requests_processing", and also yield this object to the caller.
+			//
+			// When the caller calls "respond()" or when i/o or protocol error occures, the "ServerRequest" object calls it's "close()", and the "close()" calls "onretired()".
+			// When a request is retired, it's removed from "requests_processing".
+
+			let ready = await Promise.race(promises);
+			if (!(ready instanceof ServerRequest))
+			{	// Accepted connection
+				let request = new ServerRequest(onretired, ready, onerror, null, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize);
+				requests[requests.length] = request;
+				promises[promises.length] = request.poll();
+				assert(promises.length == requests.length+1);
+				if (requests.length+requests_processing.length < maxConns)
+				{	// Immediately start waiting for new
+					promises[0] = socket.accept();
+				}
+				else
+				{	// Take a break accepting new connections
+					promises.shift();
 				}
 			}
 			else
 			{	// Some ServerRequest is ready (params are read)
-				let i = this.requests.indexOf(ready);
+				let i = requests.indexOf(ready);
 				assert(i != -1);
-				this.requests.splice(i, 1);
-				this.promises.splice(i+1, 1);
+				let j = promises.length==requests.length ? i : i+1;
+				requests[i] = requests[requests.length-1];
+				promises[j] = promises[promises.length-1];
+				requests.length--;
+				promises.length--;
 				if (!ready.isTerminated())
-				{	yield ready;
+				{	requests_processing[requests_processing.length] = ready;
+					yield ready;
 				}
 			}
 		}
+
+		assert(this.is_closed);
+		socket.close();
+		await Promise.allSettled(promises);
 	}
 
 	nAccepted()
-	{	return this.n_accepted_conns;
+	{	return this.requests.length + this.requests_processing.length;
 	}
 
-	retired(request?: ServerRequest)
-	{	assert(this.n_accepted_conns>=1 && this.n_accepted_conns<=this.maxConns);
-		if (this.n_accepted_conns-- >= this.maxConns)
-		{	this.promises[0] = this.socket.accept();
-		}
-		if (request)
-		{	this.requests.push(request);
-			this.promises.push(request.poll());
-		}
+	nProcessing()
+	{	return this.requests_processing.length;
 	}
 
 	on(event_name: string, callback: (error: Error) => void)
@@ -94,10 +157,9 @@ export class Server
 	}
 
 	close()
-	{	for (let request of this.requests)
+	{	this.is_closed = true;
+		for (let request of this.requests)
 		{	request.close();
 		}
-		this.requests.length = 0;
-		this.promises.length = 0;
 	}
 }

@@ -51,6 +51,33 @@ Deno.test
 );
 
 Deno.test
+(	'Basic request 2',
+	async () =>
+	{	for (let conn of test_connections())
+		{	let listener = new MockListener([conn]);
+			let server = new Server(listener);
+			// write
+			conn.pend_read_fcgi_begin_request(1, 'responder', false);
+			conn.pend_read_fcgi_stdin(1, 'Body');
+			// accept
+			for await (let req of server)
+			{	assertEquals(req.params.size, 0);
+				assertEquals(server.nAccepted(), 1);
+				let body = new TextEncoder().encode('Response body');
+				req.responseStatus = 500;
+				await req.respond({body});
+				assertEquals(server.nAccepted(), 0);
+				break;
+			}
+			// read
+			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 500\r\n\r\nResponse body');
+			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+			assertEquals(conn.take_written_fcgi(1), undefined);
+		}
+	}
+);
+
+Deno.test
 (	'Respond without reading POST',
 	async () =>
 	{	for (let conn of test_connections())
@@ -151,6 +178,68 @@ Deno.test
 				// done
 				break;
 			}
+		}
+	}
+);
+
+Deno.test
+(	'Reuse connection',
+	async () =>
+	{	for (let conn of test_connections())
+		{	let listener = new MockListener([conn]);
+			let server = new Server(listener);
+			// write request 1
+			conn.pend_read_fcgi_begin_request(1, 'responder', true);
+			conn.pend_read_fcgi_params(1, {id: 'req 1'});
+			conn.pend_read_fcgi_stdin(1, 'Body 1');
+			// write request 2
+			conn.pend_read_fcgi_begin_request(2, 'responder', true);
+			conn.pend_read_fcgi_params(2, {id: 'req 2'});
+			conn.pend_read_fcgi_stdin(2, 'Body 2');
+			// accept
+			let i = 1;
+			for await (let req of server)
+			{	assertEquals(map_to_obj(req.params), {id: 'req '+i});
+				assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body '+i);
+				assertEquals(server.nAccepted(), 1);
+				assertEquals(server.nProcessing(), 1);
+				await req.respond();
+				assertEquals(server.nAccepted(), 1);
+				assertEquals(server.nProcessing(), 0);
+				if (++i > 2)
+				{	break;
+				}
+			}
+		}
+	}
+);
+
+Deno.test
+(	'Broken connection',
+	async () =>
+	{	let conn = new MockFcgiConn(21, true, false);
+		let listener = new MockListener([conn]);
+		let server = new Server(listener);
+		// write
+		conn.pend_read_fcgi_begin_request(1, 'responder', true);
+		conn.pend_read_fcgi_params(1, {a: '1'});
+		conn.pend_read_fcgi_stdin(1, 'Body 1');
+		// accept
+		for await (let req of server)
+		{	assertEquals(map_to_obj(req.params), {a: '1'});
+			conn.close();
+			let error;
+			try
+			{	await Deno.readAll(req.body);
+			}
+			catch (e)
+			{	error = e;
+			}
+			assertEquals(error?.message, 'Request already terminated');
+			assert(error instanceof TerminatedError);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
+			break;
 		}
 	}
 );

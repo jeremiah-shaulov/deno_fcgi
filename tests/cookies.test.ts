@@ -39,6 +39,20 @@ Deno.test
 );
 
 Deno.test
+(	'Cookies: unicode',
+	() =>
+	{	let cookies = new Cookies('א="א"; ב=ב;');
+		assertEquals(cookies.size, 2);
+		assertEquals(cookies.get('א'), 'א');
+		assertEquals(cookies.get('ב'), 'ב');
+		cookies.set('ג', 'ג', {path: '/'});
+		assertEquals(cookies.size, 3);
+		assertEquals(cookies.headers.size, 1);
+		assertEquals(cookies.headers.get('ג'), `ג=ג; Path=/`); // PHP doesn't escape char-codes >=0x80 in cookie name, like i do, but it likes to escape such chars in value
+	}
+);
+
+Deno.test
 (	'Cookies: Max-Age',
 	() =>
 	{	let cookies = new Cookies('');

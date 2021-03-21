@@ -10,7 +10,7 @@ export class MockConn implements Deno.Conn
 
 	public is_closed = false;
 
-	private read_data: Uint8Array;
+	protected read_data: Uint8Array;
 	private read_pos = 0;
 	private write_data = new Uint8Array(1024);
 	private write_pos = 0;
@@ -27,7 +27,10 @@ export class MockConn implements Deno.Conn
 	}
 
 	async read(buffer: Uint8Array): Promise<number|null>
-	{	if (this.read_pos == this.read_data.length)
+	{	if (this.is_closed)
+		{	throw new Error('Connection closed');
+		}
+		if (this.read_pos == this.read_data.length)
 		{	return null;
 		}
 		let chunk_size = Math.min(this.read_data.length-this.read_pos, buffer.length, this.chunk_size);

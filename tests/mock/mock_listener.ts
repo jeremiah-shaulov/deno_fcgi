@@ -4,7 +4,7 @@ export class MockListener implements Deno.Listener
 
 	public is_closed = false;
 
-	private satisfy = [] as ((conn: Deno.Conn) => void)[];
+	private satisfy = [] as {y: (conn: Deno.Conn) => void, n: (error: Error) => void}[];
 
 	constructor(private pending: Deno.Conn[] = [])
 	{
@@ -13,7 +13,7 @@ export class MockListener implements Deno.Listener
 	pend_accept(conn: Deno.Conn)
 	{	let satisfy = this.satisfy.shift();
 		if (satisfy)
-		{	satisfy(conn);
+		{	satisfy.y(conn);
 		}
 		else
 		{	this.pending.push(conn);
@@ -27,11 +27,18 @@ export class MockListener implements Deno.Listener
 	}
 
 	async accept(): Promise<Deno.Conn>
-	{	let conn = this.pending.shift();
-		return conn || new Promise(y => this.satisfy.push(y));
+	{	if (this.is_closed)
+		{	throw new Error('Server closed');
+		}
+		let conn = this.pending.shift();
+		return conn || new Promise((y, n) => this.satisfy.push({y, n}));
 	}
 
 	close()
 	{	this.is_closed = true;
+		let s;
+		while ((s = this.satisfy.shift()))
+		{	s.n(new Error('Server closed'));
+		}
 	}
 }

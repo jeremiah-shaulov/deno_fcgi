@@ -24,6 +24,8 @@ const FCGI_FILTER             =  3;
 
 const FCGI_KEEP_CONN          =  1;
 
+const RECORD_TYPE_NAMES = ['', 'BEGIN_REQUEST', 'ABORT_REQUEST', 'END_REQUEST', 'PARAMS', 'STDIN', 'STDOUT', 'STDERR', 'DATA', 'GET_VALUES', 'GET_VALUES_RESULT', 'UNKNOWN_TYPE'];
+
 export class MockFcgiConn extends MockConn
 {	private written_pos = new Map<number, number>();
 
@@ -66,23 +68,28 @@ export class MockFcgiConn extends MockConn
 			let header_1 = new DataView(part_1.buffer);
 			let content_length = header_0.getUint16(4);
 			let padding_length = header_0.getUint8(6);
-			// header_0
-			header_0.setUint8(0, 1); // version
-			header_0.setUint8(1, FCGI_PARAMS); // record_type
-			header_0.setUint16(2, request_id); // request_id
-			header_0.setUint16(4, break_at); // content_length
-			header_0.setUint8(6, 0); // padding_length
-			header_0.setUint8(7, 0); // reserved
-			// header_1
-			header_1.setUint8(0, 1); // version
-			header_1.setUint8(1, FCGI_PARAMS); // record_type
-			header_1.setUint16(2, request_id); // request_id
-			header_1.setUint16(4, content_length-break_at); // content_length
-			header_1.setUint8(6, padding_length); // padding_length
-			header_1.setUint8(7, 0); // reserved
-			// send
-			this.pend_read(part_0);
-			this.pend_read(part_1);
+			if (content_length <= break_at)
+			{	this.pend_read(data);
+			}
+			else
+			{	// header_0
+				header_0.setUint8(0, 1); // version
+				header_0.setUint8(1, FCGI_PARAMS); // record_type
+				header_0.setUint16(2, request_id); // request_id
+				header_0.setUint16(4, break_at); // content_length
+				header_0.setUint8(6, 0); // padding_length
+				header_0.setUint8(7, 0); // reserved
+				// header_1
+				header_1.setUint8(0, 1); // version
+				header_1.setUint8(1, FCGI_PARAMS); // record_type
+				header_1.setUint16(2, request_id); // request_id
+				header_1.setUint16(4, content_length-break_at); // content_length
+				header_1.setUint8(6, padding_length); // padding_length
+				header_1.setUint8(7, 0); // reserved
+				// send
+				this.pend_read(part_0);
+				this.pend_read(part_1);
+			}
 		}
 		this.pend_read_fcgi(FCGI_PARAMS, request_id, new Uint8Array); // empty record terminates stream
 	}
@@ -146,5 +153,31 @@ export class MockFcgiConn extends MockConn
 			protocol_status = header.getUint8(4);
 		}
 		return protocol_status==FCGI_REQUEST_COMPLETE ? 'request_complete' : protocol_status==FCGI_UNKNOWN_ROLE ? 'unknown_role' : '';
+	}
+
+	toString()
+	{	let str = '';
+		let pos = 0;
+		while (pos+8 <= this.read_data.length)
+		{	let header = new DataView(this.read_data.buffer, pos);
+			let record_type = header.getUint8(1);
+			let request_id = header.getUint16(2);
+			let content_length = header.getUint16(4);
+			let padding_length = header.getUint8(6);
+			let payload = this.read_data.subarray(pos+8, pos+8+content_length);
+			str += `@${pos} ID${request_id} ${RECORD_TYPE_NAMES[record_type] || '?'} (${content_length} + ${padding_length} bytes)`;
+			if (record_type == FCGI_BEGIN_REQUEST)
+			{	let role = header.getUint16(8);
+				let keep_conn = (header.getUint8(10) & FCGI_KEEP_CONN)!=0 ? 'keep_conn' : '!keep_conn';
+				let role_name = role==FCGI_RESPONDER ? 'responder' : role==FCGI_AUTHORIZER ? 'authorizer' : 'filter';
+				str += `: ${role_name} ${keep_conn}`;
+			}
+			else if (record_type != FCGI_PARAMS)
+			{	str += ': ' + new TextDecoder().decode(payload);
+			}
+			str += '\n\n';
+			pos += 8 + content_length + padding_length;
+		}
+		return str;
 	}
 }
