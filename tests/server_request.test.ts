@@ -251,3 +251,29 @@ Deno.test
 		}
 	}
 );
+
+Deno.test
+(	'maxNameLength',
+	async () =>
+	{	for (let maxNameLength of [1, 2, 3, 8*1024-32, 8*1024-1, 8*1024, 8*1024+1, 0xFFF0, 0xFFF8, 0xFFFF, 0x10000, 0x10001])
+		{	for (let conn of test_connections())
+			{	let name_err = get_random_string(maxNameLength+1);
+				let name_ok = name_err.slice(0, -1);
+				let listener = new MockListener([conn]);
+				let server = new Server(listener, {maxNameLength});
+				// write
+				conn.pend_read_fcgi_begin_request(1, 'responder', true);
+				conn.pend_read_fcgi_params(1, {[name_ok]: 'ok', [name_err]: 'err'});
+				conn.pend_read_fcgi_stdin(1, '');
+				// accept
+				for await (let req of server)
+				{	assertEquals(req.params.size, 1);
+					assertEquals(req.params.get(name_ok), 'ok');
+					assertEquals((await Deno.readAll(req.body)).length, 0);
+					await req.respond();
+					break;
+				}
+			}
+		}
+	}
+);

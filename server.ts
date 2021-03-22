@@ -1,4 +1,4 @@
-import {assert} from './assert.ts';
+import {debug_assert} from './debug_assert.ts';
 import {ServerRequest} from './server_request.ts';
 
 const MAX_CONNS = 128;
@@ -61,7 +61,7 @@ export class Server
 			}
 			else
 			{	if (promises.length == requests.length)
-				{	assert(requests.length + requests_processing.length == maxConns);
+				{	debug_assert(requests.length + requests_processing.length == maxConns);
 					if (new_request)
 					{	requests[requests.length] = new_request;
 						promises[promises.length] = new_request.poll();
@@ -71,7 +71,7 @@ export class Server
 					}
 				}
 				else if (new_request)
-				{	assert(promises.length == requests.length+1);
+				{	debug_assert(promises.length == requests.length+1);
 					let j = requests.length;
 					requests[j] = new_request;
 					promises[j+1] = promises[j];
@@ -79,7 +79,7 @@ export class Server
 				}
 				requests_processing[i] = requests_processing[requests_processing.length-1];
 				requests_processing.length--;
-				assert(requests.length + requests_processing.length <= maxConns);
+				debug_assert(requests.length + requests_processing.length <= maxConns);
 			}
 		}
 
@@ -88,8 +88,8 @@ export class Server
 		}
 
 		while (!this.is_closed)
-		{	assert(requests.length+requests_processing.length <= maxConns);
-			assert(promises.length == (requests.length+requests_processing.length == maxConns ? requests.length : requests.length+1));
+		{	debug_assert(requests.length+requests_processing.length <= maxConns);
+			debug_assert(promises.length == (requests.length+requests_processing.length == maxConns ? requests.length : requests.length+1));
 
 			// If requests.length+requests_processing.length < maxConns, then i can accept new connections,
 			// and promises[promises.length-1] is a promise for accepting a new connection,
@@ -109,7 +109,7 @@ export class Server
 			let ready = await Promise.race(promises);
 			if (!(ready instanceof ServerRequest))
 			{	// Accepted connection
-				assert(promises.length == requests.length+1);
+				debug_assert(promises.length == requests.length+1);
 				let request = new ServerRequest(onretired, ready, onerror, null, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize);
 				requests[requests.length] = request;
 				promises[promises.length-1] = request.poll();
@@ -119,18 +119,18 @@ export class Server
 				}
 				else
 				{	// Take a break accepting new connections
-					assert(promises.length == requests.length);
+					debug_assert(promises.length == requests.length);
 				}
 			}
 			else
 			{	// Some ServerRequest is ready (params are read)
 				let i = requests.indexOf(ready);
-				assert(i != -1);
+				debug_assert(i != -1);
 				let j = requests.length - 1;
 				requests[i] = requests[j];
 				promises[i] = promises[j];
 				if (promises.length != requests.length)
-				{	assert(promises.length == requests.length+1);
+				{	debug_assert(promises.length == requests.length+1);
 					promises[j] = promises[j+1];
 				}
 				requests.length--;
@@ -142,7 +142,7 @@ export class Server
 			}
 		}
 
-		assert(this.is_closed);
+		debug_assert(this.is_closed);
 		socket.close();
 		await Promise.allSettled(promises);
 	}

@@ -1,4 +1,4 @@
-import {assert} from './assert.ts';
+import {debug_assert} from './debug_assert.ts';
 import {Get} from "./get.ts";
 import {Post} from "./post.ts";
 import {Cookies} from "./cookies.ts";
@@ -30,7 +30,7 @@ const FCGI_FILTER             =  3;
 
 const FCGI_KEEP_CONN          =  1;
 
-assert(BUFFER_LEN >= 256+16);
+debug_assert(BUFFER_LEN >= 256+16);
 
 export class ServerRequest
 {	/// The SCRIPT_URL of the request, like '/path/index.html'
@@ -125,7 +125,7 @@ export class ServerRequest
 			}
 			else
 			{	await this.poll();
-				assert(this.stdin_length || this.stdin_complete || this.is_terminated);
+				debug_assert(this.stdin_length || this.stdin_complete || this.is_terminated);
 			}
 		}
 	}
@@ -189,7 +189,7 @@ export class ServerRequest
 			let new_obj = new ServerRequest(this.onretired, this.conn, this.onerror, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize);
 			new_obj.buffer_start = this.buffer_start;
 			new_obj.buffer_end = this.buffer_end;
-			assert(this.stdin_content_length==0 && this.stdin_padding_length==0 && this.stdin_complete);
+			debug_assert(this.stdin_content_length==0 && this.stdin_padding_length==0 && this.stdin_complete);
 			this.is_terminated = true;
 			this.onretired(this, new_obj);
 		}
@@ -209,7 +209,7 @@ export class ServerRequest
 	}
 
 	private async read_at_least(n_bytes: number, can_eof=false)
-	{	assert(n_bytes <= BUFFER_LEN);
+	{	debug_assert(n_bytes <= BUFFER_LEN);
 		if (this.buffer_start == this.buffer_end)
 		{	this.buffer_start = 0;
 			this.buffer_end = 0;
@@ -240,7 +240,7 @@ export class ServerRequest
 		maxNameLength |= 0;
 		maxValueLength |= 0;
 
-		assert(len > 0);
+		debug_assert(len > 0);
 
 		while (len > 0)
 		{	// Read name_len and value_len
@@ -248,9 +248,9 @@ export class ServerRequest
 			let value_len = -1;
 			while (true)
 			{	if (len == 0)
-				{	assert(name_len!=-1 && value_len==-1);
+				{	debug_assert(name_len!=-1 && value_len==-1);
 					len = (yield)|0; // stand by till next NVP record
-					assert(len > 0);
+					debug_assert(len > 0);
 				}
 				if (this.buffer_end-this.buffer_start < 1)
 				{	await this.read_at_least(1);
@@ -261,12 +261,18 @@ export class ServerRequest
 				{	if (len < 3)
 					{	let rest = new Uint8Array(3);
 						let rest_len = len;
+						if (this.buffer_end-this.buffer_start < len)
+						{	await this.read_at_least(len);
+						}
 						rest.set(buffer.slice(this.buffer_start, this.buffer_start+len)); // rest is 1 or 2 bytes of record, after first byte (which is "nv_len")
 						this.buffer_start += len;
 						while (rest_len < rest.length)
 						{	len = (yield)|0; // stand by till next NVP record
-							assert(len > 0);
+							debug_assert(len > 0);
 							let add_len = Math.min(len, rest.length-rest_len);
+							if (this.buffer_end-this.buffer_start < add_len)
+							{	await this.read_at_least(add_len);
+							}
 							rest.set(buffer.slice(this.buffer_start, this.buffer_start+add_len), rest_len);
 							rest_len += add_len;
 							this.buffer_start += add_len;
@@ -283,7 +289,7 @@ export class ServerRequest
 						len -= 3;
 					}
 				}
-				assert(nv_len >= 0);
+				debug_assert(nv_len >= 0);
 				if (name_len == -1)
 				{	name_len = nv_len;
 				}
@@ -305,9 +311,9 @@ export class ServerRequest
 					if (n_skip <= 0)
 					{	break;
 					}
-					assert(len == 0);
+					debug_assert(len == 0);
 					len = (yield)|0; // stand by till next NVP record
-					assert(len > 0);
+					debug_assert(len > 0);
 				}
 			}
 			else
@@ -317,7 +323,9 @@ export class ServerRequest
 				{	let str;
 					let str_len = name==undefined ? name_len : value_len;
 					if (str_len<=len && str_len<=BUFFER_LEN)
-					{	await this.read_at_least(str_len);
+					{	if (this.buffer_end-this.buffer_start < str_len)
+						{	await this.read_at_least(str_len);
+						}
 						str = this.decoder.decode(buffer.subarray(this.buffer_start, this.buffer_start+str_len));
 						this.buffer_start += str_len;
 						len -= str_len;
@@ -328,10 +336,12 @@ export class ServerRequest
 						while (bytes_len < bytes.length)
 						{	if (len <= 0)
 							{	len = (yield)|0; // stand by till next NVP record
-								assert(len > 0);
+								debug_assert(len > 0);
 							}
 							let has = Math.min(bytes.length-bytes_len, len, BUFFER_LEN);
-							await this.read_at_least(has);
+							if (this.buffer_end-this.buffer_start < has)
+							{	await this.read_at_least(has);
+							}
 							bytes.set(buffer.subarray(this.buffer_start, this.buffer_start+has), bytes_len);
 							bytes_len += has;
 							this.buffer_start += has;
@@ -380,9 +390,9 @@ export class ServerRequest
 	private write_stdout(value: Uint8Array, record_type=FCGI_STDOUT, is_last=false): Promise<number>
 	{	return this.schedule
 		(	async () =>
-			{	assert(this.request_id);
-				assert(record_type==FCGI_STDOUT || record_type==FCGI_STDERR);
-				assert(!is_last || record_type==FCGI_STDOUT);
+			{	debug_assert(this.request_id);
+				debug_assert(record_type==FCGI_STDOUT || record_type==FCGI_STDERR);
+				debug_assert(!is_last || record_type==FCGI_STDOUT);
 				if (this.is_terminated)
 				{	if (this.is_aborted)
 					{	throw new AbortedError('Request aborted');
@@ -625,7 +635,9 @@ export class ServerRequest
 							if (!this.cur_nvp_read_state)
 							{	this.cur_nvp_read_state = this.read_nvp(content_length, this.params, this.headers);
 							}
-							await this.cur_nvp_read_state.next(content_length);
+							if ((await this.cur_nvp_read_state.next(content_length))?.done)
+							{	this.cur_nvp_read_state = undefined;
+							}
 						}
 						else
 						{	await this.skip_bytes(content_length);
@@ -633,8 +645,8 @@ export class ServerRequest
 						break;
 					}
 					case FCGI_STDIN:
-					{	assert(this.stdin_content_length == 0);
-						assert(this.stdin_padding_length == 0);
+					{	debug_assert(this.stdin_content_length == 0);
+						debug_assert(this.stdin_padding_length == 0);
 						if (request_id == this.request_id)
 						{	if (content_length == 0) // empty record terminates records stream
 							{	this.stdin_complete = true;
@@ -699,7 +711,7 @@ export class ServerRequest
 }
 
 function set_record_end_request(buffer: Uint8Array, offset: number, request_id: number, protocol_status: number)
-{	assert(buffer.byteOffset == 0); // i create such
+{	debug_assert(buffer.byteOffset == 0); // i create such
 	let v = new DataView(buffer.buffer, offset);
 	v.setUint8(0, 1); // version
 	v.setUint8(1, FCGI_END_REQUEST); // record_type
@@ -733,7 +745,7 @@ function record_unknown_type(record_type: number)
 }
 
 function set_record_stdout(buffer: Uint8Array, offset: number, record_type: number, request_id: number, content_length=0, padding_length=0)
-{	assert(buffer.byteOffset == 0); // i create such
+{	debug_assert(buffer.byteOffset == 0); // i create such
 	let v = new DataView(buffer.buffer, offset);
 	v.setUint8(0, 1); // version
 	v.setUint8(1, record_type); // record_type
@@ -745,67 +757,86 @@ function set_record_stdout(buffer: Uint8Array, offset: number, record_type: numb
 }
 
 export function pack_nvp(record_type: number, request_id: number, value: Map<string, string>, maxNameLength: number, maxValueLength: number): Uint8Array
-{	assert(record_type==FCGI_GET_VALUES_RESULT || record_type==FCGI_PARAMS);
+{	debug_assert(record_type==FCGI_GET_VALUES_RESULT || record_type==FCGI_PARAMS);
+
 	let all = new Uint8Array(BUFFER_LEN/2);
+	let header_offset = 0;
 	let offset = 8; // after packet header (that will be added later)
 	let encoder = new TextEncoder;
+
+	function add_header()
+	{	// add packet header
+		let padding_length = (8 - offset%8) % 8;
+		let header = new DataView(all.buffer, header_offset);
+		header.setUint8(0, 1); // version
+		header.setUint8(1, record_type); // record_type
+		header.setUint16(2, request_id); // request_id
+		header.setUint16(4, offset-header_offset-8); // content_length
+		header.setUint8(6, padding_length); // padding_length
+		// add padding
+		offset += padding_length;
+		realloc(offset);
+		header_offset = offset;
+	}
+
+	function realloc(new_length: number)
+	{	if (new_length > all.length)
+		{	let new_all = new Uint8Array(Math.max(new_length, all.length*2));
+			new_all.set(all);
+			all = new_all;
+		}
+	}
+
+	function add(part: Uint8Array)
+	{	while (offset-header_offset+part.length > 0xFFF8) // max packet length is 0xFFF8 (0xFFF9 must be padded to 0x10000, and such number cannot be represented in content_length field)
+		{	realloc(offset + part.length + 8);
+			let break_at = 0xFFF8 - (offset-header_offset);
+			all.set(part.subarray(0, break_at), offset);
+			offset += break_at;
+			add_header();
+			offset += 8; // space for next header
+			part = part.subarray(break_at);
+		}
+		realloc(offset + part.length);
+		all.set(part, offset);
+		offset += part.length;
+	}
+
 	for (let [k, v] of value)
 	{	let k_buf = encoder.encode(k);
 		let v_buf = encoder.encode(v);
 		if (k_buf.length>maxNameLength || v_buf.length>maxValueLength)
 		{	continue;
 		}
-		let add_len = (k_buf.length>127 ? 4 : 1) + (v_buf.length>127 ? 4 : 1) + k_buf.length + v_buf.length;
-		if (offset+add_len > all.length)
-		{	if (offset+add_len > 0xFFF0)
-			{	throw new Error('NVP is too large'); // i use pack_nvp() only to send FCGI_GET_VALUES_RESULT, and in MockServer
-			}
-			// realloc
-			let new_all = new Uint8Array(Math.max(offset+add_len, all.length*2));
-			new_all.set(all);
-			all = new_all;
-		}
+		let kv_header = new Uint8Array(8);
+		let kv_offset = 0;
 		// name
 		if (k_buf.length <= 127)
-		{	all[offset++] = k_buf.length;
+		{	kv_header[kv_offset++] = k_buf.length;
 		}
 		else
-		{	all[offset++] = 0x80 | (k_buf.length >> 24);
-			all[offset++] = (k_buf.length >> 16) & 0xFF;
-			all[offset++] = (k_buf.length >> 8) & 0xFF;
-			all[offset++] = k_buf.length & 0xFF;
+		{	kv_header[kv_offset++] = 0x80 | (k_buf.length >> 24);
+			kv_header[kv_offset++] = (k_buf.length >> 16) & 0xFF;
+			kv_header[kv_offset++] = (k_buf.length >> 8) & 0xFF;
+			kv_header[kv_offset++] = k_buf.length & 0xFF;
 		}
 		// value
 		if (v_buf.length <= 127)
-		{	all[offset++] = v_buf.length;
+		{	kv_header[kv_offset++] = v_buf.length;
 		}
 		else
-		{	all[offset++] = 0x80 | (v_buf.length >> 24);
-			all[offset++] = (v_buf.length >> 16) & 0xFF;
-			all[offset++] = (v_buf.length >> 8) & 0xFF;
-			all[offset++] = v_buf.length & 0xFF;
+		{	kv_header[kv_offset++] = 0x80 | (v_buf.length >> 24);
+			kv_header[kv_offset++] = (v_buf.length >> 16) & 0xFF;
+			kv_header[kv_offset++] = (v_buf.length >> 8) & 0xFF;
+			kv_header[kv_offset++] = v_buf.length & 0xFF;
 		}
-		all.set(k_buf, offset);
-		offset += k_buf.length;
-		all.set(v_buf, offset);
-		offset += v_buf.length;
+		add(kv_header.subarray(0, kv_offset));
+		add(k_buf);
+		add(v_buf);
 	}
-	// add packet header
-	let padding_length = (8 - offset%8) % 8;
-	let header = new DataView(all.buffer);
-	header.setUint8(0, 1); // version
-	header.setUint8(1, record_type); // record_type
-	header.setUint16(2, request_id); // request_id
-	header.setUint16(4, offset-8); // content_length
-	header.setUint8(6, padding_length); // padding_length
-	// add padding
-	if (offset+padding_length > all.length)
-	{	// realloc
-		let new_all = new Uint8Array(offset+padding_length);
-		new_all.set(all);
-		all = new_all;
-	}
-	offset += padding_length;
+
+	add_header();
+
 	// write
 	return all.subarray(0, offset);
 }

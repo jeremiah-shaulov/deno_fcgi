@@ -1,5 +1,5 @@
 import {exists} from "https://deno.land/std/fs/mod.ts";
-import {assert} from "./assert.ts";
+import {debug_assert} from "./debug_assert.ts";
 import {StructuredMap} from "./structured_map.ts";
 
 const BUFFER_LEN = 8*1024;
@@ -20,7 +20,7 @@ const SPACE = ' '.charCodeAt(0);
 const QT = '"'.charCodeAt(0);
 const BACKSLASH = '\\'.charCodeAt(0);
 
-assert(MAX_BOUNDARY_LEN+2 <= BUFFER_LEN); // (boundary + "\r\n").length
+debug_assert(MAX_BOUNDARY_LEN+2 <= BUFFER_LEN); // (boundary + "\r\n").length
 
 export class UploadedFile
 {	constructor(public name='', public type='', public size=0, public tmpName='', public error=0)
@@ -159,7 +159,7 @@ L:		while (true)
 			let str = decoder.decode(buffer.subarray(buffer_start, i));
 			buffer_start = i + 1; // after '=' or '&'
 			if (buffer[i] == EQ)
-			{	assert(state == S_NAME); // i didn't look for EQ in S_VALUE state
+			{	debug_assert(state == S_NAME); // i didn't look for EQ in S_VALUE state
 				name = str;
 				state = S_VALUE;
 			}
@@ -476,7 +476,7 @@ L:		while (true)
 						return !ignored_some_param; // is at EOF
 					}
 					buffer_start = i + boundary.length + 2; // boundary.length + "\r\n".length; or: boundary.length + "--".length
-					assert(state == S_HEADER);
+					debug_assert(state == S_HEADER);
 					name = '';
 					content_type = '';
 					filename = '';
