@@ -60,13 +60,22 @@ export class Server
 				}
 			}
 			else
-			{	if (new_request)
-				{	requests[requests.length] = new_request;
-					promises[promises.length] = new_request.poll();
-				}
-				else if (promises.length == requests.length)
+			{	if (promises.length == requests.length)
 				{	assert(requests.length + requests_processing.length == maxConns);
-					promises.unshift(socket.accept());
+					if (new_request)
+					{	requests[requests.length] = new_request;
+						promises[promises.length] = new_request.poll();
+					}
+					else
+					{	promises[promises.length] = socket.accept();
+					}
+				}
+				else if (new_request)
+				{	assert(promises.length == requests.length+1);
+					let j = requests.length;
+					requests[j] = new_request;
+					promises[j+1] = promises[j];
+					promises[j] = new_request.poll();
 				}
 				requests_processing[i] = requests_processing[requests_processing.length-1];
 				requests_processing.length--;
@@ -83,15 +92,14 @@ export class Server
 			assert(promises.length == (requests.length+requests_processing.length == maxConns ? requests.length : requests.length+1));
 
 			// If requests.length+requests_processing.length < maxConns, then i can accept new connections,
-			// and promises[0] is a promise for accepting a new connection,
+			// and promises[promises.length-1] is a promise for accepting a new connection,
 			// and promises.length == requests.length+1,
-			// and each promises[i+1] corresponds to each requests[i].
+			// and each requests[i] corresponds to each promises[i].
 			//
 			// If requests.length+requests_processing.length == maxConns, then i cannot accept new connections,
-			// and promises.length == requests.length,
-			// and each promises[i] corresponds to each requests[i].
+			// and promises.length == requests.length.
 			//
-			// When accepted a connection (promises[0] resolved), i create new "ServerRequest" object, and put it to "requests", and start polling this object, and poll promise i put to "promises".
+			// When accepted a connection (promises[promises.length-1] resolved), i create new "ServerRequest" object, and put it to "requests", and start polling this object, and poll promise i put to "promises".
 			// When some ServerRequest is polled till completion of FCGI_BEGIN_REQUEST and FCGI_PARAMS, i remove it from "requests", and it's resolved promise from "promises",
 			// and put this ServerRequest object to "requests_processing", and also yield this object to the caller.
 			//
@@ -101,26 +109,30 @@ export class Server
 			let ready = await Promise.race(promises);
 			if (!(ready instanceof ServerRequest))
 			{	// Accepted connection
+				assert(promises.length == requests.length+1);
 				let request = new ServerRequest(onretired, ready, onerror, null, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize);
 				requests[requests.length] = request;
-				promises[promises.length] = request.poll();
-				assert(promises.length == requests.length+1);
+				promises[promises.length-1] = request.poll();
 				if (requests.length+requests_processing.length < maxConns)
 				{	// Immediately start waiting for new
-					promises[0] = socket.accept();
+					promises[promises.length] = socket.accept();
 				}
 				else
 				{	// Take a break accepting new connections
-					promises.shift();
+					assert(promises.length == requests.length);
 				}
 			}
 			else
 			{	// Some ServerRequest is ready (params are read)
 				let i = requests.indexOf(ready);
 				assert(i != -1);
-				let j = promises.length==requests.length ? i : i+1;
-				requests[i] = requests[requests.length-1];
-				promises[j] = promises[promises.length-1];
+				let j = requests.length - 1;
+				requests[i] = requests[j];
+				promises[i] = promises[j];
+				if (promises.length != requests.length)
+				{	assert(promises.length == requests.length+1);
+					promises[j] = promises[j+1];
+				}
 				requests.length--;
 				promises.length--;
 				if (!ready.isTerminated())

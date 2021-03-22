@@ -56,7 +56,7 @@ export class MockFcgiConn extends MockConn
 	}
 
 	pend_read_fcgi_params(request_id: number, params: any)
-	{	let data = pack_nvp(FCGI_PARAMS, request_id, new Map(Object.entries(params)), 100000, 100000);
+	{	let data = pack_nvp(FCGI_PARAMS, request_id, new Map(Object.entries(params)), 0x7FFFFFFF, 0x7FFFFFFF);
 		let break_at = Math.min(this.chunk_size % 10, data.length-9); // choose break boundary depending on "chunk_size" (so will test many possibilities)
 		if (!this.split_stream_records || break_at<=0)
 		{	this.pend_read(data);
@@ -115,7 +115,7 @@ export class MockFcgiConn extends MockConn
 	{	let written = this.get_written();
 		let pos = this.written_pos.get(request_id) || 0;
 		while (pos+8 <= written.length)
-		{	let header = new DataView(written.buffer, pos);
+		{	let header = new DataView(written.buffer, written.byteOffset+pos);
 			let record_type = header.getUint8(1);
 			let rec_request_id = header.getUint16(2);
 			let content_length = header.getUint16(4);
@@ -149,7 +149,7 @@ export class MockFcgiConn extends MockConn
 	{	let record = this.take_written_fcgi(request_id);
 		let protocol_status = -1;
 		if (record?.record_type == FCGI_END_REQUEST)
-		{	let header = new DataView(record!.payload.buffer);
+		{	let header = new DataView(record!.payload.buffer, record!.payload.byteOffset);
 			protocol_status = header.getUint8(4);
 		}
 		return protocol_status==FCGI_REQUEST_COMPLETE ? 'request_complete' : protocol_status==FCGI_UNKNOWN_ROLE ? 'unknown_role' : '';
@@ -159,7 +159,7 @@ export class MockFcgiConn extends MockConn
 	{	let str = '';
 		let pos = 0;
 		while (pos+8 <= this.read_data.length)
-		{	let header = new DataView(this.read_data.buffer, pos);
+		{	let header = new DataView(this.read_data.buffer, this.read_data.byteOffset+pos);
 			let record_type = header.getUint8(1);
 			let request_id = header.getUint16(2);
 			let content_length = header.getUint16(4);

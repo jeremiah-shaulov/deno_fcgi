@@ -6,9 +6,6 @@ import {ServerResponse} from './server_response.ts';
 import {AbortedError, TerminatedError, ProtocolError} from './error.ts';
 
 const BUFFER_LEN = 8*1024;
-const MAX_PARAM_NAME_LEN = BUFFER_LEN;
-const MAX_PARAM_VALUE_LEN = BUFFER_LEN;
-const MAX_NVP = 256;
 
 const FCGI_BEGIN_REQUEST      =  1;
 const FCGI_ABORT_REQUEST      =  2;
@@ -34,8 +31,6 @@ const FCGI_FILTER             =  3;
 const FCGI_KEEP_CONN          =  1;
 
 assert(BUFFER_LEN >= 256+16);
-assert(MAX_PARAM_NAME_LEN <= BUFFER_LEN);
-assert(MAX_PARAM_VALUE_LEN <= BUFFER_LEN);
 
 export class ServerRequest
 {	/// The SCRIPT_URL of the request, like '/path/index.html'
@@ -239,8 +234,11 @@ export class ServerRequest
 	}
 
 	private async *read_nvp(len: number, map: Map<string, string>, http_headers?: Headers): AsyncGenerator<undefined, void, number>
-	{	len |= 0;
-		let {buffer} = this;
+	{	let {buffer, maxNameLength, maxValueLength} = this;
+
+		len |= 0;
+		maxNameLength |= 0;
+		maxValueLength |= 0;
 
 		assert(len > 0);
 
@@ -280,7 +278,7 @@ export class ServerRequest
 					{	if (this.buffer_end-this.buffer_start < 3)
 						{	await this.read_at_least(3);
 						}
-						nv_len = ((nv_len&0x7F) << 24) | (buffer[this.buffer_start+1] << 16) | (buffer[this.buffer_start+2] << 8) | buffer[this.buffer_start+3];
+						nv_len = ((nv_len&0x7F) << 24) | (buffer[this.buffer_start] << 16) | (buffer[this.buffer_start+1] << 8) | buffer[this.buffer_start+2];
 						this.buffer_start += 3;
 						len -= 3;
 					}
@@ -296,14 +294,14 @@ export class ServerRequest
 			}
 
 			// Read or skip name and value
-			if (name_len>MAX_PARAM_NAME_LEN || value_len>MAX_PARAM_VALUE_LEN || map.size>=MAX_NVP)
+			if (name_len>maxNameLength || value_len>maxValueLength)
 			{	// Skip if name or value is too long
 				let n_skip = name_len + value_len;
 				while (true)
 				{	let cur_n = Math.min(n_skip, len);
 					n_skip -= cur_n;
 					len -= cur_n;
-					this.skip_bytes(cur_n);
+					await this.skip_bytes(cur_n);
 					if (n_skip <= 0)
 					{	break;
 					}
@@ -630,7 +628,7 @@ export class ServerRequest
 							await this.cur_nvp_read_state.next(content_length);
 						}
 						else
-						{	this.skip_bytes(content_length);
+						{	await this.skip_bytes(content_length);
 						}
 						break;
 					}
@@ -652,7 +650,7 @@ export class ServerRequest
 							return this;
 						}
 						else
-						{	this.skip_bytes(content_length);
+						{	await this.skip_bytes(content_length);
 						}
 						break;
 					}
@@ -674,7 +672,7 @@ export class ServerRequest
 					}
 					default:
 					{	this.write_raw(record_unknown_type(record_type));
-						this.skip_bytes(content_length);
+						await this.skip_bytes(content_length);
 						break;
 					}
 				}
@@ -701,7 +699,8 @@ export class ServerRequest
 }
 
 function set_record_end_request(buffer: Uint8Array, offset: number, request_id: number, protocol_status: number)
-{	let v = new DataView(buffer.buffer, offset);
+{	assert(buffer.byteOffset == 0); // i create such
+	let v = new DataView(buffer.buffer, offset);
 	v.setUint8(0, 1); // version
 	v.setUint8(1, FCGI_END_REQUEST); // record_type
 	v.setUint16(2, request_id); // request_id
@@ -734,7 +733,8 @@ function record_unknown_type(record_type: number)
 }
 
 function set_record_stdout(buffer: Uint8Array, offset: number, record_type: number, request_id: number, content_length=0, padding_length=0)
-{	let v = new DataView(buffer.buffer, offset);
+{	assert(buffer.byteOffset == 0); // i create such
+	let v = new DataView(buffer.buffer, offset);
 	v.setUint8(0, 1); // version
 	v.setUint8(1, record_type); // record_type
 	v.setUint16(2, request_id); // request_id
@@ -745,7 +745,8 @@ function set_record_stdout(buffer: Uint8Array, offset: number, record_type: numb
 }
 
 export function pack_nvp(record_type: number, request_id: number, value: Map<string, string>, maxNameLength: number, maxValueLength: number): Uint8Array
-{	let all = new Uint8Array(BUFFER_LEN/2);
+{	assert(record_type==FCGI_GET_VALUES_RESULT || record_type==FCGI_PARAMS);
+	let all = new Uint8Array(BUFFER_LEN/2);
 	let offset = 8; // after packet header (that will be added later)
 	let encoder = new TextEncoder;
 	for (let [k, v] of value)
@@ -769,7 +770,7 @@ export function pack_nvp(record_type: number, request_id: number, value: Map<str
 		{	all[offset++] = k_buf.length;
 		}
 		else
-		{	all[offset++] = k_buf.length >> 24;
+		{	all[offset++] = 0x80 | (k_buf.length >> 24);
 			all[offset++] = (k_buf.length >> 16) & 0xFF;
 			all[offset++] = (k_buf.length >> 8) & 0xFF;
 			all[offset++] = k_buf.length & 0xFF;
@@ -779,7 +780,7 @@ export function pack_nvp(record_type: number, request_id: number, value: Map<str
 		{	all[offset++] = v_buf.length;
 		}
 		else
-		{	all[offset++] = v_buf.length >> 24;
+		{	all[offset++] = 0x80 | (v_buf.length >> 24);
 			all[offset++] = (v_buf.length >> 16) & 0xFF;
 			all[offset++] = (v_buf.length >> 8) & 0xFF;
 			all[offset++] = v_buf.length & 0xFF;

@@ -12,6 +12,14 @@ function *test_connections(): Generator<MockFcgiConn>
 	}
 }
 
+function get_random_string(length: number)
+{	let buffer = new Uint8Array(length);
+	for (let i=0; i<buffer.length; i++)
+	{	buffer[i] = 32 + Math.floor(Math.random()*90);
+	}
+	return new TextDecoder().decode(buffer);
+}
+
 Deno.test
 (	'Basic request',
 	async () =>
