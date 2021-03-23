@@ -57,38 +57,40 @@ export class MockFcgiConn extends MockConn
 
 	pend_read_fcgi_params(request_id: number, params: any)
 	{	let data = pack_nvp(FCGI_PARAMS, request_id, new Map(Object.entries(params)), 0x7FFFFFFF, 0x7FFFFFFF);
-		let break_at = Math.min(this.chunk_size % 10, data.length-9); // choose break boundary depending on "chunk_size" (so will test many possibilities)
-		if (!this.split_stream_records || break_at<=0)
-		{	this.pend_read(data);
-		}
-		else
-		{	let part_0 = data.slice(0, 8+break_at); // header + "break_at" bytes
-			let part_1 = data.slice(break_at); // space for new header + data starting at byte "break_at"
-			let header_0 = new DataView(part_0.buffer);
-			let header_1 = new DataView(part_1.buffer);
-			let content_length = header_0.getUint16(4);
-			let padding_length = header_0.getUint8(6);
-			if (content_length <= break_at)
+		if (data.length > 8)
+		{	let break_at = Math.min(this.chunk_size % 10, data.length-9); // choose break boundary depending on "chunk_size" (so will test many possibilities)
+			if (!this.split_stream_records || break_at<=0)
 			{	this.pend_read(data);
 			}
 			else
-			{	// header_0
-				header_0.setUint8(0, 1); // version
-				header_0.setUint8(1, FCGI_PARAMS); // record_type
-				header_0.setUint16(2, request_id); // request_id
-				header_0.setUint16(4, break_at); // content_length
-				header_0.setUint8(6, 0); // padding_length
-				header_0.setUint8(7, 0); // reserved
-				// header_1
-				header_1.setUint8(0, 1); // version
-				header_1.setUint8(1, FCGI_PARAMS); // record_type
-				header_1.setUint16(2, request_id); // request_id
-				header_1.setUint16(4, content_length-break_at); // content_length
-				header_1.setUint8(6, padding_length); // padding_length
-				header_1.setUint8(7, 0); // reserved
-				// send
-				this.pend_read(part_0);
-				this.pend_read(part_1);
+			{	let part_0 = data.slice(0, 8+break_at); // header + "break_at" bytes
+				let part_1 = data.slice(break_at); // space for new header + data starting at byte "break_at"
+				let header_0 = new DataView(part_0.buffer);
+				let header_1 = new DataView(part_1.buffer);
+				let content_length = header_0.getUint16(4);
+				let padding_length = header_0.getUint8(6);
+				if (content_length <= break_at)
+				{	this.pend_read(data);
+				}
+				else
+				{	// header_0
+					header_0.setUint8(0, 1); // version
+					header_0.setUint8(1, FCGI_PARAMS); // record_type
+					header_0.setUint16(2, request_id); // request_id
+					header_0.setUint16(4, break_at); // content_length
+					header_0.setUint8(6, 0); // padding_length
+					header_0.setUint8(7, 0); // reserved
+					// header_1
+					header_1.setUint8(0, 1); // version
+					header_1.setUint8(1, FCGI_PARAMS); // record_type
+					header_1.setUint16(2, request_id); // request_id
+					header_1.setUint16(4, content_length-break_at); // content_length
+					header_1.setUint8(6, padding_length); // padding_length
+					header_1.setUint8(7, 0); // reserved
+					// send
+					this.pend_read(part_0);
+					this.pend_read(part_1);
+				}
 			}
 		}
 		this.pend_read_fcgi(FCGI_PARAMS, request_id, new Uint8Array); // empty record terminates stream
@@ -111,12 +113,15 @@ export class MockFcgiConn extends MockConn
 	{	this.pend_read_fcgi(FCGI_ABORT_REQUEST, request_id, new Uint8Array);
 	}
 
-	take_written_fcgi(request_id: number): {record_type: number, payload: Uint8Array} | undefined
+	take_written_fcgi(request_id: number, only_id_record_type?: number): {record_type: number, payload: Uint8Array} | undefined
 	{	let written = this.get_written();
 		let pos = this.written_pos.get(request_id) || 0;
 		while (pos+8 <= written.length)
 		{	let header = new DataView(written.buffer, written.byteOffset+pos);
 			let record_type = header.getUint8(1);
+			if (only_id_record_type!=undefined && record_type!=only_id_record_type)
+			{	break;
+			}
 			let rec_request_id = header.getUint16(2);
 			let content_length = header.getUint16(4);
 			let padding_length = header.getUint8(6);
@@ -133,22 +138,22 @@ export class MockFcgiConn extends MockConn
 	{	let record_type = is_stderr ? FCGI_STDERR : FCGI_STDOUT;
 		let data = new Uint8Array(0);
 		let record;
-		while ((record = this.take_written_fcgi(request_id))?.record_type == record_type)
-		{	if (record!.payload.length == 0)
+		while ((record = this.take_written_fcgi(request_id, record_type)))
+		{	if (record.payload.length == 0)
 			{	break;
 			}
-			let tmp = new Uint8Array(data.length + record!.payload.length);
+			let tmp = new Uint8Array(data.length + record.payload.length);
 			tmp.set(data);
-			tmp.set(record!.payload, data.length);
+			tmp.set(record.payload, data.length);
 			data = tmp;
 		}
 		return new TextDecoder().decode(data);
 	}
 
 	take_written_fcgi_end_request(request_id: number): string
-	{	let record = this.take_written_fcgi(request_id);
+	{	let record = this.take_written_fcgi(request_id, FCGI_END_REQUEST);
 		let protocol_status = -1;
-		if (record?.record_type == FCGI_END_REQUEST)
+		if (record)
 		{	let header = new DataView(record!.payload.buffer, record!.payload.byteOffset);
 			protocol_status = header.getUint8(4);
 		}
@@ -157,26 +162,31 @@ export class MockFcgiConn extends MockConn
 
 	toString()
 	{	let str = '';
-		let pos = 0;
-		while (pos+8 <= this.read_data.length)
-		{	let header = new DataView(this.read_data.buffer, this.read_data.byteOffset+pos);
-			let record_type = header.getUint8(1);
-			let request_id = header.getUint16(2);
-			let content_length = header.getUint16(4);
-			let padding_length = header.getUint8(6);
-			let payload = this.read_data.subarray(pos+8, pos+8+content_length);
-			str += `@${pos} ID${request_id} ${RECORD_TYPE_NAMES[record_type] || '?'} (${content_length} + ${padding_length} bytes)`;
-			if (record_type == FCGI_BEGIN_REQUEST)
-			{	let role = header.getUint16(8);
-				let keep_conn = (header.getUint8(10) & FCGI_KEEP_CONN)!=0 ? 'keep_conn' : '!keep_conn';
-				let role_name = role==FCGI_RESPONDER ? 'responder' : role==FCGI_AUTHORIZER ? 'authorizer' : 'filter';
-				str += `: ${role_name} ${keep_conn}`;
+		for (let data of [this.read_data, this.get_written()])
+		{	if (data!=this.read_data && data.length)
+			{	str += '----------- OUTPUT -----------\n\n';
 			}
-			else if (record_type != FCGI_PARAMS)
-			{	str += ': ' + new TextDecoder().decode(payload);
+			let pos = 0;
+			while (pos+8 <= data.length)
+			{	let header = new DataView(data.buffer, data.byteOffset+pos);
+				let record_type = header.getUint8(1);
+				let request_id = header.getUint16(2);
+				let content_length = header.getUint16(4);
+				let padding_length = header.getUint8(6);
+				let payload = data.subarray(pos+8, pos+8+content_length);
+				str += `@${pos} ID${request_id} ${RECORD_TYPE_NAMES[record_type] || '?'} (${content_length} + ${padding_length} bytes)`;
+				if (record_type == FCGI_BEGIN_REQUEST)
+				{	let role = header.getUint16(8);
+					let keep_conn = (header.getUint8(10) & FCGI_KEEP_CONN)!=0 ? 'keep_conn' : '!keep_conn';
+					let role_name = role==FCGI_RESPONDER ? 'responder' : role==FCGI_AUTHORIZER ? 'authorizer' : 'filter';
+					str += `: ${role_name} ${keep_conn}`;
+				}
+				else if (record_type != FCGI_PARAMS)
+				{	str += ': ' + new TextDecoder().decode(payload);
+				}
+				str += '\n\n';
+				pos += 8 + content_length + padding_length;
 			}
-			str += '\n\n';
-			pos += 8 + content_length + padding_length;
 		}
 		return str;
 	}

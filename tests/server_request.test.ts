@@ -4,20 +4,24 @@ import {TEST_CHUNK_SIZES, map_to_obj, MockListener, MockFcgiConn} from './mock/m
 import {Server} from "../server.ts";
 import {AbortedError, TerminatedError, ProtocolError} from '../error.ts';
 
-function *test_connections(): Generator<MockFcgiConn>
-{	for (let chunk_size of TEST_CHUNK_SIZES)
+function *test_connections(only_chunk_sizes?: number[]): Generator<MockFcgiConn>
+{	for (let chunk_size of only_chunk_sizes || TEST_CHUNK_SIZES)
 	{	for (let i=0; i<4; i++)
 		{	yield new MockFcgiConn(chunk_size, i%2==0, i>=2);
 		}
 	}
 }
 
-function get_random_string(length: number)
+function get_random_bytes(length: number)
 {	let buffer = new Uint8Array(length);
 	for (let i=0; i<buffer.length; i++)
 	{	buffer[i] = 32 + Math.floor(Math.random()*90);
 	}
-	return new TextDecoder().decode(buffer);
+	return buffer;
+}
+
+function get_random_string(length: number)
+{	return new TextDecoder().decode(get_random_bytes(length));
 }
 
 Deno.test
@@ -26,6 +30,8 @@ Deno.test
 	{	for (let conn of test_connections())
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
+			let server_error;
+			server.on('error', e => {server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
 			conn.pend_read_fcgi_params(1, {HELLO: 'all'});
@@ -54,6 +60,7 @@ Deno.test
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\nx-hello: all\r\n\r\nResponse body');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 			assertEquals(conn.take_written_fcgi(1), undefined);
+			assert(!server_error);
 		}
 	}
 );
@@ -64,6 +71,8 @@ Deno.test
 	{	for (let conn of test_connections())
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
+			let server_error;
+			server.on('error', e => {server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
 			conn.pend_read_fcgi_stdin(1, 'Body');
@@ -81,6 +90,7 @@ Deno.test
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 500\r\n\r\nResponse body');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 			assertEquals(conn.take_written_fcgi(1), undefined);
+			assert(!server_error);
 		}
 	}
 );
@@ -91,6 +101,8 @@ Deno.test
 	{	for (let conn of test_connections())
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
+			let server_error;
+			server.on('error', e => {server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
 			conn.pend_read_fcgi_params(1, {HELLO: 'all'});
@@ -107,6 +119,7 @@ Deno.test
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 404\r\nx-hello: all\r\n\r\nResponse body');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 			assertEquals(conn.take_written_fcgi(1), undefined);
+			assert(!server_error);
 		}
 	}
 );
@@ -117,6 +130,8 @@ Deno.test
 	{	for (let conn of test_connections())
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
+			let server_error;
+			server.on('error', e => {server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
 			conn.pend_read_fcgi_params(1, {HTTP_COOKIE: 'coo-1="val <1>"; coo-2=val <2>.'});
@@ -137,6 +152,7 @@ Deno.test
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\nset-cookie: coo-1=New%20value; Domain=example.com\r\n\r\n');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 			assertEquals(conn.take_written_fcgi(1), undefined);
+			assert(!server_error);
 		}
 	}
 );
@@ -147,6 +163,8 @@ Deno.test
 	{	for (let conn of test_connections())
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
+			let server_error;
+			server.on('error', e => {server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
 			conn.pend_read_fcgi_params(1, {HELLO: 'all'});
@@ -186,6 +204,7 @@ Deno.test
 				// done
 				break;
 			}
+			assert(!server_error);
 		}
 	}
 );
@@ -196,6 +215,8 @@ Deno.test
 	{	for (let conn of test_connections())
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
+			let server_error;
+			server.on('error', e => {server_error = e});
 			// write request 1
 			conn.pend_read_fcgi_begin_request(1, 'responder', true);
 			conn.pend_read_fcgi_params(1, {id: 'req 1'});
@@ -218,6 +239,7 @@ Deno.test
 				{	break;
 				}
 			}
+			assert(!server_error);
 		}
 	}
 );
@@ -253,27 +275,120 @@ Deno.test
 );
 
 Deno.test
-(	'maxNameLength',
+(	'Params: maxNameLength',
 	async () =>
-	{	for (let maxNameLength of [1, 2, 3, 8*1024-32, 8*1024-1, 8*1024, 8*1024+1, 0xFFF0, 0xFFF8, 0xFFFF, 0x10000, 0x10001])
-		{	for (let conn of test_connections())
-			{	let name_err = get_random_string(maxNameLength+1);
-				let name_ok = name_err.slice(0, -1);
+	{	for (let maxNameLength of [1, 2, 3, 8*1024, 0xFFF8, 0xFFFF])
+		{	for (let conn of test_connections([2, 12, 13]))
+			{	let str_err = get_random_string(maxNameLength+1);
+				let str_ok = str_err.slice(0, -1);
 				let listener = new MockListener([conn]);
 				let server = new Server(listener, {maxNameLength});
+				let server_error;
+				server.on('error', e => {server_error = e});
 				// write
 				conn.pend_read_fcgi_begin_request(1, 'responder', true);
-				conn.pend_read_fcgi_params(1, {[name_ok]: 'ok', [name_err]: 'err'});
+				conn.pend_read_fcgi_params(1, {[str_ok]: 'ok', [str_err]: 'err'});
 				conn.pend_read_fcgi_stdin(1, '');
 				// accept
 				for await (let req of server)
 				{	assertEquals(req.params.size, 1);
-					assertEquals(req.params.get(name_ok), 'ok');
+					assertEquals(req.params.get(str_ok), 'ok');
 					assertEquals((await Deno.readAll(req.body)).length, 0);
 					await req.respond();
 					break;
 				}
+				assert(!server_error);
 			}
+		}
+	}
+);
+
+Deno.test
+(	'Params: maxValueLength',
+	async () =>
+	{	for (let maxValueLength of [1, 2, 3, 8*1024, 0xFFF8, 0xFFFF])
+		{	for (let conn of test_connections([2, 12, 13]))
+			{	let str_err = get_random_string(maxValueLength+1);
+				let str_ok = str_err.slice(0, -1);
+				let listener = new MockListener([conn]);
+				let server = new Server(listener, {maxValueLength});
+				let server_error;
+				server.on('error', e => {server_error = e});
+				// write
+				conn.pend_read_fcgi_begin_request(1, 'responder', true);
+				conn.pend_read_fcgi_params(1, {'ok': str_ok, 'err': str_err});
+				conn.pend_read_fcgi_stdin(1, '');
+				// accept
+				for await (let req of server)
+				{	assertEquals(req.params.size, 1);
+					assertEquals(req.params.get('ok'), str_ok);
+					assertEquals((await Deno.readAll(req.body)).length, 0);
+					await req.respond();
+					break;
+				}
+				assert(!server_error);
+			}
+		}
+	}
+);
+
+Deno.test
+(	'Long body',
+	async () =>
+	{	for (let len of [1, 2, 3, 8*1024, 0xFFF8, 0xFFFF])
+		{	for (let conn of test_connections([2, 12, 13]))
+			{	let str_request = get_random_bytes(len);
+				let str_response = get_random_string(len);
+				let listener = new MockListener([conn]);
+				let server = new Server(listener);
+				let server_error;
+				server.on('error', e => {server_error = e});
+				// write
+				conn.pend_read_fcgi_begin_request(1, 'responder', true);
+				conn.pend_read_fcgi_params(1, {});
+				conn.pend_read_fcgi_stdin(1, new TextDecoder().decode(str_request));
+				// accept
+				for await (let req of server)
+				{	assertEquals((await Deno.readAll(req.body)), str_request);
+					await req.respond({body: str_response});
+					break;
+				}
+				// read
+				assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n'+str_response);
+				assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+				assertEquals(conn.take_written_fcgi(1), undefined);
+				assert(!server_error);
+			}
+		}
+	}
+);
+
+Deno.test
+(	'Log error',
+	async () =>
+	{	for (let conn of test_connections())
+		{	let listener = new MockListener([conn]);
+			let server = new Server(listener);
+			let server_error;
+			server.on('error', e => {server_error = e});
+			// write
+			conn.pend_read_fcgi_begin_request(2, 'responder', false);
+			conn.pend_read_fcgi_params(2, {});
+			conn.pend_read_fcgi_stdin(2, '');
+			// accept
+			for await (let req of server)
+			{	assertEquals(req.params.size, 0);
+				req.logError('Hello');
+				await req.respond();
+				break;
+			}
+			// read
+			assertEquals(conn.take_written_fcgi_stdout(2, true), 'Hello\n');
+			assertEquals(conn.take_written_fcgi_stdout(2), 'status: 200\r\n\r\n');
+			assertEquals(conn.take_written_fcgi_stdout(2, true), '');
+			assertEquals(conn.take_written_fcgi_end_request(2), 'request_complete');
+			assertEquals(conn.take_written_fcgi(2), undefined);
+			assert(!server_error);
 		}
 	}
 );

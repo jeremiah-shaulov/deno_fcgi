@@ -134,6 +134,13 @@ export class ServerRequest
 	{	return this.write_stdout(buffer);
 	}
 
+	/**	Send error message to SAPI, that probably will be printed to error log file of FastCGI server.
+		Call this before `respond()`.
+	 **/
+	logError(message: string)
+	{	this.write_stdout(this.encoder.encode(message+'\n'), FCGI_STDERR);
+	}
+
 	async respond(response?: ServerResponse)
 	{	while (!this.stdin_complete && !this.is_terminated)
 		{	await this.poll();
@@ -233,6 +240,13 @@ export class ServerRequest
 		return true;
 	}
 
+	/**	Parses sequence of FCGI_PARAMS records to "map" and "http_headers" (if given).
+		"len" - length of the record.
+		Start by calling "read_nvp()" with length of first such record, and saving the generator result to "this.cur_nvp_read_state".
+		It will read everything non-partial from the record, and put to the "map" (and "http_headers").
+		And it will remember intermediate parsing state.
+		When next such record arrives, call "this.cur_nvp_read_state.next(len)" with the length of the new record.
+	 **/
 	private async *read_nvp(len: number, map: Map<string, string>, http_headers?: Headers): AsyncGenerator<undefined, void, number>
 	{	let {buffer, maxNameLength, maxValueLength} = this;
 
@@ -506,12 +520,11 @@ export class ServerRequest
 		}
 
 		try
-		{	this.buffer_start += this.stdin_length; // discard stdin part if not read
+		{	this.buffer_start += this.stdin_length; // discard stdin part if not consumed
 			if (this.stdin_content_length != 0)
 			{	// is in the middle of reading FCGI_STDIN
 				if (this.stdin_content_length > BUFFER_LEN)
 				{	await this.read_at_least(BUFFER_LEN);
-					this.buffer_start = this.buffer_end;
 					this.stdin_length = BUFFER_LEN;
 					this.stdin_content_length -= BUFFER_LEN;
 					return this;

@@ -43,7 +43,7 @@ export class MockConn implements Deno.Conn
 	{	let chunk_size = Math.min(buffer.length, this.chunk_size);
 		if (this.write_data.length-this.write_pos < chunk_size)
 		{	// realloc
-			let tmp = new Uint8Array(this.write_data.length * 2);
+			let tmp = new Uint8Array(Math.max(this.write_data.length+chunk_size, this.write_data.length * 2));
 			tmp.set(this.write_data);
 			this.write_data = tmp;
 		}

@@ -45,9 +45,7 @@ export class Server
 		function onretired(request: ServerRequest, new_request?: ServerRequest)
 		{	let i = requests_processing.indexOf(request);
 			if (i == -1)
-			{	if (that.is_closed)
-				{	i = requests.indexOf(request);
-				}
+			{	i = requests.indexOf(request);
 				if (i == -1)
 				{	onerror(new Error('retired(): request not found'));
 				}
