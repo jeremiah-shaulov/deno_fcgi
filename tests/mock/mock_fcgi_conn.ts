@@ -29,13 +29,13 @@ const RECORD_TYPE_NAMES = ['', 'BEGIN_REQUEST', 'ABORT_REQUEST', 'END_REQUEST', 
 export class MockFcgiConn extends MockConn
 {	private written_pos = new Map<number, number>();
 
-	constructor(chunk_size: number, private without_padding=false, private split_stream_records=false)
+	constructor(chunk_size: number, private force_padding=-1, private split_stream_records=false)
 	{	super('', chunk_size);
 	}
 
 	private pend_read_fcgi(record_type: number, request_id: number, payload: string|Uint8Array)
 	{	let payload_bytes = typeof(payload)!='string' ? payload : new TextEncoder().encode(payload);
-		let padding = this.without_padding ? 0 : (8 - payload_bytes.length%8) % 8;
+		let padding = this.force_padding>=0 && this.force_padding<=255 ? this.force_padding : (8 - payload_bytes.length%8) % 8;
 		let tmp_2 = new Uint8Array(8 + payload_bytes.length + padding);
 		tmp_2.set(payload_bytes, 8);
 		let header = new DataView(tmp_2.buffer);
@@ -96,7 +96,7 @@ export class MockFcgiConn extends MockConn
 		this.pend_read_fcgi(FCGI_PARAMS, request_id, new Uint8Array); // empty record terminates stream
 	}
 
-	pend_read_fcgi_stdin(request_id: number, str: string)
+	pend_read_fcgi_stdin(request_id: number, str: string, abort=false)
 	{	if (str.length > 0)
 		{	if (!this.split_stream_records || str.length<=1)
 			{	this.pend_read_fcgi(FCGI_STDIN, request_id, str);
@@ -106,12 +106,16 @@ export class MockFcgiConn extends MockConn
 				this.pend_read_fcgi(FCGI_STDIN, request_id, str.slice(1));
 			}
 		}
-		this.pend_read_fcgi(FCGI_STDIN, request_id, new Uint8Array); // empty record terminates stream
+		this.pend_read_fcgi(abort ? FCGI_ABORT_REQUEST : FCGI_STDIN, request_id, new Uint8Array); // empty record terminates stream
 	}
 
-	pend_read_fcgi_abort_request(request_id: number)
-	{	this.pend_read_fcgi(FCGI_ABORT_REQUEST, request_id, new Uint8Array);
+	pend_read_fcgi_abort_request(request_id: number, stdin='')
+	{	this.pend_read_fcgi_stdin(request_id, stdin, true);
 	}
+
+	/*currupt_last_bytes(n_bytes=1)
+	{	this.read_data = this.read_data.slice(0, -n_bytes);
+	}*/
 
 	take_written_fcgi(request_id: number, only_id_record_type?: number): {record_type: number, payload: Uint8Array} | undefined
 	{	let written = this.get_written();
@@ -148,6 +152,10 @@ export class MockFcgiConn extends MockConn
 			data = tmp;
 		}
 		return new TextDecoder().decode(data);
+	}
+
+	take_written_fcgi_stderr(request_id: number): string | undefined
+	{	return this.take_written_fcgi_stdout(request_id, true);
 	}
 
 	take_written_fcgi_end_request(request_id: number): string

@@ -115,13 +115,13 @@ export class ServerRequest
 				return chunk_size;
 			}
 			else if (this.stdin_complete)
-			{	return null;
-			}
-			else if (this.is_terminated)
 			{	if (this.is_aborted)
 				{	throw new AbortedError('Request aborted');
 				}
-				throw new TerminatedError('Request already terminated');
+				return null;
+			}
+			else if (this.is_terminated)
+			{	throw new TerminatedError('Request already terminated');
 			}
 			else
 			{	await this.poll();
@@ -138,7 +138,7 @@ export class ServerRequest
 		Call this before `respond()`.
 	 **/
 	logError(message: string)
-	{	this.write_stdout(this.encoder.encode(message+'\n'), FCGI_STDERR);
+	{	this.write_stdout(this.encoder.encode(message), FCGI_STDERR);
 	}
 
 	async respond(response?: ServerResponse)
@@ -146,49 +146,53 @@ export class ServerRequest
 		{	await this.poll();
 		}
 		if (this.is_terminated)
-		{	if (this.is_aborted)
-			{	this.is_aborted = false; // after respond() called, only TerminatedError must be thrown
-				throw new AbortedError('Request aborted');
-			}
+		{	await this.ongoing;
 			throw new TerminatedError('Request already terminated');
 		}
-		if (response)
-		{	var {status, headers, body} = response;
+		if (this.is_aborted)
+		{	await this.ongoing;
 		}
-		if (!this.headersSent)
-		{	if (headers)
-			{	for (let [k, v] of headers)
-				{	this.responseHeaders.set(k, v);
+		else
+		{	if (response)
+			{	var {status, headers, body} = response;
+			}
+			if (!this.headersSent)
+			{	if (headers)
+				{	for (let [k, v] of headers)
+					{	this.responseHeaders.set(k, v);
+					}
+				}
+				if (status)
+				{	this.responseStatus = status;
 				}
 			}
-			if (status)
-			{	this.responseStatus = status;
-			}
-		}
-		try
-		{	if (body)
-			{	if (typeof(body) == 'string')
-				{	body = this.encoder.encode(body);
-				}
-				if (body instanceof Uint8Array)
-				{	await this.write_stdout(body, FCGI_STDOUT, true);
+			try
+			{	if (body)
+				{	if (typeof(body) == 'string')
+					{	body = this.encoder.encode(body);
+					}
+					if (body instanceof Uint8Array)
+					{	await this.write_stdout(body, FCGI_STDOUT, true);
+					}
+					else
+					{	await Deno.copy(body, this);
+						await this.write_stdout(new Uint8Array(0), FCGI_STDOUT, true);
+					}
 				}
 				else
-				{	await Deno.copy(body, this);
-					await this.write_stdout(new Uint8Array(0), FCGI_STDOUT, true);
+				{	await this.write_stdout(new Uint8Array(0), FCGI_STDOUT, true);
 				}
 			}
-			else
-			{	await this.write_stdout(new Uint8Array(0), FCGI_STDOUT, true);
+			catch (e)
+			{	this.is_terminated = true;
+				await this.do_close();
+				throw e;
 			}
-		}
-		catch (e)
-		{	this.onerror(e);
-			this.no_keep_conn = true;
 		}
 		// Prepare for further requests on this connection
 		if (this.no_keep_conn)
-		{	this.close();
+		{	this.is_terminated = true;
+			await this.do_close();
 		}
 		else
 		{	this.post.close();
@@ -200,15 +204,27 @@ export class ServerRequest
 			this.is_terminated = true;
 			this.onretired(this, new_obj);
 		}
+		if (this.is_aborted)
+		{	this.is_aborted = false; // after respond() called, only TerminatedError must be thrown
+			throw new AbortedError('Request aborted');
+		}
 	}
 
 	close()
 	{	if (!this.is_terminated)
 		{	this.is_terminated = true;
-			this.conn.close();
-			this.post.close();
-			this.onretired(this);
+			this.do_close();
 		}
+	}
+
+	private do_close()
+	{	return this.ongoing.catch(this.onerror).then
+		(	() =>
+			{	this.conn.close();
+				this.post.close();
+				this.onretired(this);
+			}
+		);
 	}
 
 	isTerminated()
@@ -504,10 +520,10 @@ export class ServerRequest
 	/**	This function doesn't throw exceptions. It always returns "this".
 		Before returning it sets one of the following:
 		- is_terminated
-		- is_aborted + is_terminated
 		- params
 		- stdin_length
 		- stdin_complete
+		- is_aborted + stdin_complete
 	 **/
 	async poll()
 	{	let {buffer} = this;
@@ -521,6 +537,7 @@ export class ServerRequest
 
 		try
 		{	this.buffer_start += this.stdin_length; // discard stdin part if not consumed
+			this.stdin_length = 0;
 			if (this.stdin_content_length != 0)
 			{	// is in the middle of reading FCGI_STDIN
 				if (this.stdin_content_length > BUFFER_LEN)
@@ -583,12 +600,12 @@ export class ServerRequest
 					{	this.write_raw(set_record_end_request(new Uint8Array(16), 0, request_id, FCGI_REQUEST_COMPLETE));
 						if (request_id == this.request_id)
 						{	this.is_aborted = true;
+							this.stdin_complete = true;
 							// skip content_length + padding_length
 							if (this.buffer_end-this.buffer_start < content_length+padding_length)
 							{	await this.read_at_least(content_length+padding_length);
 							}
 							this.buffer_start += content_length + padding_length;
-							this.close();
 							return this;
 						}
 						break;
@@ -663,6 +680,11 @@ export class ServerRequest
 						if (request_id == this.request_id)
 						{	if (content_length == 0) // empty record terminates records stream
 							{	this.stdin_complete = true;
+								// skip padding_length
+								if (this.buffer_end-this.buffer_start < padding_length)
+								{	await this.read_at_least(padding_length);
+								}
+								this.buffer_start += padding_length;
 							}
 							else
 							{	if (this.buffer_end == this.buffer_start)
@@ -711,12 +733,6 @@ export class ServerRequest
 		}
 		catch (e)
 		{	this.onerror(e);
-			try
-			{	await this.ongoing;
-			}
-			catch (e2)
-			{	this.onerror(e2);
-			}
 			this.close();
 			return this;
 		}

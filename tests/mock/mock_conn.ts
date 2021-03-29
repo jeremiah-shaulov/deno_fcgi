@@ -40,7 +40,10 @@ export class MockConn implements Deno.Conn
 	}
 
 	async write(buffer: Uint8Array): Promise<number>
-	{	let chunk_size = Math.min(buffer.length, this.chunk_size);
+	{	if (this.is_closed)
+		{	throw new Error('Connection closed');
+		}
+		let chunk_size = Math.min(buffer.length, this.chunk_size);
 		if (this.write_data.length-this.write_pos < chunk_size)
 		{	// realloc
 			let tmp = new Uint8Array(Math.max(this.write_data.length+chunk_size, this.write_data.length * 2));
