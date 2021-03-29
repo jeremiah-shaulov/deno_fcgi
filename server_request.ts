@@ -566,7 +566,8 @@ export class ServerRequest
 			{	// 1. Read packet header
 				if (this.buffer_end-this.buffer_start < 8)
 				{	if (!await this.read_at_least(8, true))
-					{	this.close();
+					{	this.is_terminated = true;
+						await this.do_close();
 						return this;
 					}
 				}
@@ -733,7 +734,8 @@ export class ServerRequest
 		}
 		catch (e)
 		{	this.onerror(e);
-			this.close();
+			this.is_terminated = true;
+			await this.do_close();
 			return this;
 		}
 	}

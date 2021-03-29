@@ -40,7 +40,6 @@ export class Server
 		maxNameLength |= 0;
 		maxValueLength |= 0;
 		maxFileSize |= 0;
-		let that = this;
 
 		function onretired(request: ServerRequest, new_request?: ServerRequest)
 		{	let i = requests_processing.indexOf(request);
@@ -50,9 +49,12 @@ export class Server
 				{	onerror(new Error('retired(): request not found'));
 				}
 				else
-				{	let j = promises.length==requests.length ? i : i+1;
-					requests[i] = requests[requests.length-1];
-					promises[j] = promises[promises.length-1];
+				{	let j = requests.length - 1;
+					requests[i] = requests[j];
+					promises[i] = promises[j];
+					if (promises.length != requests.length)
+					{	promises[j] = promises[j+1];
+					}
 					requests.length--;
 					promises.length--;
 				}
@@ -123,19 +125,23 @@ export class Server
 			else
 			{	// Some ServerRequest is ready (params are read)
 				let i = requests.indexOf(ready);
-				debug_assert(i != -1);
-				let j = requests.length - 1;
-				requests[i] = requests[j];
-				promises[i] = promises[j];
-				if (promises.length != requests.length)
-				{	debug_assert(promises.length == requests.length+1);
-					promises[j] = promises[j+1];
+				if (i != -1)
+				{	let j = requests.length - 1;
+					requests[i] = requests[j];
+					promises[i] = promises[j];
+					if (promises.length != requests.length)
+					{	debug_assert(promises.length == requests.length+1);
+						promises[j] = promises[j+1];
+					}
+					requests.length--;
+					promises.length--;
+					if (!ready.isTerminated())
+					{	requests_processing[requests_processing.length] = ready;
+						yield ready;
+					}
 				}
-				requests.length--;
-				promises.length--;
-				if (!ready.isTerminated())
-				{	requests_processing[requests_processing.length] = ready;
-					yield ready;
+				else
+				{	// assume: ready.is_terminated
 				}
 			}
 		}
