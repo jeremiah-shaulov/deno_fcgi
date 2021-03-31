@@ -644,7 +644,7 @@ Deno.test
 Deno.test
 (	'Long body',
 	async () =>
-	{	for (let len of [1, 2, 3, 8*1024, 0xFFF8, 0xFFFF])
+	{	for (let len of [1, 2, 3, 8*1024, 8*1024+1, 0xFFF8, 0xFFFF])
 		{	for (let conn of test_connections([2, 12, 13]))
 			{	let str_request = get_random_bytes(len);
 				let str_response = get_random_string(len);
@@ -659,11 +659,20 @@ Deno.test
 				// accept
 				for await (let req of server)
 				{	assertEquals((await Deno.readAll(req.body)), str_request);
+					if (len==1 || len==0xFFF8)
+					{	req.logError('Hello');
+					}
 					await req.respond({body: str_response});
 					break;
 				}
 				// read
+				if (len==1 || len==0xFFF8)
+				{	assertEquals(conn.take_written_fcgi_stderr(1), 'Hello'); // not terminated STDERR
+				}
 				assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n'+str_response);
+				if (len==1 || len==0xFFF8)
+				{	assertEquals(conn.take_written_fcgi_stderr(1), ''); // STDERR terminator record
+				}
 				assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 				assertEquals(conn.take_written_fcgi(1), undefined);
 				// check
@@ -733,6 +742,39 @@ Deno.test
 			assertEquals(conn.take_written_fcgi_stderr(2), ''); // STDERR terminator record
 			assertEquals(conn.take_written_fcgi_end_request(2), 'request_complete');
 			assertEquals(conn.take_written_fcgi(2), undefined);
+			// check
+			assert(!server_error);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
+		}
+	}
+);
+
+Deno.test
+(	'Get values',
+	async () =>
+	{	const maxConns = 10;
+		for (let conn of test_connections())
+		{	let listener = new MockListener([conn]);
+			let server = new Server(listener, {maxConns});
+			let server_error;
+			server.on('error', e => {server_error = e});
+			// write
+			conn.pend_read_fcgi_begin_request(1, 'responder', false);
+			conn.pend_read_fcgi_get_values({FCGI_MAX_CONNS: '', FCGI_MAX_REQS: '', FCGI_MPXS_CONNS: '', HELLO: ''});
+			conn.pend_read_fcgi_params(1, {a: '1'});
+			conn.pend_read_fcgi_stdin(1, 'Body');
+			// accept
+			for await (let req of server)
+			{	assertEquals(map_to_obj(req.params), {a: '1'});
+				await req.respond();
+				break;
+			}
+			// read
+			assertEquals(map_to_obj(await conn.take_written_fcgi_get_values_result()), {FCGI_MAX_CONNS: maxConns+'', FCGI_MAX_REQS: maxConns+'', FCGI_MPXS_CONNS: '0'});
+			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n');
+			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+			assertEquals(conn.take_written_fcgi(1), undefined);
 			// check
 			assert(!server_error);
 			assertEquals(server.nAccepted(), 0);

@@ -827,7 +827,7 @@ function set_record_stdout(buffer: Uint8Array, offset: number, record_type: numb
 }
 
 export function pack_nvp(record_type: number, request_id: number, value: Map<string, string>, maxNameLength: number, maxValueLength: number): Uint8Array
-{	debug_assert(record_type==FCGI_GET_VALUES_RESULT || record_type==FCGI_PARAMS);
+{	debug_assert(record_type==FCGI_GET_VALUES_RESULT || record_type==FCGI_GET_VALUES || record_type==FCGI_PARAMS);
 
 	let all = new Uint8Array(BUFFER_LEN/2);
 	let header_offset = 0;
