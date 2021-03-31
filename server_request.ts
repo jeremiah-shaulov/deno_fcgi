@@ -223,8 +223,7 @@ export class ServerRequest implements Deno.Conn
 			this.onretired(this, new_obj);
 		}
 		if (this.is_aborted)
-		{	this.is_aborted = false; // after respond() called, only TerminatedError must be thrown
-			throw new AbortedError('Request aborted');
+		{	throw new AbortedError('Request aborted');
 		}
 	}
 
@@ -483,7 +482,7 @@ export class ServerRequest implements Deno.Conn
 				}
 				// Send body
 				let orig_len = value.length;
-				while (value.length > 0xFFF8) // 0xFFF9 .. 0xFFFF will be padded to 0x10000
+				while (value.length > 0xFFF8) // max packet length without padding is 0xFFF8 (0xFFF9..0xFFFF must be padded, and 0x10000 is impossible, because such number cannot be represented in content_length field)
 				{	await Deno.writeAll(this.conn, set_record_stdout(new Uint8Array(8), 0, record_type, this.request_id, 0xFFF8));
 					await Deno.writeAll(this.conn, value.subarray(0, 0xFFF8));
 					value = value.subarray(0xFFF8);
@@ -859,7 +858,7 @@ export function pack_nvp(record_type: number, request_id: number, value: Map<str
 	}
 
 	function add(part: Uint8Array)
-	{	while (offset-header_offset+part.length > 0xFFF8) // max packet length is 0xFFF8 (0xFFF9 must be padded to 0x10000, and such number cannot be represented in content_length field)
+	{	while (offset-header_offset+part.length > 0xFFF8) // max packet length without padding is 0xFFF8 (0xFFF9..0xFFFF must be padded, and 0x10000 is impossible, because such number cannot be represented in content_length field)
 		{	realloc(offset + part.length + 8);
 			let break_at = 0xFFF8 - (offset-header_offset);
 			all.set(part.subarray(0, break_at), offset);

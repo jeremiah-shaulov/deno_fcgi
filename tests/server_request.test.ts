@@ -676,6 +676,39 @@ Deno.test
 );
 
 Deno.test
+(	'Long body write',
+	async () =>
+	{	let len = 8*1024+1;
+		for (let padding of [-1, 1])
+		{	let conn = new MockFcgiConn(999, padding, false);
+			let str_response = get_random_string(len);
+			let listener = new MockListener([conn]);
+			let server = new Server(listener);
+			let server_error;
+			server.on('error', e => {server_error = e});
+			// write
+			conn.pend_read_fcgi_begin_request(1, 'responder', true);
+			conn.pend_read_fcgi_params(1, {});
+			conn.pend_read_fcgi_stdin(1, '');
+			// accept
+			for await (let req of server)
+			{	Deno.writeAll(req, new TextEncoder().encode(str_response));
+				await req.respond();
+				break;
+			}
+			// read
+			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n'+str_response);
+			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+			assertEquals(conn.take_written_fcgi(1), undefined);
+			// check
+			assert(!server_error);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
+		}
+	}
+);
+
+Deno.test
 (	'Log error',
 	async () =>
 	{	for (let conn of test_connections())

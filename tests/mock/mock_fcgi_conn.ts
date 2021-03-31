@@ -36,14 +36,38 @@ export class MockFcgiConn extends MockConn
 	private pend_read_fcgi(record_type: number, request_id: number, payload: string|Uint8Array)
 	{	let payload_bytes = typeof(payload)!='string' ? payload : new TextEncoder().encode(payload);
 		let padding = this.force_padding>=0 && this.force_padding<=255 ? this.force_padding : (8 - payload_bytes.length%8) % 8;
-		let tmp_2 = new Uint8Array(8 + payload_bytes.length + padding);
-		tmp_2.set(payload_bytes, 8);
-		let header = new DataView(tmp_2.buffer);
+		let n_records = Math.ceil(payload_bytes.length / 0xFFF8) || 1; // 0..=0xFFF8 = 1rec, 0xFFF9..=0xFFF8*2 = 2rec
+		let tmp_2 = new Uint8Array(8*n_records + payload_bytes.length + padding);
+		let pos = 0;
+		while (payload_bytes.length > 0xFFF8)
+		{	// header
+			let header = new DataView(tmp_2.buffer, pos);
+			header.setUint8(0, 1); // version
+			header.setUint8(1, record_type); // type
+			header.setUint16(2, request_id); // request_id
+			header.setUint16(4, 0xFFF8); // content_length
+			header.setUint8(6, 0); // padding_length
+			pos += 8;
+			// payload
+			tmp_2.set(payload_bytes.subarray(0, 0xFFF8), pos);
+			payload_bytes = payload_bytes.subarray(0xFFF8);
+			pos += 0xFFF8;
+		}
+		// header
+		let header = new DataView(tmp_2.buffer, pos);
 		header.setUint8(0, 1); // version
 		header.setUint8(1, record_type); // type
 		header.setUint16(2, request_id); // request_id
 		header.setUint16(4, payload_bytes.length); // content_length
 		header.setUint8(6, padding); // padding_length
+		pos += 8;
+		// payload
+		tmp_2.set(payload_bytes, pos);
+		pos += payload_bytes.length + padding;
+		if (pos != tmp_2.length)
+		{	throw new Error(`Logical error: ${pos} != ${payload_bytes.length}`);
+		}
+		// pend_read
 		this.pend_read(tmp_2);
 	}
 
