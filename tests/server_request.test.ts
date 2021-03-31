@@ -60,7 +60,10 @@ Deno.test
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\nx-hello: all\r\n\r\nResponse body');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 			assertEquals(conn.take_written_fcgi(1), undefined);
+			// check
 			assert(!server_error);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
 		}
 	}
 );
@@ -90,7 +93,10 @@ Deno.test
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 500\r\n\r\nResponse body');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 			assertEquals(conn.take_written_fcgi(1), undefined);
+			// check
 			assert(!server_error);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
 		}
 	}
 );
@@ -119,7 +125,10 @@ Deno.test
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 404\r\n\r\nResponse body');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 			assertEquals(conn.take_written_fcgi(1), undefined);
+			// check
 			assert(!server_error);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
 		}
 	}
 );
@@ -148,7 +157,10 @@ Deno.test
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 404\r\nx-hello: all\r\n\r\nResponse body');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 			assertEquals(conn.take_written_fcgi(1), undefined);
+			// check
 			assert(!server_error);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
 		}
 	}
 );
@@ -181,7 +193,10 @@ Deno.test
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\nset-cookie: coo-1=New%20value; Domain=example.com\r\n\r\n');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 			assertEquals(conn.take_written_fcgi(1), undefined);
+			// check
 			assert(!server_error);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
 		}
 	}
 );
@@ -216,7 +231,17 @@ Deno.test
 				{	break;
 				}
 			}
+			// read
+			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n');
+			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+			assertEquals(conn.take_written_fcgi(1), undefined);
+			assertEquals(conn.take_written_fcgi_stdout(2), 'status: 200\r\n\r\n');
+			assertEquals(conn.take_written_fcgi_end_request(2), 'request_complete');
+			assertEquals(conn.take_written_fcgi(2), undefined);
+			// check
 			assert(!server_error);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
 		}
 	}
 );
@@ -255,6 +280,15 @@ Deno.test
 					{	error = e;
 					}
 					assert(error instanceof AbortedError);
+					// try to write
+					error = undefined;
+					try
+					{	await Deno.writeAll(req, new TextEncoder().encode('Response body'));
+					}
+					catch (e)
+					{	error = e;
+					}
+					assert(error instanceof AbortedError);
 					// try to respond
 					error = undefined;
 					try
@@ -264,8 +298,9 @@ Deno.test
 					{	error = e;
 					}
 					assert(error instanceof AbortedError);
-					// must disconnect
+					// must not disconnect
 					assertEquals(server.nAccepted(), 1);
+					assertEquals(server.nProcessing(), 0);
 					// try to use terminated request
 					error = undefined;
 					try
@@ -289,7 +324,18 @@ Deno.test
 				{	break;
 				}
 			}
+			// read
+			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+			assertEquals(conn.take_written_fcgi(1), undefined);
+			assertEquals(conn.take_written_fcgi_end_request(2), 'request_complete');
+			assertEquals(conn.take_written_fcgi(2), undefined);
+			assertEquals(conn.take_written_fcgi_stdout(3), 'status: 200\r\n\r\n');
+			assertEquals(conn.take_written_fcgi_end_request(3), 'request_complete');
+			assertEquals(conn.take_written_fcgi(3), undefined);
+			// check
 			assert(!server_error);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
 		}
 	}
 );
@@ -315,12 +361,14 @@ Deno.test
 			catch (e)
 			{	error = e;
 			}
-			assertEquals(error?.message, 'Request already terminated');
-			assert(error instanceof TerminatedError);
+			assertEquals(error?.message, 'Connection closed');
 			assertEquals(server.nAccepted(), 0);
 			assertEquals(server.nProcessing(), 0);
 			break;
 		}
+		// check
+		assertEquals(server.nAccepted(), 0);
+		assertEquals(server.nProcessing(), 0);
 	}
 );
 
@@ -350,6 +398,68 @@ Deno.test
 			assertEquals(server.nAccepted(), 0);
 			break;
 		}
+		// check
+		assertEquals(server.nAccepted(), 0);
+		assertEquals(server.nProcessing(), 0);
+	}
+);
+
+Deno.test
+(	'Broken connection 3',
+	async () =>
+	{	let conn = new MockFcgiConn(999, 0, false);
+		let listener = new MockListener([conn]);
+		let server = new Server(listener);
+		// write (no stdin)
+		conn.pend_read_fcgi_begin_request(1, 'responder', true);
+		conn.pend_read_fcgi_params(1, {a: '1'});
+		// accept
+		for await (let req of server)
+		{	assertEquals(map_to_obj(req.params), {a: '1'});
+			let error;
+			try
+			{	await req.respond();
+			}
+			catch (e)
+			{	error = e;
+			}
+			assertEquals(error?.message, 'Unexpected end of input');
+			assertEquals(server.nProcessing(), 0);
+			assertEquals(server.nAccepted(), 0);
+			break;
+		}
+		// check
+		assertEquals(server.nAccepted(), 0);
+		assertEquals(server.nProcessing(), 0);
+	}
+);
+
+Deno.test
+(	'Close server',
+	async () =>
+	{	let conn = new MockFcgiConn(999, 0, false);
+		let listener = new MockListener([conn]);
+		let server = new Server(listener);
+		// write
+		conn.pend_read_fcgi_begin_request(1, 'responder', true);
+		conn.pend_read_fcgi_params(1, {a: '1'});
+		conn.pend_read_fcgi_stdin(1, 'Body 1');
+		// accept
+		for await (let req of server)
+		{	assertEquals(map_to_obj(req.params), {a: '1'});
+			server.close();
+			let error;
+			try
+			{	await Deno.readAll(req.body);
+			}
+			catch (e)
+			{	error = e;
+			}
+			assert(error instanceof TerminatedError);
+		}
+		// check
+		assertEquals(server.nProcessing(), 0);
+		assertEquals(server.nAccepted(), 0);
 	}
 );
 
@@ -378,8 +488,84 @@ Deno.test
 				assert(error instanceof TerminatedError);
 				break;
 			}
+			// check
 			assert(!server_error);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
 		}
+	}
+);
+
+Deno.test
+(	'Test closeWrite()',
+	async () =>
+	{	for (let conn of test_connections())
+		{	let listener = new MockListener([conn]);
+			let server = new Server(listener);
+			let server_error;
+			server.on('error', e => {server_error = e});
+			// write
+			conn.pend_read_fcgi_begin_request(3, 'responder', false);
+			conn.pend_read_fcgi_params(3, {a: '1'});
+			conn.pend_read_fcgi_stdin(3, 'Hello');
+			// accept
+			for await (let req of server)
+			{	req.closeWrite();
+				assertEquals(map_to_obj(req.params), {a: '1'});
+				assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Hello');
+				let error;
+				try
+				{	await req.respond();
+				}
+				catch (e)
+				{	error = e;
+				}
+				assertEquals(error?.message, 'Connection closed for write');
+				assertEquals(server.nProcessing(), 0);
+				assertEquals(server.nAccepted(), 0);
+				break;
+			}
+			// check
+			assert(!server_error);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
+		}
+	}
+);
+
+Deno.test
+(	'Protocol error',
+	async () =>
+	{	let conn_1 = new MockFcgiConn(999, 0, false);
+		let conn_2 = new MockFcgiConn(999, 0, false);
+		let listener = new MockListener([conn_1, conn_2]);
+		let server = new Server(listener);
+		let server_error: Error | undefined;
+		server.on('error', e => {server_error = e});
+		// write request 1 (protocol error)
+		conn_1.pend_read_fcgi_begin_request(1, 'responder', true);
+		conn_1.currupt_last_bytes(1);
+		// write request 2
+		conn_2.pend_read_fcgi_begin_request(1, 'responder', true);
+		conn_2.pend_read_fcgi_params(1, {id: 'req 2'});
+		conn_2.pend_read_fcgi_stdin(1, 'Body 2');
+		// accept
+		for await (let req of server)
+		{	assert(server_error instanceof ProtocolError);
+			server_error = undefined;
+			assertEquals(map_to_obj(req.params), {id: 'req 2'});
+			assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 2');
+			await req.respond({body: 'Hello'});
+			break;
+		}
+		// read
+		assertEquals(conn_2.take_written_fcgi_stdout(1), 'status: 200\r\n\r\nHello');
+		assertEquals(conn_2.take_written_fcgi_end_request(1), 'request_complete');
+		assertEquals(conn_2.take_written_fcgi(1), undefined);
+		// check
+		assert(!server_error);
+		assertEquals(server.nAccepted(), 0);
+		assertEquals(server.nProcessing(), 0);
 	}
 );
 
@@ -406,7 +592,14 @@ Deno.test
 					await req.respond();
 					break;
 				}
+				// read
+				assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n');
+				assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+				assertEquals(conn.take_written_fcgi(1), undefined);
+				// check
 				assert(!server_error);
+				assertEquals(server.nAccepted(), 0);
+				assertEquals(server.nProcessing(), 0);
 			}
 		}
 	}
@@ -435,7 +628,14 @@ Deno.test
 					await req.respond();
 					break;
 				}
+				// read
+				assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n');
+				assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+				assertEquals(conn.take_written_fcgi(1), undefined);
+				// check
 				assert(!server_error);
+				assertEquals(server.nAccepted(), 0);
+				assertEquals(server.nProcessing(), 0);
 			}
 		}
 	}
@@ -466,7 +666,10 @@ Deno.test
 				assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n'+str_response);
 				assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 				assertEquals(conn.take_written_fcgi(1), undefined);
+				// check
 				assert(!server_error);
+				assertEquals(server.nAccepted(), 0);
+				assertEquals(server.nProcessing(), 0);
 			}
 		}
 	}
@@ -497,7 +700,10 @@ Deno.test
 			assertEquals(conn.take_written_fcgi_stderr(2), ''); // STDERR terminator record
 			assertEquals(conn.take_written_fcgi_end_request(2), 'request_complete');
 			assertEquals(conn.take_written_fcgi(2), undefined);
+			// check
 			assert(!server_error);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
 		}
 	}
 );

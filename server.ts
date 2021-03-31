@@ -14,8 +14,11 @@ export interface ServerOptions
 	maxFileSize?: number,
 }
 
-export class Server
-{	private structuredParams: boolean;
+export class Server implements Deno.Listener
+{	public addr: Deno.Addr;
+	public rid: number;
+
+	private structuredParams: boolean;
 	private maxConns: number;
 	private maxNameLength: number;
 	private maxValueLength: number;
@@ -27,7 +30,9 @@ export class Server
 	private is_closed = false;
 
 	constructor(private socket: Deno.Listener, options?: ServerOptions)
-	{	this.structuredParams = options?.structuredParams || false;
+	{	this.addr = socket.addr;
+		this.rid = socket.rid;
+		this.structuredParams = options?.structuredParams || false;
 		this.maxConns = options?.maxConns || MAX_CONNS;
 		this.maxNameLength = options?.maxNameLength || MAX_NAME_LENGTH;
 		this.maxValueLength = options?.maxValueLength || MAX_VALUE_LENGTH;
@@ -35,7 +40,11 @@ export class Server
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<ServerRequest>
-	{	let {socket, promises, requests, requests_processing, onerror, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this;
+	{	if (this.is_closed)
+		{	return;
+		}
+
+		let {socket, promises, requests, requests_processing, onerror, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this;
 		maxConns |= 0;
 		maxNameLength |= 0;
 		maxValueLength |= 0;
@@ -141,14 +150,30 @@ export class Server
 					}
 				}
 				else
-				{	// assume: ready.is_terminated
+				{	// assume: ready.is_terminated (poll() called onretired(), and then returned this object to Promise.race())
 				}
 			}
 		}
 
 		debug_assert(this.is_closed);
 		socket.close();
-		await Promise.allSettled(promises);
+		for (let result of await Promise.allSettled(promises))
+		{	if (result.status == 'rejected')
+			{	this.onerror(result.reason);
+			}
+		}
+		promises.length = 0;
+		requests.length = 0;
+		requests_processing.length = 0;
+	}
+
+	async accept(): Promise<ServerRequest>
+	{	let it = this[Symbol.asyncIterator]();
+		let {value, done} = await it.next();
+		if (done)
+		{	throw new Error('Server closed');
+		}
+		return value;
 	}
 
 	nAccepted()
@@ -175,6 +200,9 @@ export class Server
 	close()
 	{	this.is_closed = true;
 		for (let request of this.requests)
+		{	request.close();
+		}
+		for (let request of this.requests_processing)
 		{	request.close();
 		}
 	}

@@ -113,9 +113,9 @@ export class MockFcgiConn extends MockConn
 	{	this.pend_read_fcgi_stdin(request_id, stdin, true);
 	}
 
-	/*currupt_last_bytes(n_bytes=1)
+	currupt_last_bytes(n_bytes=1)
 	{	this.read_data = this.read_data.slice(0, -n_bytes);
-	}*/
+	}
 
 	take_written_fcgi(request_id: number, only_id_record_type?: number): {record_type: number, payload: Uint8Array} | undefined
 	{	let written = this.get_written();
@@ -123,12 +123,12 @@ export class MockFcgiConn extends MockConn
 		while (pos+8 <= written.length)
 		{	let header = new DataView(written.buffer, written.byteOffset+pos);
 			let record_type = header.getUint8(1);
-			if (only_id_record_type!=undefined && record_type!=only_id_record_type)
-			{	break;
-			}
 			let rec_request_id = header.getUint16(2);
 			let content_length = header.getUint16(4);
 			let padding_length = header.getUint8(6);
+			if (only_id_record_type!=undefined && record_type!=only_id_record_type && rec_request_id==request_id)
+			{	break;
+			}
 			pos += 8 + content_length + padding_length;
 			this.written_pos.set(request_id, pos);
 			if (rec_request_id == request_id)

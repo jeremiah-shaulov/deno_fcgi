@@ -32,8 +32,11 @@ const FCGI_KEEP_CONN          =  1;
 
 debug_assert(BUFFER_LEN >= 256+16);
 
-export class ServerRequest
-{	/// The SCRIPT_URL of the request, like '/path/index.html'
+export class ServerRequest implements Deno.Conn
+{	public localAddr: Deno.Addr;
+	public remoteAddr: Deno.Addr;
+	public rid: number;
+	/// The SCRIPT_URL of the request, like '/path/index.html'
 	public url = '';
 	/// Request method, like 'GET'
 	public method = '';
@@ -72,6 +75,8 @@ export class ServerRequest
 	private is_aborted = false;
 	/// Response sent back to FastCGI server, and this object is unusable. This can happen after `respond()` called, or if exception thrown during communication.
 	private is_terminated = false;
+	/// poll() sets this (together with is_terminated) if error occures
+	private last_error: Error|undefined;
 
 	private has_stderr = false;
 
@@ -92,7 +97,7 @@ export class ServerRequest
 
 	constructor
 	(	private onretired: (request: ServerRequest, new_request?: ServerRequest) => void,
-		public conn: Deno.Reader & Deno.Writer & Deno.Closer,
+		public conn: Deno.Conn,
 		private onerror: (error: Error) => void,
 		buffer: Uint8Array|null,
 		private structuredParams: boolean,
@@ -101,7 +106,10 @@ export class ServerRequest
 		private maxValueLength: number,
 		private maxFileSize: number
 	)
-	{	this.buffer = buffer ?? new Uint8Array(BUFFER_LEN);
+	{	this.localAddr = conn.localAddr;
+		this.remoteAddr = conn.remoteAddr;
+		this.rid = conn.rid;
+		this.buffer = buffer ?? new Uint8Array(BUFFER_LEN);
 		this.post = new Post(this, onerror);
 	}
 
@@ -121,10 +129,10 @@ export class ServerRequest
 				return null;
 			}
 			else if (this.is_terminated)
-			{	throw new TerminatedError('Request already terminated');
+			{	this.throw_terminated_error();
 			}
 			else
-			{	await this.poll();
+			{	await this.poll(true);
 				debug_assert(this.stdin_length || this.stdin_complete || this.is_terminated);
 			}
 		}
@@ -141,16 +149,27 @@ export class ServerRequest
 	{	this.write_stdout(this.encoder.encode(message), FCGI_STDERR);
 	}
 
-	async respond(response?: ServerResponse)
-	{	while (!this.stdin_complete && !this.is_terminated)
-		{	await this.poll();
+	private throw_terminated_error()
+	{	if (this.last_error)
+		{	let e = this.last_error;
+			this.last_error = undefined;
+			throw e;
 		}
-		if (this.is_terminated)
-		{	await this.ongoing;
-			throw new TerminatedError('Request already terminated');
+		throw new TerminatedError('Unexpected end of input');
+	}
+
+	async respond(response?: ServerResponse)
+	{	if (this.is_terminated)
+		{	throw new TerminatedError('Request already terminated');
+		}
+		while (!this.stdin_complete)
+		{	await this.poll(true);
+			if (this.is_terminated)
+			{	this.throw_terminated_error();
+			}
 		}
 		if (this.is_aborted)
-		{	await this.ongoing;
+		{	await this.ongoing.catch(e => {});
 		}
 		else
 		{	if (response)
@@ -185,14 +204,14 @@ export class ServerRequest
 			}
 			catch (e)
 			{	this.is_terminated = true;
-				await this.do_close();
+				await this.do_close().catch(e => {});
 				throw e;
 			}
 		}
 		// Prepare for further requests on this connection
+		this.is_terminated = true;
 		if (this.no_keep_conn)
-		{	this.is_terminated = true;
-			await this.do_close();
+		{	await this.do_close();
 		}
 		else
 		{	this.post.close();
@@ -201,7 +220,6 @@ export class ServerRequest
 			new_obj.buffer_start = this.buffer_start;
 			new_obj.buffer_end = this.buffer_end;
 			debug_assert(this.stdin_content_length==0 && this.stdin_padding_length==0 && this.stdin_complete);
-			this.is_terminated = true;
 			this.onretired(this, new_obj);
 		}
 		if (this.is_aborted)
@@ -213,18 +231,28 @@ export class ServerRequest
 	close()
 	{	if (!this.is_terminated)
 		{	this.is_terminated = true;
-			this.do_close();
+			this.do_close().catch(this.onerror);
 		}
 	}
 
 	private do_close()
-	{	return this.ongoing.catch(this.onerror).then
+	{	return this.ongoing.then
 		(	() =>
 			{	this.conn.close();
 				this.post.close();
 				this.onretired(this);
+			},
+			error =>
+			{	this.conn.close();
+				this.post.close();
+				this.onretired(this);
+				throw error;
 			}
 		);
+	}
+
+	closeWrite(): Promise<void>
+	{	return this.conn.closeWrite();
 	}
 
 	isTerminated()
@@ -424,10 +452,10 @@ export class ServerRequest
 				debug_assert(record_type==FCGI_STDOUT || record_type==FCGI_STDERR);
 				debug_assert(!is_last || record_type==FCGI_STDOUT);
 				if (this.is_terminated)
-				{	if (this.is_aborted)
-					{	throw new AbortedError('Request aborted');
-					}
-					throw new TerminatedError('Request already terminated');
+				{	throw new TerminatedError('Request already terminated');
+				}
+				if (this.is_aborted)
+				{	throw new AbortedError('Request aborted');
 				}
 				// Send response headers
 				if (record_type == FCGI_STDOUT)
@@ -517,22 +545,24 @@ export class ServerRequest
 	{	this.schedule(() => Deno.writeAll(this.conn, pack_nvp(FCGI_GET_VALUES_RESULT, 0, value, this.maxNameLength, this.maxValueLength)));
 	}
 
-	/**	This function doesn't throw exceptions. It always returns "this".
+	/**	For internal use.
+
+		This function doesn't throw exceptions. It always returns "this".
 		Before returning it sets one of the following:
-		- is_terminated
+		- is_terminated (if due to error, also last_error is set)
 		- params
 		- stdin_length
 		- stdin_complete
 		- is_aborted + stdin_complete
 	 **/
-	async poll()
+	async poll(store_error_dont_print=false)
 	{	let {buffer} = this;
 
 		if (this.is_terminated)
-		{	if (this.is_aborted)
-			{	throw new AbortedError('Request aborted');
-			}
-			throw new TerminatedError('Request already terminated');
+		{	throw new TerminatedError('Request already terminated');
+		}
+		if (this.is_aborted)
+		{	throw new AbortedError('Request aborted');
 		}
 
 		try
@@ -733,9 +763,19 @@ export class ServerRequest
 			}
 		}
 		catch (e)
-		{	this.onerror(e);
+		{	if (store_error_dont_print)
+			{	this.last_error = e;
+			}
+			else
+			{	this.onerror(e);
+			}
 			this.is_terminated = true;
-			await this.do_close();
+			try
+			{	await this.do_close();
+			}
+			catch (e2)
+			{
+			}
 			return this;
 		}
 	}

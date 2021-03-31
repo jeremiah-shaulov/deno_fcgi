@@ -8,9 +8,10 @@ export class MockConn implements Deno.Conn
 	public remoteAddr = {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 999999999};
 	public rid = 999999999;
 
-	public is_closed = false;
-
+	protected is_closed = false;
+	protected is_closed_write = false;
 	protected read_data: Uint8Array;
+
 	private read_pos = 0;
 	private write_data = new Uint8Array(1024);
 	private write_pos = 0;
@@ -43,6 +44,9 @@ export class MockConn implements Deno.Conn
 	{	if (this.is_closed)
 		{	throw new Error('Connection closed');
 		}
+		if (this.is_closed_write)
+		{	throw new Error('Connection closed for write');
+		}
 		let chunk_size = Math.min(buffer.length, this.chunk_size);
 		if (this.write_data.length-this.write_pos < chunk_size)
 		{	// realloc
@@ -60,7 +64,7 @@ export class MockConn implements Deno.Conn
 	}
 
 	async closeWrite(): Promise<void>
-	{
+	{	this.is_closed_write = true;
 	}
 
 	get_written()
