@@ -149,5 +149,10 @@ Deno.test
 			}
 		);
 		assertEquals(all, {'coo-2': 'val <2>.', 'coo-3': 'val <3>'});
+		all = {};
+		for (let [k, v] of cookies)
+		{	all[k] = v;
+		}
+		assertEquals(all, {'coo-2': 'val <2>.', 'coo-3': 'val <3>'});
 	}
 );

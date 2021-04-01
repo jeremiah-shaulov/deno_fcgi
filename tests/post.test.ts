@@ -250,3 +250,15 @@ Deno.test
 		}
 	}
 );
+
+Deno.test
+(	'Invalid',
+	async () =>
+	{	for (let chunk_size of TEST_CHUNK_SIZES)
+		{	let post = new Post(new MockConn('a[=1&b[KEY][...=2&c=3', chunk_size), console.error.bind(console), 'application/x-www-form-urlencoded', '', 0, true);
+			await post.parse();
+			assertEquals(map_to_obj(post), {a: '1', b: {KEY: '2'}, c: '3'});
+			assertEquals(post.files.size, 0);
+		}
+	}
+);

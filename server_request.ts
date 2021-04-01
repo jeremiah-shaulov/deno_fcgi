@@ -557,12 +557,7 @@ export class ServerRequest implements Deno.Conn
 	async poll(store_error_dont_print=false)
 	{	let {buffer} = this;
 
-		if (this.is_terminated)
-		{	throw new TerminatedError('Request already terminated');
-		}
-		if (this.is_aborted)
-		{	throw new AbortedError('Request aborted');
-		}
+		debug_assert(!this.is_terminated && !this.is_aborted);
 
 		try
 		{	this.buffer_start += this.stdin_length; // discard stdin part if not consumed
@@ -871,9 +866,6 @@ export function pack_nvp(record_type: number, request_id: number, value: Map<str
 	for (let [k, v] of value)
 	{	let k_buf = encoder.encode(k);
 		let v_buf = encoder.encode(v);
-		if (k_buf.length>maxNameLength || v_buf.length>maxValueLength)
-		{	continue;
-		}
 		let kv_header = new Uint8Array(8);
 		let kv_offset = 0;
 		// name
