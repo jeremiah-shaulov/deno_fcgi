@@ -35,7 +35,7 @@ export class MockFcgiConn extends MockConn
 	{	super('', chunk_size);
 	}
 
-	private pend_read_fcgi(record_type: number, request_id: number, payload: string|Uint8Array)
+	pend_read_fcgi(record_type: number, request_id: number, payload: string|Uint8Array)
 	{	let payload_bytes = typeof(payload)!='string' ? payload : new TextEncoder().encode(payload);
 		let padding = this.force_padding>=0 && this.force_padding<=255 ? this.force_padding : (8 - payload_bytes.length%8) % 8;
 		let n_records = Math.ceil(payload_bytes.length / 0xFFFF) || 1; // 0..=0xFFFF = 1rec, 0x10000..=0xFFFF*2 = 2rec
@@ -148,25 +148,30 @@ export class MockFcgiConn extends MockConn
 	{	this.read_data = this.read_data.slice(0, -n_bytes);
 	}
 
-	take_written_fcgi(request_id: number, only_id_record_type?: number, include_header_and_padding=false): {record_type: number, payload: Uint8Array} | undefined
+	take_written_fcgi(request_id=-1, only_id_record_type=-1, include_header_and_padding=false): {request_id: number, record_type: number, payload: Uint8Array} | undefined
 	{	let written = this.get_written();
-		let pos = this.written_pos.get(request_id) || 0;
+		let pos = request_id==-1 ? 0 : this.written_pos.get(request_id) || 0;
 		while (pos+8 <= written.length)
 		{	let header = new DataView(written.buffer, written.byteOffset+pos);
 			let record_type = header.getUint8(1);
 			let rec_request_id = header.getUint16(2);
 			let content_length = header.getUint16(4);
 			let padding_length = header.getUint8(6);
-			if (only_id_record_type!=undefined && record_type!=only_id_record_type && rec_request_id==request_id)
-			{	break;
+			if (only_id_record_type!=-1 && record_type!=only_id_record_type && request_id!=-1 && rec_request_id==request_id)
+			{	return;
 			}
 			let prev_pos = pos;
 			pos += 8 + content_length + padding_length;
-			this.written_pos.set(request_id, pos);
-			if (rec_request_id == request_id)
-			{	let payload = written.subarray(include_header_and_padding ? prev_pos : prev_pos+8, include_header_and_padding ? pos : pos-padding_length);
-				return {record_type, payload};
+			if (request_id != -1)
+			{	this.written_pos.set(request_id, pos);
 			}
+			if (request_id!=-1 ? rec_request_id==request_id : prev_pos>=(this.written_pos.get(rec_request_id) ?? 0))
+			{	let payload = written.subarray(include_header_and_padding ? prev_pos : prev_pos+8, include_header_and_padding ? pos : pos-padding_length);
+				return {request_id: rec_request_id, record_type, payload};
+			}
+		}
+		if (pos < written.length)
+		{	throw new Error('Broken FastCGI record');
 		}
 	}
 
@@ -197,7 +202,17 @@ export class MockFcgiConn extends MockConn
 		{	let header = new DataView(record.payload.buffer, record.payload.byteOffset);
 			protocol_status = header.getUint8(4);
 		}
-		return protocol_status==FCGI_REQUEST_COMPLETE ? 'request_complete' : protocol_status==FCGI_UNKNOWN_ROLE ? 'unknown_role' : '';
+		return protocol_status==FCGI_REQUEST_COMPLETE ? 'request_complete' : protocol_status==FCGI_UNKNOWN_ROLE ? 'unknown_role' : protocol_status==FCGI_CANT_MPX_CONN ? 'cant_mpx_conn' : '';
+	}
+
+	take_written_fcgi_unknown_type(): string
+	{	let record = this.take_written_fcgi(0, FCGI_UNKNOWN_TYPE);
+		let record_type = -1;
+		if (record)
+		{	let header = new DataView(record.payload.buffer, record.payload.byteOffset);
+			record_type = header.getUint8(0);
+		}
+		return record_type==-1 ? '' : RECORD_TYPE_NAMES[record_type] || record_type+'';
 	}
 
 	async take_written_fcgi_get_values_result(): Promise<Map<string, string> | undefined>

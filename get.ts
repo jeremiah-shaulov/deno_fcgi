@@ -92,4 +92,9 @@ export class Get extends StructuredMap
 	{	this.init();
 		return super.forEach(callback, thisArg);
 	}
+
+	[Symbol.iterator]()
+	{	this.init();
+		return super[Symbol.iterator]();
+	}
 }

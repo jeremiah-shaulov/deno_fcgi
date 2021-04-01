@@ -1,8 +1,7 @@
 import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
 import {exists} from "https://deno.land/std/fs/mod.ts";
 import {TEST_CHUNK_SIZES, map_to_obj, MockListener, MockFcgiConn, MockConn} from './mock/mod.ts';
-import {Server} from "../server.ts";
-import {AbortedError, TerminatedError, ProtocolError} from '../error.ts';
+import {Server, AbortedError, TerminatedError, ProtocolError, PathNode} from "../mod.ts";
 
 function *test_connections(only_chunk_sizes?: number[]): Generator<MockFcgiConn>
 {	for (let chunk_size of only_chunk_sizes || TEST_CHUNK_SIZES)
@@ -27,18 +26,25 @@ function get_random_string(length: number)
 Deno.test
 (	'Basic request',
 	async () =>
-	{	for (let conn of test_connections())
+	{	const PARAMS =
+		{	HELLO: 'all',
+			SERVER_PROTOCOL: 'HTTP/2'
+		};
+		for (let conn of test_connections())
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
 			server.on('error', e => {server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
-			conn.pend_read_fcgi_params(1, {HELLO: 'all'});
+			conn.pend_read_fcgi_params(1, PARAMS);
 			conn.pend_read_fcgi_stdin(1, 'Body');
 			// accept
 			for await (let req of server)
-			{	assertEquals(map_to_obj(req.params), {HELLO: 'all'});
+			{	assertEquals(map_to_obj(req.params), PARAMS);
+				assertEquals(req.proto, 'HTTP/2');
+				assertEquals(req.protoMajor, 2);
+				assertEquals(req.protoMinor, 0);
 				assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body');
 				assertEquals(server.nAccepted(), 1);
 				req.responseHeaders.set('X-Hello', 'all');
@@ -59,7 +65,7 @@ Deno.test
 			// read
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\nx-hello: all\r\n\r\nResponse body');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
-			assertEquals(conn.take_written_fcgi(1), undefined);
+			assertEquals(conn.take_written_fcgi(), undefined);
 			// check
 			assert(!server_error);
 			assertEquals(server.nAccepted(), 0);
@@ -69,7 +75,7 @@ Deno.test
 );
 
 Deno.test
-(	'Basic request 2',
+(	'Basic request 2, no params',
 	async () =>
 	{	for (let conn of test_connections())
 		{	let listener = new MockListener([conn]);
@@ -92,7 +98,7 @@ Deno.test
 			// read
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 500\r\n\r\nResponse body');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
-			assertEquals(conn.take_written_fcgi(1), undefined);
+			assertEquals(conn.take_written_fcgi(), undefined);
 			// check
 			assert(!server_error);
 			assertEquals(server.nAccepted(), 0);
@@ -104,17 +110,26 @@ Deno.test
 Deno.test
 (	'Body as reader',
 	async () =>
-	{	for (let conn of test_connections())
+	{	const PARAMS =
+		{	HELLO: 'all',
+			SERVER_PROTOCOL: 'HTTP/3.4'
+		};
+		for (let conn of test_connections())
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
 			server.on('error', e => {server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
-			conn.pend_read_fcgi_stdin(1, '');
+			conn.pend_read_fcgi_params(1, PARAMS);
+			conn.pend_read_fcgi_stdin(1, '\r\n');
 			// accept
 			for await (let req of server)
-			{	assertEquals(req.params.size, 0);
+			{	assertEquals(map_to_obj(req.params), PARAMS);
+				assertEquals(req.proto, 'HTTP/3.4');
+				assertEquals(req.protoMajor, 3);
+				assertEquals(req.protoMinor, 4);
+				assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), '\r\n');
 				assertEquals(server.nAccepted(), 1);
 				let body = new MockConn('Response body');
 				await req.respond({body, status: 404});
@@ -124,7 +139,86 @@ Deno.test
 			// read
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 404\r\n\r\nResponse body');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
-			assertEquals(conn.take_written_fcgi(1), undefined);
+			assertEquals(conn.take_written_fcgi(), undefined);
+			// check
+			assert(!server_error);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
+		}
+	}
+);
+
+Deno.test
+(	'GET, POST',
+	async () =>
+	{	const PARAMS =
+		{	QUERY_STRING: 'a=1&b=2&c',
+			CONTENT_TYPE: 'multipart/form-data; junk=yes; boundary=------------------------bb61988d15b5a62e; hello=all',
+		};
+		const POST =
+		(	`--------------------------bb61988d15b5a62e\r\n`+
+			`Content-Disposition: form-data; name="a"\r\n`+
+			`\r\n`+
+			`Hello\r\n`+
+			`--------------------------bb61988d15b5a62e\r\n`+
+			`Content-Disposition: form-data; name="b"\r\n`+
+			`\r\n`+
+			`World\r\n`+
+			`--------------------------bb61988d15b5a62e--\r\n`
+		);
+		for (let conn of test_connections())
+		{	let listener = new MockListener([conn]);
+			let server = new Server(listener);
+			let server_error;
+			server.on('error', e => {server_error = e});
+			// write
+			conn.pend_read_fcgi_begin_request(1, 'responder', false);
+			conn.pend_read_fcgi_params(1, PARAMS);
+			conn.pend_read_fcgi_stdin(1, POST);
+			// accept
+			for await (let req of server)
+			{	assertEquals(map_to_obj(req.params), PARAMS);
+				assertEquals(req.proto, '');
+				assertEquals(req.protoMajor, 0);
+				assertEquals(req.protoMinor, 0);
+				// get
+				assertEquals(map_to_obj(req.get), {a: '1', b: '2', c: ''});
+				assertEquals([...req.get.entries()], [['a', '1'], ['b', '2'], ['c', '']]);
+				assertEquals([...req.get.keys()], ['a', 'b', 'c']);
+				assertEquals([...req.get.values()], ['1', '2', '']);
+				let get_entries: [string, PathNode][] = [];
+				req.get.forEach
+				(	(v: PathNode, k: string, map: Map<string, PathNode>) =>
+					{	assertEquals(map, req.get);
+						get_entries.push([k, v]);
+					}
+				);
+				assertEquals(get_entries, [['a', '1'], ['b', '2'], ['c', '']]);
+				assertEquals(req.get.get('a'), '1');
+				assert(req.get.has('a'));
+				assert(!req.get.has('A'));
+				assertEquals(req.get.size, 3);
+				req.get.delete('a');
+				assert(!req.get.has('a'));
+				assertEquals(req.get.size, 2);
+				req.get.delete('a');
+				assertEquals(req.get.size, 2);
+				req.get.clear();
+				assertEquals(req.get.size, 0);
+				// post
+				await req.post.parse();
+				assertEquals(map_to_obj(req.post), {a: 'Hello', b: 'World'});
+				//
+				assertEquals(server.nAccepted(), 1);
+				Deno.writeAll(req, new TextEncoder().encode('Response body'));
+				await req.respond();
+				assertEquals(server.nAccepted(), 0);
+				break;
+			}
+			// read
+			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\nResponse body');
+			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+			assertEquals(conn.take_written_fcgi(), undefined);
 			// check
 			assert(!server_error);
 			assertEquals(server.nAccepted(), 0);
@@ -136,18 +230,25 @@ Deno.test
 Deno.test
 (	'Respond without reading POST',
 	async () =>
-	{	for (let conn of test_connections())
+	{	const PARAMS =
+		{	HELLO: 'all',
+			SERVER_PROTOCOL: 'HELLO.'
+		};
+		for (let conn of test_connections())
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
 			server.on('error', e => {server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
-			conn.pend_read_fcgi_params(1, {HELLO: 'all'});
+			conn.pend_read_fcgi_params(1, PARAMS);
 			conn.pend_read_fcgi_stdin(1, 'Body');
 			// accept
 			for await (let req of server)
-			{	assertEquals(map_to_obj(req.params), {HELLO: 'all'});
+			{	assertEquals(map_to_obj(req.params), PARAMS);
+				assertEquals(req.proto, 'HELLO.');
+				assertEquals(req.protoMajor, 0);
+				assertEquals(req.protoMinor, 0);
 				assertEquals(server.nAccepted(), 1);
 				await req.respond({body: 'Response body', headers: new Headers(Object.entries({'X-Hello': 'all'})), status: 404});
 				assertEquals(server.nAccepted(), 0);
@@ -156,7 +257,7 @@ Deno.test
 			// read
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 404\r\nx-hello: all\r\n\r\nResponse body');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
-			assertEquals(conn.take_written_fcgi(1), undefined);
+			assertEquals(conn.take_written_fcgi(), undefined);
 			// check
 			assert(!server_error);
 			assertEquals(server.nAccepted(), 0);
@@ -192,7 +293,7 @@ Deno.test
 			// read
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\nset-cookie: coo-1=New%20value; Domain=example.com\r\n\r\n');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
-			assertEquals(conn.take_written_fcgi(1), undefined);
+			assertEquals(conn.take_written_fcgi(), undefined);
 			// check
 			assert(!server_error);
 			assertEquals(server.nAccepted(), 0);
@@ -234,10 +335,9 @@ Deno.test
 			// read
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
-			assertEquals(conn.take_written_fcgi(1), undefined);
 			assertEquals(conn.take_written_fcgi_stdout(2), 'status: 200\r\n\r\n');
 			assertEquals(conn.take_written_fcgi_end_request(2), 'request_complete');
-			assertEquals(conn.take_written_fcgi(2), undefined);
+			assertEquals(conn.take_written_fcgi(), undefined);
 			// check
 			assert(!server_error);
 			assertEquals(server.nAccepted(), 0);
@@ -326,12 +426,10 @@ Deno.test
 			}
 			// read
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
-			assertEquals(conn.take_written_fcgi(1), undefined);
 			assertEquals(conn.take_written_fcgi_end_request(2), 'request_complete');
-			assertEquals(conn.take_written_fcgi(2), undefined);
 			assertEquals(conn.take_written_fcgi_stdout(3), 'status: 200\r\n\r\n');
 			assertEquals(conn.take_written_fcgi_end_request(3), 'request_complete');
-			assertEquals(conn.take_written_fcgi(3), undefined);
+			assertEquals(conn.take_written_fcgi(), undefined);
 			// check
 			assert(!server_error);
 			assertEquals(server.nAccepted(), 0);
@@ -561,7 +659,7 @@ Deno.test
 		// read
 		assertEquals(conn_2.take_written_fcgi_stdout(1), 'status: 200\r\n\r\nHello');
 		assertEquals(conn_2.take_written_fcgi_end_request(1), 'request_complete');
-		assertEquals(conn_2.take_written_fcgi(1), undefined);
+		assertEquals(conn_2.take_written_fcgi(), undefined);
 		// check
 		assert(!server_error);
 		assertEquals(server.nAccepted(), 0);
@@ -595,7 +693,7 @@ Deno.test
 				// read
 				assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n');
 				assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
-				assertEquals(conn.take_written_fcgi(1), undefined);
+				assertEquals(conn.take_written_fcgi(), undefined);
 				// check
 				assert(!server_error);
 				assertEquals(server.nAccepted(), 0);
@@ -631,7 +729,7 @@ Deno.test
 				// read
 				assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n');
 				assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
-				assertEquals(conn.take_written_fcgi(1), undefined);
+				assertEquals(conn.take_written_fcgi(), undefined);
 				// check
 				assert(!server_error);
 				assertEquals(server.nAccepted(), 0);
@@ -674,7 +772,7 @@ Deno.test
 				{	assertEquals(conn.take_written_fcgi_stderr(1), ''); // STDERR terminator record
 				}
 				assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
-				assertEquals(conn.take_written_fcgi(1), undefined);
+				assertEquals(conn.take_written_fcgi(), undefined);
 				// check
 				assert(!server_error);
 				assertEquals(server.nAccepted(), 0);
@@ -708,7 +806,7 @@ Deno.test
 			// read
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n'+str_response);
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
-			assertEquals(conn.take_written_fcgi(1), undefined);
+			assertEquals(conn.take_written_fcgi(), undefined);
 			// check
 			assert(!server_error);
 			assertEquals(server.nAccepted(), 0);
@@ -741,7 +839,7 @@ Deno.test
 			assertEquals(conn.take_written_fcgi_stdout(2), 'status: 200\r\n\r\n');
 			assertEquals(conn.take_written_fcgi_stderr(2), ''); // STDERR terminator record
 			assertEquals(conn.take_written_fcgi_end_request(2), 'request_complete');
-			assertEquals(conn.take_written_fcgi(2), undefined);
+			assertEquals(conn.take_written_fcgi(), undefined);
 			// check
 			assert(!server_error);
 			assertEquals(server.nAccepted(), 0);
@@ -774,11 +872,79 @@ Deno.test
 			assertEquals(map_to_obj(await conn.take_written_fcgi_get_values_result()), {FCGI_MAX_CONNS: maxConns+'', FCGI_MAX_REQS: maxConns+'', FCGI_MPXS_CONNS: '0'});
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n');
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
-			assertEquals(conn.take_written_fcgi(1), undefined);
+			assertEquals(conn.take_written_fcgi(), undefined);
 			// check
 			assert(!server_error);
 			assertEquals(server.nAccepted(), 0);
 			assertEquals(server.nProcessing(), 0);
 		}
+	}
+);
+
+Deno.test
+(	'Roles',
+	async () =>
+	{	let conn = new MockFcgiConn(999, 0, false);
+		let listener = new MockListener([conn]);
+		let server = new Server(listener);
+		// write
+		conn.pend_read_fcgi_begin_request(1, 'authorizer', true);
+		conn.pend_read_fcgi_params(1, {a: '1'});
+		conn.pend_read_fcgi_stdin(1, 'Body 1');
+		conn.pend_read_fcgi_begin_request(2, 'responder', true);
+		conn.pend_read_fcgi_params(2, {a: '2'});
+		conn.pend_read_fcgi_stdin(2, 'Body 2');
+		// accept
+		for await (let req of server)
+		{	assertEquals(map_to_obj(req.params), {a: '2'});
+			assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 2');
+			await req.respond();
+			assertEquals(server.nProcessing(), 0);
+			assertEquals(server.nAccepted(), 1); // because pend_read_fcgi_begin_request(?, ?, true)
+			break;
+		}
+		// read
+		assertEquals(conn.take_written_fcgi_end_request(1), 'unknown_role');
+		assertEquals(conn.take_written_fcgi_stdout(2), 'status: 200\r\n\r\n');
+		assertEquals(conn.take_written_fcgi_end_request(2), 'request_complete');
+		assertEquals(conn.take_written_fcgi(), undefined);
+		// check
+		assertEquals(server.nAccepted(), 0);
+		assertEquals(server.nProcessing(), 0);
+	}
+);
+
+Deno.test
+(	'Try mux, abort unexisting and unknown type',
+	async () =>
+	{	let conn = new MockFcgiConn(999, 0, false);
+		let listener = new MockListener([conn]);
+		let server = new Server(listener);
+		// write
+		conn.pend_read_fcgi_begin_request(1, 'responder', true);
+		conn.pend_read_fcgi_begin_request(2, 'responder', true);
+		conn.pend_read_fcgi_abort_request(3);
+		conn.pend_read_fcgi(100, 4, '***');
+		conn.pend_read_fcgi_params(1, {a: '1'});
+		conn.pend_read_fcgi_stdin(1, 'Body 1');
+		// accept
+		for await (let req of server)
+		{	assertEquals(map_to_obj(req.params), {a: '1'});
+			assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 1');
+			await req.respond();
+			assertEquals(server.nProcessing(), 0);
+			assertEquals(server.nAccepted(), 1); // because pend_read_fcgi_begin_request(?, ?, true)
+			break;
+		}
+		// read
+		assertEquals(conn.take_written_fcgi_end_request(2), 'cant_mpx_conn');
+		assertEquals(conn.take_written_fcgi_end_request(3), 'request_complete');
+		assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n');
+		assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+		assertEquals(conn.take_written_fcgi_unknown_type(), '100');
+		assertEquals(conn.take_written_fcgi(), undefined);
+		// check
+		assertEquals(server.nAccepted(), 0);
+		assertEquals(server.nProcessing(), 0);
 	}
 );

@@ -618,10 +618,11 @@ export class ServerRequest implements Deno.Conn
 						this.no_keep_conn = (flags&FCGI_KEEP_CONN) == 0;
 						if (role != FCGI_RESPONDER)
 						{	this.write_raw(set_record_end_request(new Uint8Array(16), 0, request_id, FCGI_UNKNOWN_ROLE));
+							break;
 						}
-						else if (this.request_id != 0)
+						if (this.request_id != 0)
 						{	this.write_raw(set_record_end_request(new Uint8Array(16), 0, request_id, FCGI_CANT_MPX_CONN));
-							request_id = this.request_id;
+							break;
 						}
 						this.request_id = request_id;
 						break;
@@ -656,8 +657,8 @@ export class ServerRequest implements Deno.Conn
 								this.proto = this.params.get('SERVER_PROTOCOL') ?? '';
 								let pos = this.proto.indexOf('/');
 								let pos_2 = this.proto.indexOf('.', pos);
-								this.protoMajor = parseInt(this.proto.slice(pos+1, pos_2==-1 ? this.proto.length : pos_2)) ?? 0;
-								this.protoMinor = pos_2==-1 ? 0 : parseInt(this.proto.slice(pos_2+1)) ?? 0;
+								this.protoMajor = parseInt(this.proto.slice(pos+1, pos_2==-1 ? this.proto.length : pos_2)) || 0;
+								this.protoMinor = pos_2==-1 ? 0 : parseInt(this.proto.slice(pos_2+1)) || 0;
 								let query_string = this.params.get('QUERY_STRING');
 								let cookie_header = this.params.get('HTTP_COOKIE');
 								let contentType = this.params.get('CONTENT_TYPE') ?? '';
@@ -769,12 +770,7 @@ export class ServerRequest implements Deno.Conn
 			{	this.onerror(e);
 			}
 			this.is_terminated = true;
-			try
-			{	await this.do_close();
-			}
-			catch (e2)
-			{
-			}
+			await this.do_close().catch(e => {});
 			return this;
 		}
 	}

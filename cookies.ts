@@ -193,6 +193,11 @@ export class Cookies extends Map<string, string>
 	{	this.init();
 		return super.forEach(callback, thisArg);
 	}
+
+	[Symbol.iterator]()
+	{	this.init();
+		return super[Symbol.iterator]();
+	}
 }
 
 function encode_cookie(value: string, mask: Uint8Array)
