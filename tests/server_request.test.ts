@@ -548,12 +548,20 @@ Deno.test
 			server.close();
 			let error;
 			try
-			{	await Deno.readAll(req.body);
+			{	await Deno.readAll(req.body); // can not fail if data was in buffer before calling close()
 			}
 			catch (e)
 			{	error = e;
 			}
-			assert(error instanceof TerminatedError);
+			let error_2;
+			try
+			{	await req.respond();
+			}
+			catch (e)
+			{	error_2 = e;
+			}
+			assert((error || error_2) instanceof TerminatedError);
+			break;
 		}
 		// check
 		assertEquals(server.nProcessing(), 0);

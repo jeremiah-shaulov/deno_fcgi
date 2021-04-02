@@ -67,7 +67,7 @@ export class ServerRequest implements Deno.Conn
 
 	/// Id that FastCGI server assigned to this request
 	private request_id = 0;
-	/// If reading STDIN stream, how many bytes are available in this.buffer[this.buffer_start ..]. Calling `poll()` without consuming these bytes will discard them. Call `poll()` to fetch more bytes.
+	/// If reading STDIN stream, how many bytes are available in this.buffer[this.buffer_start ..]. Calling `poll_request()` without consuming these bytes will discard them. Call `poll_request()` to fetch more bytes.
 	private stdin_length = 0;
 	/// Finished reading STDIN. This means that FastCGI server is now waiting for response (it's possible to send response earlier, but after reading PARAMS).
 	private stdin_complete = false;
@@ -75,7 +75,7 @@ export class ServerRequest implements Deno.Conn
 	private is_aborted = false;
 	/// Response sent back to FastCGI server, and this object is unusable. This can happen after `respond()` called, or if exception thrown during communication.
 	private is_terminated = false;
-	/// poll() sets this (together with is_terminated) if error occures
+	/// poll_request() sets this (together with is_terminated) if error occures
 	private last_error: Error|undefined;
 
 	private has_stderr = false;
@@ -90,7 +90,9 @@ export class ServerRequest implements Deno.Conn
 	private stdin_padding_length = 0;
 
 	private no_keep_conn = false;
-	private ongoing: Promise<unknown> = Promise.resolve();
+	private is_polling_request = false;
+	private ongoing_read: Promise<ServerRequest> | undefined;
+	private ongoing_write: Promise<unknown> = Promise.resolve();
 
 	private encoder = new TextEncoder;
 	private decoder = new TextDecoder;
@@ -169,7 +171,7 @@ export class ServerRequest implements Deno.Conn
 			}
 		}
 		if (this.is_aborted)
-		{	await this.ongoing.catch(e => {});
+		{	await this.ongoing_write.catch(e => {});
 		}
 		else
 		{	if (response)
@@ -235,7 +237,7 @@ export class ServerRequest implements Deno.Conn
 	}
 
 	private do_close()
-	{	return this.ongoing.then
+	{	return this.ongoing_write.then
 		(	() =>
 			{	this.conn.close();
 				this.post.close();
@@ -434,18 +436,18 @@ export class ServerRequest implements Deno.Conn
 		this.buffer_start += len;
 	}
 
-	private schedule<T>(callback: () => T | Promise<T>): Promise<T>
-	{	let promise = this.ongoing.then(callback);
-		this.ongoing = promise;
+	private schedule_write<T>(callback: () => T | Promise<T>): Promise<T>
+	{	let promise = this.ongoing_write.then(callback);
+		this.ongoing_write = promise;
 		return promise;
 	}
 
 	private write_raw(value: Uint8Array)
-	{	return this.schedule(() => Deno.writeAll(this.conn, value));
+	{	return this.schedule_write(() => Deno.writeAll(this.conn, value));
 	}
 
 	private write_stdout(value: Uint8Array, record_type=FCGI_STDOUT, is_last=false): Promise<number>
-	{	return this.schedule
+	{	return this.schedule_write
 		(	async () =>
 			{	debug_assert(this.request_id);
 				debug_assert(record_type==FCGI_STDOUT || record_type==FCGI_STDERR);
@@ -541,23 +543,35 @@ export class ServerRequest implements Deno.Conn
 	}
 
 	private write_nvp(value: Map<string, string>)
-	{	this.schedule(() => Deno.writeAll(this.conn, pack_nvp(FCGI_GET_VALUES_RESULT, 0, value, this.maxNameLength, this.maxValueLength)));
+	{	this.schedule_write(() => Deno.writeAll(this.conn, pack_nvp(FCGI_GET_VALUES_RESULT, 0, value, this.maxNameLength, this.maxValueLength)));
 	}
 
 	/**	For internal use.
+	 **/
+	poll(store_error_dont_print=false)
+	{	if (this.ongoing_read)
+		{	return this.ongoing_read;
+		}
+		debug_assert(!this.is_terminated && !this.is_aborted);
+		let promise = this.poll_request(store_error_dont_print);
+		if (this.is_polling_request)
+		{	this.ongoing_read = promise;
+		}
+		return promise;
+	}
 
-		This function doesn't throw exceptions. It always returns "this".
+	/**	This function doesn't throw exceptions. It always returns "this".
 		Before returning it sets one of the following:
 		- is_terminated (if due to error, also last_error is set)
-		- params
-		- stdin_length
-		- stdin_complete
-		- is_aborted + stdin_complete
+		- params (all FCGI_PARAMS records received)
+		- stdin_length (a FCGI_STDIN record received, and there're "stdin_length" bytes in buffer available to read)
+		- stdin_complete (all FCGI_STDIN records received)
+		- is_aborted + stdin_complete (a FCGI_ABORT_REQUEST record received)
 	 **/
-	async poll(store_error_dont_print=false)
+	private async poll_request(store_error_dont_print=false)
 	{	let {buffer} = this;
 
-		debug_assert(!this.is_terminated && !this.is_aborted);
+		this.is_polling_request = true;
 
 		try
 		{	this.buffer_start += this.stdin_length; // discard stdin part if not consumed
@@ -568,12 +582,16 @@ export class ServerRequest implements Deno.Conn
 				{	await this.read_at_least(BUFFER_LEN);
 					this.stdin_length = BUFFER_LEN;
 					this.stdin_content_length -= BUFFER_LEN;
+					this.is_polling_request = false;
+					this.ongoing_read = undefined;
 					return this;
 				}
 				else
 				{	await this.read_at_least(this.stdin_content_length);
 					this.stdin_length = this.stdin_content_length;
 					this.stdin_content_length = 0;
+					this.is_polling_request = false;
+					this.ongoing_read = undefined;
 					return this;
 				}
 			}
@@ -592,6 +610,8 @@ export class ServerRequest implements Deno.Conn
 				{	if (!await this.read_at_least(8, true))
 					{	this.is_terminated = true;
 						await this.do_close();
+						this.is_polling_request = false;
+						this.ongoing_read = undefined;
 						return this;
 					}
 				}
@@ -632,6 +652,8 @@ export class ServerRequest implements Deno.Conn
 							{	await this.read_at_least(content_length+padding_length);
 							}
 							this.buffer_start += content_length + padding_length;
+							this.is_polling_request = false;
+							this.ongoing_read = undefined;
 							return this;
 						}
 						break;
@@ -686,6 +708,8 @@ export class ServerRequest implements Deno.Conn
 									this.post.maxValueLength = this.maxValueLength;
 									this.post.maxFileSize = this.maxFileSize;
 								}
+								this.is_polling_request = false;
+								this.ongoing_read = undefined;
 								return this;
 							}
 							if (!this.cur_nvp_read_state)
@@ -720,6 +744,8 @@ export class ServerRequest implements Deno.Conn
 								this.stdin_content_length = content_length - this.stdin_length;
 								this.stdin_padding_length = padding_length;
 							}
+							this.is_polling_request = false;
+							this.ongoing_read = undefined;
 							return this;
 						}
 						else
@@ -766,6 +792,8 @@ export class ServerRequest implements Deno.Conn
 			}
 			this.is_terminated = true;
 			await this.do_close().catch(e => {});
+			this.is_polling_request = false;
+			this.ongoing_read = undefined;
 			return this;
 		}
 	}

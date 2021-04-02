@@ -106,8 +106,7 @@ Deno.test
 				let contents = new TextDecoder().decode(await Deno.readAll(f));
 				f.close();
 				assertEquals(contents, file_contents);
-				uploaded_file!.tmpName = '';
-				assertEquals(uploaded_file, {error: 0, name: '/tmp/current_file', size: file_contents.length, tmpName: '', type: 'application/octet-stream'});
+				assertEquals(uploaded_file, {error: 0, name: '/tmp/current_file', size: file_contents.length, tmpName: uploaded_file!.tmpName, type: 'application/octet-stream'});
 				await post.close();
 				assert(!await exists(tmpName));
 			}

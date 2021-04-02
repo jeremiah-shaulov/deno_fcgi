@@ -27,7 +27,7 @@ export class Server implements Deno.Listener
 	private requests: ServerRequest[] = [];
 	private requests_processing: ServerRequest[] = [];
 	private onerror: (error: Error) => void = () => {};
-	private is_closed = false;
+	private dont_accept = false;
 
 	constructor(private socket: Deno.Listener, options?: ServerOptions)
 	{	this.addr = socket.addr;
@@ -40,15 +40,17 @@ export class Server implements Deno.Listener
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<ServerRequest>
-	{	if (this.is_closed)
+	{	if (this.dont_accept)
 		{	return;
 		}
 
+		let that = this;
 		let {socket, promises, requests, requests_processing, onerror, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this;
 		maxConns |= 0;
 		maxNameLength |= 0;
 		maxValueLength |= 0;
 		maxFileSize |= 0;
+		let when_all_processed: (() => void) | undefined;
 
 		function onretired(request: ServerRequest, new_request?: ServerRequest)
 		{	let i = requests_processing.indexOf(request);
@@ -67,9 +69,13 @@ export class Server implements Deno.Listener
 					requests.length--;
 					promises.length--;
 				}
+				new_request?.close();
 			}
 			else
-			{	if (promises.length == requests.length)
+			{	if (that.dont_accept)
+				{	new_request?.close();
+				}
+				else if (promises.length == requests.length)
 				{	debug_assert(requests.length + requests_processing.length == maxConns);
 					if (new_request)
 					{	requests[requests.length] = new_request;
@@ -87,7 +93,9 @@ export class Server implements Deno.Listener
 					promises[j] = new_request.poll();
 				}
 				requests_processing[i] = requests_processing[requests_processing.length-1];
-				requests_processing.length--;
+				if (--requests_processing.length==0 && when_all_processed)
+				{	when_all_processed();
+				}
 				debug_assert(requests.length + requests_processing.length <= maxConns);
 			}
 		}
@@ -96,75 +104,82 @@ export class Server implements Deno.Listener
 		{	promises[0] = socket.accept();
 		}
 
-		while (!this.is_closed)
-		{	debug_assert(requests.length+requests_processing.length <= maxConns);
-			debug_assert(promises.length == (requests.length+requests_processing.length == maxConns ? requests.length : requests.length+1));
+		try
+		{	while (!this.dont_accept)
+			{	debug_assert(requests.length+requests_processing.length <= maxConns);
+				debug_assert(promises.length == (requests.length+requests_processing.length == maxConns ? requests.length : requests.length+1));
 
-			// If requests.length+requests_processing.length < maxConns, then i can accept new connections,
-			// and promises[promises.length-1] is a promise for accepting a new connection,
-			// and promises.length == requests.length+1,
-			// and each requests[i] corresponds to each promises[i].
-			//
-			// If requests.length+requests_processing.length == maxConns, then i cannot accept new connections,
-			// and promises.length == requests.length.
-			//
-			// When accepted a connection (promises[promises.length-1] resolved), i create new "ServerRequest" object, and put it to "requests", and start polling this object, and poll promise i put to "promises".
-			// When some ServerRequest is polled till completion of FCGI_BEGIN_REQUEST and FCGI_PARAMS, i remove it from "requests", and it's resolved promise from "promises",
-			// and put this ServerRequest object to "requests_processing", and also yield this object to the caller.
-			//
-			// When the caller calls "respond()" or when i/o or protocol error occures, the "ServerRequest" object calls it's "close()", and the "close()" calls "onretired()".
-			// When a request is retired, it's removed from "requests_processing".
+				// If requests.length+requests_processing.length < maxConns, then i can accept new connections,
+				// and promises[promises.length-1] is a promise for accepting a new connection,
+				// and promises.length == requests.length+1,
+				// and each requests[i] corresponds to each promises[i].
+				//
+				// If requests.length+requests_processing.length == maxConns, then i cannot accept new connections,
+				// and promises.length == requests.length.
+				//
+				// When accepted a connection (promises[promises.length-1] resolved), i create new "ServerRequest" object, and put it to "requests", and start polling this object, and poll promise i put to "promises".
+				// When some ServerRequest is polled till completion of FCGI_BEGIN_REQUEST and FCGI_PARAMS, i remove it from "requests", and it's resolved promise from "promises",
+				// and put this ServerRequest object to "requests_processing", and also yield this object to the caller.
+				//
+				// When the caller calls "respond()" or when i/o or protocol error occures, the "ServerRequest" object calls it's "close()", and the "close()" calls "onretired()".
+				// When a request is retired, it's removed from "requests_processing".
 
-			let ready = await Promise.race(promises);
-			if (!(ready instanceof ServerRequest))
-			{	// Accepted connection
-				debug_assert(promises.length == requests.length+1);
-				let request = new ServerRequest(onretired, ready, onerror, null, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize);
-				requests[requests.length] = request;
-				promises[promises.length-1] = request.poll();
-				if (requests.length+requests_processing.length < maxConns)
-				{	// Immediately start waiting for new
-					promises[promises.length] = socket.accept();
-				}
-				else
-				{	// Take a break accepting new connections
-					debug_assert(promises.length == requests.length);
-				}
-			}
-			else
-			{	// Some ServerRequest is ready (params are read)
-				let i = requests.indexOf(ready);
-				if (i != -1)
-				{	let j = requests.length - 1;
-					requests[i] = requests[j];
-					promises[i] = promises[j];
-					if (promises.length != requests.length)
-					{	debug_assert(promises.length == requests.length+1);
-						promises[j] = promises[j+1];
+				let ready = await Promise.race(promises);
+				if (!(ready instanceof ServerRequest))
+				{	// Accepted connection
+					debug_assert(promises.length == requests.length+1);
+					let request = new ServerRequest(onretired, ready, onerror, null, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize);
+					requests[requests.length] = request;
+					promises[promises.length-1] = request.poll();
+					if (requests.length+requests_processing.length < maxConns)
+					{	// Immediately start waiting for new
+						promises[promises.length] = socket.accept();
 					}
-					requests.length--;
-					promises.length--;
-					if (!ready.isTerminated())
-					{	requests_processing[requests_processing.length] = ready;
-						yield ready;
+					else
+					{	// Take a break accepting new connections
+						debug_assert(promises.length == requests.length);
 					}
 				}
 				else
-				{	// assume: ready.is_terminated (poll() called onretired(), and then returned this object to Promise.race())
+				{	// Some ServerRequest is ready (params are read)
+					let i = requests.indexOf(ready);
+					if (i != -1)
+					{	let j = requests.length - 1;
+						requests[i] = requests[j];
+						promises[i] = promises[j];
+						if (promises.length != requests.length)
+						{	debug_assert(promises.length == requests.length+1);
+							promises[j] = promises[j+1];
+						}
+						requests.length--;
+						promises.length--;
+						if (!ready.isTerminated())
+						{	requests_processing[requests_processing.length] = ready;
+							yield ready;
+						}
+					}
+					else
+					{	// assume: ready.is_terminated (poll() called onretired(), and then returned this object to Promise.race())
+					}
 				}
 			}
 		}
+		catch (e)
+		{	this.onerror(e);
+		}
 
-		debug_assert(this.is_closed);
+		debug_assert(this.dont_accept);
 		socket.close();
 		for (let result of await Promise.allSettled(promises))
 		{	if (result.status == 'rejected')
 			{	this.onerror(result.reason);
 			}
 		}
+		if (requests_processing.length)
+		{	await new Promise<void>(y => {when_all_processed = y});
+		}
+		debug_assert(requests.length==0 && requests_processing.length==0);
 		promises.length = 0;
-		requests.length = 0;
-		requests_processing.length = 0;
 	}
 
 	async accept(): Promise<ServerRequest>
@@ -197,12 +212,16 @@ export class Server implements Deno.Listener
 		}
 	}
 
+	stopAccepting()
+	{	this.dont_accept = true;
+	}
+
 	close()
-	{	this.is_closed = true;
-		for (let request of this.requests)
-		{	request.close();
-		}
+	{	this.dont_accept = true;
 		for (let request of this.requests_processing)
+		{	request.respond({status: 503, body: '', headers: new Headers});
+		}
+		for (let request of this.requests)
 		{	request.close();
 		}
 	}
