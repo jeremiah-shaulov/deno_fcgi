@@ -52,7 +52,7 @@ export class Server implements Deno.Listener
 		maxFileSize |= 0;
 		let when_all_processed: (() => void) | undefined;
 
-		function onretired(request: ServerRequest, new_request?: ServerRequest)
+		function onretired(request: ServerRequest, new_request?: ServerRequest, new_request_ready?: Promise<ServerRequest>)
 		{	let i = requests_processing.indexOf(request);
 			if (i == -1)
 			{	i = requests.indexOf(request);
@@ -79,7 +79,7 @@ export class Server implements Deno.Listener
 				{	debug_assert(requests.length + requests_processing.length == maxConns);
 					if (new_request)
 					{	requests[requests.length] = new_request;
-						promises[promises.length] = new_request.poll();
+						promises[promises.length] = new_request_ready!;
 					}
 					else
 					{	promises[promises.length] = socket.accept();
@@ -90,7 +90,7 @@ export class Server implements Deno.Listener
 					let j = requests.length;
 					requests[j] = new_request;
 					promises[j+1] = promises[j];
-					promises[j] = new_request.poll();
+					promises[j] = new_request_ready!;
 				}
 				requests_processing[i] = requests_processing[requests_processing.length-1];
 				if (--requests_processing.length==0 && when_all_processed)
@@ -166,6 +166,7 @@ export class Server implements Deno.Listener
 		}
 		catch (e)
 		{	this.onerror(e);
+			this.dont_accept = true;
 		}
 
 		debug_assert(this.dont_accept);

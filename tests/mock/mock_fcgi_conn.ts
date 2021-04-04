@@ -148,7 +148,7 @@ export class MockFcgiConn extends MockConn
 	{	this.read_data = this.read_data.slice(0, -n_bytes);
 	}
 
-	take_written_fcgi(request_id=-1, only_id_record_type=-1, include_header_and_padding=false): {request_id: number, record_type: number, payload: Uint8Array} | undefined
+	take_written_fcgi(request_id=-1, only_id_record_type=-1, include_header_and_padding=false): {request_id: number, record_type: number, record_type_name: string, payload: Uint8Array} | undefined
 	{	let written = this.get_written();
 		let pos = request_id==-1 ? 0 : this.written_pos.get(request_id) || 0;
 		while (pos+8 <= written.length)
@@ -167,7 +167,7 @@ export class MockFcgiConn extends MockConn
 			}
 			if (request_id!=-1 ? rec_request_id==request_id : prev_pos>=(this.written_pos.get(rec_request_id) ?? 0))
 			{	let payload = written.subarray(include_header_and_padding ? prev_pos : prev_pos+8, include_header_and_padding ? pos : pos-padding_length);
-				return {request_id: rec_request_id, record_type, payload};
+				return {request_id: rec_request_id, record_type, record_type_name: RECORD_TYPE_NAMES[record_type] || '', payload};
 			}
 		}
 		if (pos < written.length)

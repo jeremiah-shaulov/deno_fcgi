@@ -89,10 +89,11 @@ Deno.test
 			for await (let req of server)
 			{	assertEquals(req.params.size, 0);
 				assertEquals(server.nAccepted(), 1);
+				assertEquals(server.nProcessing(), 1);
 				let body = new TextEncoder().encode('Response body');
 				req.responseStatus = 500;
 				await req.respond({body});
-				assertEquals(server.nAccepted(), 1); // because pend_read_fcgi_begin_request(?, ?, true)
+				assertEquals(server.nProcessing(), 0);
 				break;
 			}
 			// read
@@ -326,7 +327,7 @@ Deno.test
 				assertEquals(server.nAccepted(), 1);
 				assertEquals(server.nProcessing(), 1);
 				await req.respond();
-				assertEquals(server.nAccepted(), 1);
+				assertEquals(server.nAccepted(), i==1 ? 1 : 0);
 				assertEquals(server.nProcessing(), 0);
 				if (++i > 2)
 				{	break;
@@ -349,7 +350,8 @@ Deno.test
 Deno.test
 (	'Abort request',
 	async () =>
-	{	for (let conn of test_connections())
+	{	let was_write_error = false;
+		for (let conn of test_connections())
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
@@ -358,19 +360,24 @@ Deno.test
 			conn.pend_read_fcgi_begin_request(1, 'responder', true);
 			conn.pend_read_fcgi_params(1, {id: 'req 1'});
 			conn.pend_read_fcgi_abort_request(1);
-			// write request 2 (abort after STDIN)
+			// write request 2 (abort in the middle of STDIN)
 			conn.pend_read_fcgi_begin_request(2, 'responder', true);
 			conn.pend_read_fcgi_params(2, {id: 'req 2'});
 			conn.pend_read_fcgi_abort_request(2, 'Body 2');
-			// write request 3
+			// write request 3 (abort after STDIN)
 			conn.pend_read_fcgi_begin_request(3, 'responder', true);
 			conn.pend_read_fcgi_params(3, {id: 'req 3'});
 			conn.pend_read_fcgi_stdin(3, 'Body 3');
+			conn.pend_read_fcgi_abort_request(3);
+			// write request 4
+			conn.pend_read_fcgi_begin_request(4, 'responder', true);
+			conn.pend_read_fcgi_params(4, {id: 'req 4'});
+			conn.pend_read_fcgi_stdin(4, 'Body 4');
 			// accept
 			let i = 1;
 			for await (let req of server)
 			{	assertEquals(map_to_obj(req.params), {id: 'req '+i});
-				if (i < 3)
+				if (i < 4)
 				{	// try to read POST body
 					let error;
 					try
@@ -379,7 +386,7 @@ Deno.test
 					catch (e)
 					{	error = e;
 					}
-					assert(error instanceof AbortedError);
+					assert(error instanceof AbortedError || i==3);
 					// try to write
 					error = undefined;
 					try
@@ -388,7 +395,9 @@ Deno.test
 					catch (e)
 					{	error = e;
 					}
-					assert(error instanceof AbortedError);
+					if (error instanceof AbortedError)
+					{	was_write_error = true;
+					}
 					// try to respond
 					error = undefined;
 					try
@@ -417,23 +426,44 @@ Deno.test
 					assertEquals(server.nProcessing(), 1);
 					await req.respond();
 				}
-				assertEquals(server.nAccepted(), 1);
+				assertEquals(server.nAccepted(), i==4 ? 0 : 1);
 				assertEquals(server.nProcessing(), 0);
 				// done
-				if (++i > 3)
+				if (++i > 4)
 				{	break;
 				}
 			}
 			// read
 			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 			assertEquals(conn.take_written_fcgi_end_request(2), 'request_complete');
-			assertEquals(conn.take_written_fcgi_stdout(3), 'status: 200\r\n\r\n');
-			assertEquals(conn.take_written_fcgi_end_request(3), 'request_complete');
+			assertEquals(conn.take_written_fcgi_stdout(4), 'status: 200\r\n\r\n');
+			assertEquals(conn.take_written_fcgi_end_request(4), 'request_complete');
+			let rec;
+			let stdout_3 = new Uint8Array;
+			let end_3 = false;
+			while ((rec = conn.take_written_fcgi(3)))
+			{	if (rec.record_type_name == 'STDOUT')
+				{	let tmp = new Uint8Array(stdout_3.length + rec.payload.length);
+					tmp.set(stdout_3);
+					tmp.set(rec.payload, stdout_3.length);
+					stdout_3 = tmp;
+				}
+				else
+				{	assertEquals(rec.record_type_name, 'END_REQUEST');
+					end_3 = true;
+				}
+			}
+			let stdout_3_str = new TextDecoder().decode();
+			if (stdout_3_str)
+			{	assertEquals(stdout_3_str, 'status: 200\r\n\r\nResponse body');
+			}
+			assert(end_3);
 			assertEquals(conn.take_written_fcgi(), undefined);
 			// check
 			assert(!server_error);
 			assertEquals(server.nAccepted(), 0);
 			assertEquals(server.nProcessing(), 0);
+			assert(was_write_error);
 		}
 	}
 );
@@ -908,7 +938,7 @@ Deno.test
 			assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 2');
 			await req.respond();
 			assertEquals(server.nProcessing(), 0);
-			assertEquals(server.nAccepted(), 1); // because pend_read_fcgi_begin_request(?, ?, true)
+			assertEquals(server.nAccepted(), 0);
 			break;
 		}
 		// read
@@ -941,7 +971,7 @@ Deno.test
 			assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 1');
 			await req.respond();
 			assertEquals(server.nProcessing(), 0);
-			assertEquals(server.nAccepted(), 1); // because pend_read_fcgi_begin_request(?, ?, true)
+			assertEquals(server.nAccepted(), 0);
 			break;
 		}
 		// read
