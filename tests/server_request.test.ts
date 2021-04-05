@@ -1,7 +1,7 @@
+import {Server, AbortedError, TerminatedError, ProtocolError, PathNode} from "../mod.ts";
+import {TEST_CHUNK_SIZES, map_to_obj, MockListener, MockFcgiConn, MockConn} from './mock/mod.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
 import {exists} from "https://deno.land/std/fs/mod.ts";
-import {TEST_CHUNK_SIZES, map_to_obj, MockListener, MockFcgiConn, MockConn} from './mock/mod.ts';
-import {Server, AbortedError, TerminatedError, ProtocolError, PathNode} from "../mod.ts";
 
 function *test_connections(only_chunk_sizes?: number[]): Generator<MockFcgiConn>
 {	for (let chunk_size of only_chunk_sizes || TEST_CHUNK_SIZES)

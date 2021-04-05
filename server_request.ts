@@ -92,7 +92,7 @@ export class ServerRequest implements Deno.Conn
 	private no_keep_conn = false;
 	private is_polling_request = false;
 	private ongoing_read: Promise<ServerRequest> | undefined;
-	private ongoing_write: Promise<unknown> = Promise.resolve();
+	private ongoing_write: Promise<unknown> | undefined;
 
 	/// If FCGI_KEEP_CONN flag is provided, i'll create a new ServerRequest object that uses the same "conn" and "buffer", and let it continue reading records.
 	private next_request: ServerRequest | undefined;
@@ -135,10 +135,10 @@ export class ServerRequest implements Deno.Conn
 			{	if (this.is_aborted)
 				{	throw new AbortedError('Request aborted');
 				}
+				if (this.is_terminated)
+				{	this.throw_terminated_error();
+				}
 				return null;
-			}
-			else if (this.is_terminated)
-			{	this.throw_terminated_error();
 			}
 			else
 			{	await this.poll(true);
@@ -184,111 +184,135 @@ export class ServerRequest implements Deno.Conn
 
 	private async do_respond(response?: ServerResponse, is_for_abort=false)
 	{	let was_terminated = this.is_terminated;
-		while (!this.stdin_complete && !this.is_terminated && !this.is_aborted)
+		while (!this.stdin_complete)
 		{	await this.poll(true);
 		}
-		if (!this.is_terminated && !this.is_aborted)
-		{	if (response)
-			{	var {status, headers, body} = response;
-			}
-			if (!this.headersSent)
-			{	if (headers)
-				{	for (let [k, v] of headers)
-					{	this.responseHeaders.set(k, v);
+		let read_error: Error | undefined;
+		try
+		{	if (!this.is_terminated && !this.is_aborted)
+			{	if (response)
+				{	var {status, headers, body} = response;
+				}
+				if (!this.headersSent)
+				{	if (headers)
+					{	for (let [k, v] of headers)
+						{	this.responseHeaders.set(k, v);
+						}
+					}
+					if (status)
+					{	this.responseStatus = status;
 					}
 				}
-				if (status)
-				{	this.responseStatus = status;
-				}
-			}
-			try
-			{	if (body)
+				if (body)
 				{	if (typeof(body) == 'string')
 					{	body = this.encoder.encode(body);
 					}
 					if (body instanceof Uint8Array)
-					{	await this.write_stdout(body, FCGI_STDOUT, true);
+					{	this.write_stdout(body, FCGI_STDOUT, true);
 					}
 					else
-					{	await Deno.copy(body, this);
-						await this.write_stdout(new Uint8Array(0), FCGI_STDOUT, true);
+					{	try
+						{	await Deno.copy(body, this);
+						}
+						catch (e)
+						{	read_error = e; // if it was write error, it is expected to happen again when writing the final packet (at `await ongoing_write`)
+						}
+						this.write_stdout(new Uint8Array, FCGI_STDOUT, true);
 					}
 				}
 				else
-				{	await this.write_stdout(new Uint8Array(0), FCGI_STDOUT, true);
+				{	this.write_stdout(new Uint8Array, FCGI_STDOUT, true);
 				}
 			}
-			catch (e)
-			{	if (!this.is_terminated)
-				{	this.is_terminated = true;
-					await this.do_close(true);
+			let ongoing_write = (this.next_request || this).ongoing_write;
+			if (ongoing_write)
+			{	if (this.next_request)
+				{	this.next_request.ongoing_write = undefined; // So next request will not suffer from errors in "ongoing_write", if it will throw. It's safe to clear "ongoing_write", because the next request object was not yet returned to the user, so there're no writes
 				}
+				await ongoing_write;
+			}
+		}
+		catch (e)
+		{	if (read_error)
+			{	e = read_error;
+			}
+			if (e instanceof AbortedError)
+			{	debug_assert(this.is_aborted);
+			}
+			else
+			{	await this.do_close(true);
 				throw e;
 			}
 		}
-		if (this.is_terminated)
-		{	if (this.is_aborted && !is_for_abort)
-			{	this.is_aborted = false; // after calling `respond()`, must throw TerminatedError
-				throw new AbortedError('Request aborted');
-			}
-			this.throw_terminated_error(was_terminated ? 'Request already terminated' : 'Unexpected end of input');
-		}
+		let was_terminated_2 = this.is_terminated;
 		// Prepare for further requests on "this.conn"
-		this.is_terminated = true;
 		debug_assert(this.stdin_content_length==0 && this.stdin_padding_length==0 && this.stdin_complete);
-		if (this.no_keep_conn)
-		{	await this.do_close();
-		}
-		else if (this.next_request)
-		{	if (!this.next_request_ready)
-			{	// assume: `this.next_request_ready = this.next_request.poll(false)` bringed be directly to here, before assigning
-				this.next_request_ready = Promise.resolve(this.next_request);
+		if (!was_terminated_2)
+		{	if (this.no_keep_conn)
+			{	await this.do_close();
 			}
-			this.next_request.prev_request = undefined;
-			this.post.close();
-			this.onretired(this, this.next_request, this.next_request_ready);
+			else if (this.next_request)
+			{	this.is_terminated = true;
+				this.stdin_complete = true;
+				if (!this.next_request_ready)
+				{	// assume: `this.next_request_ready = this.next_request.poll(false)` bringed be directly to here, before assigning
+					this.next_request_ready = Promise.resolve(this.next_request);
+				}
+				this.next_request.prev_request = undefined;
+				this.post.close();
+				this.onretired(this, this.next_request, this.next_request_ready);
+			}
+			else
+			{	this.is_terminated = true;
+				this.stdin_complete = true;
+				this.post.close();
+				let next_request = new ServerRequest(this.onretired, this.conn, this.onerror, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize);
+				next_request.buffer_start = this.buffer_start;
+				next_request.buffer_end = this.buffer_end;
+				this.onretired(this, next_request, next_request.poll());
+			}
 		}
-		else
-		{	this.post.close();
-			let next_request = new ServerRequest(this.onretired, this.conn, this.onerror, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize);
-			next_request.buffer_start = this.buffer_start;
-			next_request.buffer_end = this.buffer_end;
-			this.onretired(this, next_request, next_request.poll());
+		if (read_error)
+		{	throw read_error;
 		}
-		if (this.is_aborted && !is_for_abort)
+		if (is_for_abort)
+		{	return;
+		}
+		if (this.is_aborted)
 		{	this.is_aborted = false; // after calling `respond()`, must throw TerminatedError
 			throw new AbortedError('Request aborted');
+		}
+		if (was_terminated_2)
+		{	this.throw_terminated_error(was_terminated ? 'Request already terminated' : 'Unexpected end of input');
 		}
 	}
 
 	close()
-	{	if (!this.is_terminated)
-		{	this.is_terminated = true;
-			this.do_close();
-		}
+	{	this.do_close();
 	}
 
-	private do_close(ignore_error=false)
-	{	let cur = this.next_request || this;
-		return cur.ongoing_write.then
-		(	() =>
-			{	if (!this.next_request)
-				{	this.conn.close();
+	private async do_close(ignore_error=false)
+	{	if (!this.is_terminated)
+		{	this.is_terminated = true;
+			this.stdin_complete = true;
+			let cur = this.next_request || this;
+			if (cur.ongoing_write)
+			{	try
+				{	await cur.ongoing_write;
 				}
-				this.post.close();
-				this.onretired(this);
-			},
-			error =>
-			{	if (!this.next_request)
-				{	this.conn.close();
+				catch (e)
+				{	if (!ignore_error)
+					{	this.onerror(e);
+					}
 				}
-				this.post.close();
-				this.onretired(this);
-				if (!ignore_error)
-				{	this.onerror(error);
-				}
+				cur.ongoing_write = undefined;
 			}
-		);
+			if (!this.next_request)
+			{	this.conn.close();
+			}
+			this.post.close();
+			this.onretired(this);
+		}
 	}
 
 	closeWrite(): Promise<void>
@@ -477,7 +501,7 @@ export class ServerRequest implements Deno.Conn
 
 	private schedule_write<T>(callback: () => T | Promise<T>): Promise<T>
 	{	let cur = this.next_request || this;
-		let promise = cur.ongoing_write.then(callback);
+		let promise = (cur.ongoing_write || Promise.resolve()).then(callback);
 		cur.ongoing_write = promise;
 		return promise;
 	}
@@ -599,11 +623,11 @@ export class ServerRequest implements Deno.Conn
 
 	/**	This function doesn't throw exceptions. It always returns "this".
 		Before returning it sets one of the following:
-		- is_terminated (if due to error, also last_error is set)
 		- params (all FCGI_PARAMS records received)
 		- stdin_length (a FCGI_STDIN record received, and there're "stdin_length" bytes in buffer available to read)
 		- stdin_complete (all FCGI_STDIN records received)
 		- is_aborted + stdin_complete (a FCGI_ABORT_REQUEST record received)
+		- is_terminated + stdin_complete (if due to error, also last_error is set)
 	 **/
 	private async do_poll(store_error_dont_print=false)
 	{	let {buffer} = this;
@@ -647,16 +671,17 @@ export class ServerRequest implements Deno.Conn
 				{	if (!await this.read_at_least(8, true))
 					{	if (this.prev_request && !this.prev_request.is_terminated)
 						{	this.is_terminated = true;
+							this.stdin_complete = true;
 							this.prev_request.no_keep_conn = true;
 							this.prev_request.next_request = undefined;
 							this.prev_request.next_request_ready = undefined;
 							this.prev_request.ongoing_write = this.ongoing_write;
+							this.ongoing_write = undefined;
 						}
 						else
 						{	this.no_keep_conn = true;
-							if (!this.stdin_complete && !this.is_terminated)
-							{	this.is_terminated = true;
-								await this.do_close();
+							if (!this.stdin_complete)
+							{	await this.do_close();
 							}
 						}
 						this.is_polling_request = false;
@@ -701,7 +726,7 @@ export class ServerRequest implements Deno.Conn
 							{	await this.read_at_least(content_length+padding_length);
 							}
 							this.buffer_start += content_length + padding_length;
-							await this.do_respond(undefined, true).catch(e => {}); // retired
+							await this.do_respond(undefined, true).catch(this.onerror); // retired
 							this.is_polling_request = false;
 							this.ongoing_read = undefined;
 							return this;
@@ -802,7 +827,7 @@ export class ServerRequest implements Deno.Conn
 									this.next_request.buffer_end = this.buffer_end;
 									// from now on i write only to "this.next_request.ongoing_write", not "this.ongoing_write"
 									this.next_request.ongoing_write = this.ongoing_write;
-									this.ongoing_write = Promise.resolve();
+									this.ongoing_write = undefined;
 									// from now on i only poll "this.next_request_ready", not "this"
 									this.next_request_ready = this.next_request.poll(false);
 									this.is_polling_request = false;
@@ -863,10 +888,7 @@ export class ServerRequest implements Deno.Conn
 			else
 			{	this.onerror(e);
 			}
-			if (!this.is_terminated)
-			{	this.is_terminated = true;
-				await this.do_close(true);
-			}
+			await this.do_close(true);
 			this.is_polling_request = false;
 			this.ongoing_read = undefined;
 			return this;
