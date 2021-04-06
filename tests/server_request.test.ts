@@ -47,10 +47,10 @@ Deno.test
 				assertEquals(req.protoMinor, 0);
 				assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body');
 				assertEquals(server.nAccepted(), 1);
+				assertEquals(server.nProcessing(), 1);
 				req.responseHeaders.set('X-Hello', 'all');
 				Deno.writeAll(req, new TextEncoder().encode('Response body'));
 				await req.respond();
-				assertEquals(server.nAccepted(), 0);
 				// try to use terminated request
 				let error;
 				try
@@ -60,7 +60,7 @@ Deno.test
 				{	error = e;
 				}
 				assert(error instanceof TerminatedError);
-				break;
+				server.stopAccepting();
 			}
 			// read
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\nx-hello: all\r\n\r\nResponse body');
@@ -93,8 +93,7 @@ Deno.test
 				let body = new TextEncoder().encode('Response body');
 				req.responseStatus = 500;
 				await req.respond({body});
-				assertEquals(server.nProcessing(), 0);
-				break;
+				server.stopAccepting();
 			}
 			// read
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 500\r\n\r\nResponse body');
@@ -134,8 +133,7 @@ Deno.test
 				assertEquals(server.nAccepted(), 1);
 				let body = new MockConn('Response body');
 				await req.respond({body, status: 404});
-				assertEquals(server.nAccepted(), 0);
-				break;
+				server.stopAccepting();
 			}
 			// read
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 404\r\n\r\nResponse body');
@@ -213,8 +211,7 @@ Deno.test
 				assertEquals(server.nAccepted(), 1);
 				Deno.writeAll(req, new TextEncoder().encode('Response body'));
 				await req.respond();
-				assertEquals(server.nAccepted(), 0);
-				break;
+				server.stopAccepting();
 			}
 			// read
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\nResponse body');
@@ -252,8 +249,7 @@ Deno.test
 				assertEquals(req.protoMinor, 0);
 				assertEquals(server.nAccepted(), 1);
 				await req.respond({body: 'Response body', headers: new Headers(Object.entries({'X-Hello': 'all'})), status: 404});
-				assertEquals(server.nAccepted(), 0);
-				break;
+				server.stopAccepting();
 			}
 			// read
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 404\r\nx-hello: all\r\n\r\nResponse body');
@@ -289,7 +285,7 @@ Deno.test
 				assertEquals(req.cookies.size, 2);
 				req.cookies.clear();
 				assertEquals(req.cookies.size, 0);
-				break;
+				server.stopAccepting();
 			}
 			// read
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\nset-cookie: coo-1=New%20value; Domain=example.com\r\n\r\n');
@@ -327,10 +323,9 @@ Deno.test
 				assertEquals(server.nAccepted(), 1);
 				assertEquals(server.nProcessing(), 1);
 				await req.respond();
-				assertEquals(server.nAccepted(), i==1 ? 1 : 0);
-				assertEquals(server.nProcessing(), 0);
+				assertEquals(server.nAccepted(), 1);
 				if (++i > 2)
-				{	break;
+				{	server.stopAccepting();
 				}
 			}
 			// read
@@ -409,7 +404,6 @@ Deno.test
 					assert(error instanceof AbortedError);
 					// must not disconnect
 					assertEquals(server.nAccepted(), 1);
-					assertEquals(server.nProcessing(), 0);
 					// try to use terminated request
 					error = undefined;
 					try
@@ -426,11 +420,10 @@ Deno.test
 					assertEquals(server.nProcessing(), 1);
 					await req.respond();
 				}
-				assertEquals(server.nAccepted(), i==4 ? 0 : 1);
-				assertEquals(server.nProcessing(), 0);
+				assertEquals(server.nAccepted(), 1);
 				// done
 				if (++i > 4)
-				{	break;
+				{	server.stopAccepting();
 				}
 			}
 			// read
@@ -490,9 +483,7 @@ Deno.test
 			{	error = e;
 			}
 			assertEquals(error?.message, 'Connection closed');
-			assertEquals(server.nAccepted(), 0);
-			assertEquals(server.nProcessing(), 0);
-			break;
+			server.stopAccepting();
 		}
 		// check
 		assertEquals(server.nAccepted(), 0);
@@ -522,9 +513,7 @@ Deno.test
 			{	error = e;
 			}
 			assertEquals(error?.message, 'Connection closed');
-			assertEquals(server.nProcessing(), 0);
-			assertEquals(server.nAccepted(), 0);
-			break;
+			server.stopAccepting();
 		}
 		// check
 		assertEquals(server.nAccepted(), 0);
@@ -552,9 +541,7 @@ Deno.test
 			{	error = e;
 			}
 			assertEquals(error?.message, 'Unexpected end of input');
-			assertEquals(server.nProcessing(), 0);
-			assertEquals(server.nAccepted(), 0);
-			break;
+			server.stopAccepting();
 		}
 		// check
 		assertEquals(server.nAccepted(), 0);
@@ -591,7 +578,7 @@ Deno.test
 			{	error_2 = e;
 			}
 			assert((error || error_2) instanceof TerminatedError);
-			break;
+			server.stopAccepting();
 		}
 		// check
 		assertEquals(server.nProcessing(), 0);
@@ -622,7 +609,7 @@ Deno.test
 				{	error = e;
 				}
 				assert(error instanceof TerminatedError);
-				break;
+				server.stopAccepting();
 			}
 			// check
 			assert(!server_error);
@@ -657,9 +644,7 @@ Deno.test
 				{	error = e;
 				}
 				assertEquals(error?.message, 'Connection closed for write');
-				assertEquals(server.nProcessing(), 0);
-				assertEquals(server.nAccepted(), 0);
-				break;
+				server.stopAccepting();
 			}
 			// check
 			assert(!server_error);
@@ -692,7 +677,7 @@ Deno.test
 			assertEquals(map_to_obj(req.params), {id: 'req 2'});
 			assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 2');
 			await req.respond({body: 'Hello'});
-			break;
+			server.stopAccepting();
 		}
 		// read
 		assertEquals(conn_2.take_written_fcgi_stdout(1), 'status: 200\r\n\r\nHello');
@@ -726,7 +711,7 @@ Deno.test
 					assertEquals(req.params.get(str_ok), 'ok');
 					assertEquals((await Deno.readAll(req.body)).length, 0);
 					await req.respond();
-					break;
+					server.stopAccepting();
 				}
 				// read
 				assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n');
@@ -762,7 +747,7 @@ Deno.test
 					assertEquals(req.params.get('ok'), str_ok);
 					assertEquals((await Deno.readAll(req.body)).length, 0);
 					await req.respond();
-					break;
+					server.stopAccepting();
 				}
 				// read
 				assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n');
@@ -799,7 +784,7 @@ Deno.test
 					{	req.logError('Hello');
 					}
 					await req.respond({body: str_response});
-					break;
+					server.stopAccepting();
 				}
 				// read
 				if (len==1 || len==0xFFF8)
@@ -839,7 +824,7 @@ Deno.test
 			for await (let req of server)
 			{	Deno.writeAll(req, new TextEncoder().encode(str_response));
 				await req.respond();
-				break;
+				server.stopAccepting();
 			}
 			// read
 			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n'+str_response);
@@ -870,7 +855,7 @@ Deno.test
 			{	assertEquals(req.params.size, 0);
 				req.logError('Hello');
 				await req.respond();
-				break;
+				server.stopAccepting();
 			}
 			// read
 			assertEquals(conn.take_written_fcgi_stderr(2), 'Hello'); // not terminated STDERR
@@ -904,7 +889,7 @@ Deno.test
 			for await (let req of server)
 			{	assertEquals(map_to_obj(req.params), {a: '1'});
 				await req.respond();
-				break;
+				server.stopAccepting();
 			}
 			// read
 			assertEquals(map_to_obj(await conn.take_written_fcgi_get_values_result()), {FCGI_MAX_CONNS: maxConns+'', FCGI_MAX_REQS: maxConns+'', FCGI_MPXS_CONNS: '0'});
@@ -937,9 +922,7 @@ Deno.test
 		{	assertEquals(map_to_obj(req.params), {a: '2'});
 			assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 2');
 			await req.respond();
-			assertEquals(server.nProcessing(), 0);
-			assertEquals(server.nAccepted(), 0);
-			break;
+			server.stopAccepting();
 		}
 		// read
 		assertEquals(conn.take_written_fcgi_end_request(1), 'unknown_role');
@@ -970,9 +953,7 @@ Deno.test
 		{	assertEquals(map_to_obj(req.params), {a: '1'});
 			assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 1');
 			await req.respond();
-			assertEquals(server.nProcessing(), 0);
-			assertEquals(server.nAccepted(), 0);
-			break;
+			server.stopAccepting();
 		}
 		// read
 		assertEquals(conn.take_written_fcgi_end_request(2), 'cant_mpx_conn');
@@ -981,6 +962,63 @@ Deno.test
 		assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 		assertEquals(conn.take_written_fcgi_unknown_type(), '100');
 		assertEquals(conn.take_written_fcgi(), undefined);
+		// check
+		assertEquals(server.nAccepted(), 0);
+		assertEquals(server.nProcessing(), 0);
+	}
+);
+
+Deno.test
+(	'Simultaneous connections',
+	async () =>
+	{	const maxConns = 10;
+		const multiplier = 10;
+		const multiplier_2 = 2;
+		assert(maxConns*multiplier*multiplier_2 < 0xFFFF); // request id is 16-bit unsigned, starts from 1 (0 is reserved)
+		let listener = new MockListener;
+		let server = new Server(listener, {maxConns});
+		let conns = [];
+		// write
+		for (let i=0; i<maxConns*multiplier; i++)
+		{	let conn = new MockFcgiConn(1024, -1, true);
+			conns[i] = conn;
+			listener.pend_accept(conn);
+			for (let j=0; j<multiplier_2; j++)
+			{	let req_id = 1 + j*maxConns*multiplier + i;
+				conn.pend_read_fcgi_begin_request(req_id, 'responder', true);
+				conn.pend_read_fcgi_params(req_id, {id: `req ${req_id}`});
+				conn.pend_read_fcgi_stdin(req_id, `Body ${req_id}`);
+			}
+		}
+		// accept
+		let i = 0;
+		for await (let req of server)
+		{	Deno.readAll(req.body).then
+			(	async body =>
+				{	assertEquals(req.params.size, 1);
+					let req_id = req.params.get('id');
+					assertEquals(req_id?.slice(0, 4), 'req ');
+					req_id = req_id!.slice(4);
+					assertEquals(new TextDecoder().decode(body), `Body ${req_id}`);
+					await req.respond({body: `Response ${req_id}`});
+					assert(server.nAccepted() <= maxConns);
+					assert(server.nProcessing() <= maxConns);
+				}
+			);
+			if (++i == maxConns*multiplier*multiplier_2)
+			{	server.stopAccepting();
+			}
+		}
+		// read
+		for (let i=0; i<maxConns*multiplier; i++)
+		{	let conn = conns[i];
+			for (let j=0; j<multiplier_2; j++)
+			{	let req_id = 1 + j*maxConns*multiplier + i;
+				assertEquals(conn.take_written_fcgi_stdout(req_id), 'status: 200\r\n\r\nResponse '+req_id);
+				assertEquals(conn.take_written_fcgi_end_request(req_id), 'request_complete');
+			}
+			assertEquals(conn.take_written_fcgi(), undefined);
+		}
 		// check
 		assertEquals(server.nAccepted(), 0);
 		assertEquals(server.nProcessing(), 0);

@@ -5,6 +5,10 @@ import {Cookies} from "./cookies.ts";
 import {ServerResponse} from './server_response.ts';
 import {AbortedError, TerminatedError, ProtocolError} from './error.ts';
 
+export const isProcessing = Symbol('isProcessing');
+export const takeNextRequest = Symbol('takeNextRequest');
+export const poll = Symbol('poll');
+
 const BUFFER_LEN = 8*1024;
 
 const FCGI_BEGIN_REQUEST      =  1;
@@ -93,20 +97,22 @@ export class ServerRequest implements Deno.Conn
 	private is_polling_request = false;
 	private ongoing_read: Promise<ServerRequest> | undefined;
 	private ongoing_write: Promise<unknown> | undefined;
+	private complete_promise: ((request: ServerRequest) => void) | undefined;
 
+	/// Server returned this object to user. If "false", the object is considered to modifiable from outside space.
+	private is_processing = false;
 	/// If FCGI_KEEP_CONN flag is provided, i'll create a new ServerRequest object that uses the same "conn" and "buffer", and let it continue reading records.
 	private next_request: ServerRequest | undefined;
 	/// "this.next_request" will have "prev_request" set to this, so if FCGI_ABORT_REQUEST record comes, it will cancel the previous request
 	private prev_request: ServerRequest | undefined;
-	/// result of "next_request.poll()"
+	/// Result of "next_request.poll()"
 	private next_request_ready: Promise<ServerRequest> | undefined;
 
 	private encoder = new TextEncoder;
 	private decoder = new TextDecoder;
 
 	constructor
-	(	private onretired: (request: ServerRequest, new_request?: ServerRequest, new_request_ready?: Promise<ServerRequest>) => void,
-		public conn: Deno.Conn,
+	(	public conn: Deno.Conn,
 		private onerror: (error: Error) => void,
 		buffer: Uint8Array|null,
 		private structuredParams: boolean,
@@ -246,7 +252,7 @@ export class ServerRequest implements Deno.Conn
 		}
 		let was_terminated_2 = this.is_terminated;
 		// Prepare for further requests on "this.conn"
-		debug_assert(this.stdin_content_length==0 && this.stdin_padding_length==0 && this.stdin_complete);
+		debug_assert(this.stdin_content_length==0 && this.stdin_padding_length==0 && this.stdin_complete && !this.prev_request);
 		if (!was_terminated_2)
 		{	if (this.no_keep_conn)
 			{	await this.do_close();
@@ -254,22 +260,20 @@ export class ServerRequest implements Deno.Conn
 			else if (this.next_request)
 			{	this.is_terminated = true;
 				this.stdin_complete = true;
-				if (!this.next_request_ready)
-				{	// assume: `this.next_request_ready = this.next_request.poll(false)` bringed be directly to here, before assigning
-					this.next_request_ready = Promise.resolve(this.next_request);
-				}
 				this.next_request.prev_request = undefined;
 				this.post.close();
-				this.onretired(this, this.next_request, this.next_request_ready);
+				this.complete_promise!(this);
 			}
 			else
 			{	this.is_terminated = true;
 				this.stdin_complete = true;
 				this.post.close();
-				let next_request = new ServerRequest(this.onretired, this.conn, this.onerror, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize);
+				let next_request = new ServerRequest(this.conn, this.onerror, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize);
 				next_request.buffer_start = this.buffer_start;
 				next_request.buffer_end = this.buffer_end;
-				this.onretired(this, next_request, next_request.poll());
+				this.next_request = next_request;
+				this.next_request_ready = next_request.poll();
+				this.complete_promise!(this);
 			}
 		}
 		if (read_error)
@@ -307,11 +311,12 @@ export class ServerRequest implements Deno.Conn
 				}
 				cur.ongoing_write = undefined;
 			}
-			if (!this.next_request)
-			{	this.conn.close();
+			if (!this.next_request || this.next_request.is_terminated)
+			{	this.next_request = undefined;
+				this.conn.close();
 			}
 			this.post.close();
-			this.onretired(this);
+			this.complete_promise?.(this);
 		}
 	}
 
@@ -319,8 +324,33 @@ export class ServerRequest implements Deno.Conn
 	{	return this.conn.closeWrite();
 	}
 
+	complete()
+	{	this.is_processing = true;
+		debug_assert(!this.is_terminated);
+		return new Promise<ServerRequest>
+		(	y =>
+			{	this.complete_promise = y;
+			}
+		);
+	}
+
 	isTerminated()
 	{	return this.is_terminated;
+	}
+
+	/**	For internal use.
+	 **/
+	[isProcessing]()
+	{	return this.is_processing;
+	}
+
+	/**	For internal use.
+	 **/
+	[takeNextRequest]()
+	{	let {next_request, next_request_ready} = this;
+		this.next_request = undefined; // free memory (don't hold links)
+		this.next_request_ready = undefined; // free memory (don't hold links)
+		return {next_request, next_request_ready};
 	}
 
 	private async read_at_least(n_bytes: number, can_eof=false)
@@ -609,11 +639,15 @@ export class ServerRequest implements Deno.Conn
 
 	/**	For internal use.
 	 **/
-	poll(store_error_dont_print=false)
+	[poll]()
+	{	return this.poll();
+	}
+
+	private poll(store_error_dont_print=false)
 	{	if (this.ongoing_read)
 		{	return this.ongoing_read;
 		}
-		debug_assert(!this.is_terminated && !this.is_aborted);
+		debug_assert(!this.is_terminated && !this.is_aborted && !this.is_polling_request);
 		let promise = this.do_poll(store_error_dont_print);
 		if (this.is_polling_request)
 		{	this.ongoing_read = promise;
@@ -821,7 +855,7 @@ export class ServerRequest implements Deno.Conn
 								}
 								else
 								{	// next request will be handled in a new object that uses the same "conn" and "buffer"
-									this.next_request = new ServerRequest(this.onretired, this.conn, this.onerror, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize);
+									this.next_request = new ServerRequest(this.conn, this.onerror, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize);
 									this.next_request.prev_request = this;
 									this.next_request.buffer_start = this.buffer_start;
 									this.next_request.buffer_end = this.buffer_end;

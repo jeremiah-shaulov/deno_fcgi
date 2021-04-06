@@ -1,5 +1,5 @@
 import {debug_assert} from './debug_assert.ts';
-import {ServerRequest} from './server_request.ts';
+import {ServerRequest, poll, takeNextRequest, isProcessing} from './server_request.ts';
 
 const MAX_CONNS = 128;
 const MAX_NAME_LENGTH = 256;
@@ -28,6 +28,7 @@ export class Server implements Deno.Listener
 	private requests_processing: ServerRequest[] = [];
 	private onerror: (error: Error) => void = () => {};
 	private dont_accept = false;
+	private n_processing = 0;
 
 	constructor(private socket: Deno.Listener, options?: ServerOptions)
 	{	this.addr = socket.addr;
@@ -44,70 +45,20 @@ export class Server implements Deno.Listener
 		{	return;
 		}
 
-		let that = this;
-		let {socket, promises, requests, requests_processing, onerror, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this;
+		let {socket, promises, requests, onerror, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this;
 		maxConns |= 0;
 		maxNameLength |= 0;
 		maxValueLength |= 0;
 		maxFileSize |= 0;
-		let when_all_processed: (() => void) | undefined;
-
-		function onretired(request: ServerRequest, new_request?: ServerRequest, new_request_ready?: Promise<ServerRequest>)
-		{	let i = requests_processing.indexOf(request);
-			if (i == -1)
-			{	i = requests.indexOf(request);
-				if (i == -1)
-				{	onerror(new Error('retired(): request not found'));
-				}
-				else
-				{	let j = requests.length - 1;
-					requests[i] = requests[j];
-					promises[i] = promises[j];
-					if (promises.length != requests.length)
-					{	promises[j] = promises[j+1];
-					}
-					requests.length--;
-					promises.length--;
-				}
-				new_request?.close();
-			}
-			else
-			{	if (that.dont_accept)
-				{	new_request?.close();
-				}
-				else if (promises.length == requests.length)
-				{	debug_assert(requests.length + requests_processing.length == maxConns);
-					if (new_request)
-					{	requests[requests.length] = new_request;
-						promises[promises.length] = new_request_ready!;
-					}
-					else
-					{	promises[promises.length] = socket.accept();
-					}
-				}
-				else if (new_request)
-				{	debug_assert(promises.length == requests.length+1);
-					let j = requests.length;
-					requests[j] = new_request;
-					promises[j+1] = promises[j];
-					promises[j] = new_request_ready!;
-				}
-				requests_processing[i] = requests_processing[requests_processing.length-1];
-				if (--requests_processing.length==0 && when_all_processed)
-				{	when_all_processed();
-				}
-				debug_assert(requests.length + requests_processing.length <= maxConns);
-			}
-		}
 
 		if (promises.length == 0)
 		{	promises[0] = socket.accept();
 		}
 
 		try
-		{	while (!this.dont_accept)
-			{	debug_assert(requests.length+requests_processing.length <= maxConns);
-				debug_assert(promises.length == (requests.length+requests_processing.length == maxConns ? requests.length : requests.length+1));
+		{	while (promises.length != 0)
+			{	debug_assert(requests.length <= maxConns);
+				debug_assert(promises.length == (requests.length==maxConns || this.dont_accept ? requests.length : requests.length+1));
 
 				// If requests.length+requests_processing.length < maxConns, then i can accept new connections,
 				// and promises[promises.length-1] is a promise for accepting a new connection,
@@ -128,34 +79,58 @@ export class Server implements Deno.Listener
 				if (!(ready instanceof ServerRequest))
 				{	// Accepted connection
 					debug_assert(promises.length == requests.length+1);
-					let request = new ServerRequest(onretired, ready, onerror, null, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize);
+					let request = new ServerRequest(ready, onerror, null, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize);
 					requests[requests.length] = request;
-					promises[promises.length-1] = request.poll();
-					if (requests.length+requests_processing.length < maxConns)
-					{	// Immediately start waiting for new
-						promises[promises.length] = socket.accept();
-					}
-					else
-					{	// Take a break accepting new connections
-						debug_assert(promises.length == requests.length);
+					promises[promises.length-1] = request[poll]();
+					if (!this.dont_accept)
+					{	if (requests.length < maxConns)
+						{	// Immediately start waiting for new
+							promises[promises.length] = socket.accept();
+						}
+						else
+						{	// Take a break accepting new connections
+							debug_assert(promises.length == requests.length);
+						}
 					}
 				}
 				else
 				{	// Some ServerRequest is ready (params are read)
 					let i = requests.indexOf(ready);
 					if (i != -1)
-					{	let j = requests.length - 1;
-						requests[i] = requests[j];
-						promises[i] = promises[j];
-						if (promises.length != requests.length)
-						{	debug_assert(promises.length == requests.length+1);
-							promises[j] = promises[j+1];
-						}
-						requests.length--;
-						promises.length--;
-						if (!ready.isTerminated())
-						{	requests_processing[requests_processing.length] = ready;
+					{	if (!ready.isTerminated())
+						{	promises[i] = ready.complete();
+							this.n_processing++;
 							yield ready;
+						}
+						else
+						{	let {next_request, next_request_ready} = ready[takeNextRequest]();
+							if (next_request)
+							{	if (!next_request_ready)
+								{	// assume: `next_request_ready = next_request.poll(false)` bringed directly to `respond()`, before assigning
+									requests[i] = next_request;
+									promises[i] = next_request.complete();
+									yield next_request;
+								}
+								else
+								{	requests[i] = next_request;
+									promises[i] = next_request_ready;
+									this.n_processing--;
+								}
+							}
+							else
+							{	let j = requests.length - 1;
+								requests[i] = requests[j];
+								promises[i] = promises[j];
+								if (promises.length != requests.length)
+								{	debug_assert(promises.length == requests.length+1);
+									promises[j] = promises[j+1];
+								}
+								requests.length--;
+								promises.length--;
+								if (ready[isProcessing]())
+								{	this.n_processing--;
+								}
+							}
 						}
 					}
 					else
@@ -176,10 +151,7 @@ export class Server implements Deno.Listener
 			{	this.onerror(result.reason);
 			}
 		}
-		if (requests_processing.length)
-		{	await new Promise<void>(y => {when_all_processed = y});
-		}
-		debug_assert(requests.length==0 && requests_processing.length==0);
+		debug_assert(requests.length == 0);
 		promises.length = 0;
 	}
 
@@ -193,11 +165,11 @@ export class Server implements Deno.Listener
 	}
 
 	nAccepted()
-	{	return this.requests.length + this.requests_processing.length;
+	{	return this.requests.length;
 	}
 
 	nProcessing()
-	{	return this.requests_processing.length;
+	{	return this.n_processing;
 	}
 
 	on(event_name: string, callback: (error: Error) => void)
@@ -215,6 +187,9 @@ export class Server implements Deno.Listener
 
 	stopAccepting()
 	{	this.dont_accept = true;
+		if (this.promises.length != this.requests.length)
+		{	this.promises.length--; // drop promise to accept new connection
+		}
 	}
 
 	close()
