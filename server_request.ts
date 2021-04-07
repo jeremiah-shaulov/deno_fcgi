@@ -388,10 +388,6 @@ export class ServerRequest implements Deno.Conn
 	private async *read_nvp(len: number, map: Map<string, string>, http_headers?: Headers): AsyncGenerator<undefined, void, number>
 	{	let {buffer, maxNameLength, maxValueLength} = this;
 
-		len |= 0;
-		maxNameLength |= 0;
-		maxValueLength |= 0;
-
 		debug_assert(len > 0);
 
 		while (len > 0)

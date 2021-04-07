@@ -6,6 +6,8 @@ const MAX_NAME_LENGTH = 256;
 const MAX_VALUE_LENGTH = 256;
 const MAX_FILE_SIZE = 256;
 
+export class ServerShutDownError extends Error {}
+
 export interface ServerOptions
 {	structuredParams?: boolean,
 	maxConns?: number,
@@ -25,8 +27,8 @@ export class Server implements Deno.Listener
 	private maxFileSize: number;
 	private promises: Promise<Deno.Conn | ServerRequest>[] = [];
 	private requests: ServerRequest[] = [];
-	private requests_processing: ServerRequest[] = [];
 	private onerror: (error: Error) => void = () => {};
+	private is_accepting = false;
 	private dont_accept = false;
 	private n_processing = 0;
 
@@ -41,39 +43,52 @@ export class Server implements Deno.Listener
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<ServerRequest>
-	{	if (this.dont_accept)
-		{	return;
+	{	while (true)
+		{	try
+			{	yield await this.accept();
+			}
+			catch (e)
+			{	debug_assert(this.dont_accept && this.promises.length==0 && e instanceof ServerShutDownError);
+				break;
+			}
+		}
+	}
+
+	async accept(): Promise<ServerRequest>
+	{	if (this.is_accepting)
+		{	throw new Error('Busy: Another accept task is ongoing');
 		}
 
 		let {socket, promises, requests, onerror, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this;
-		maxConns |= 0;
-		maxNameLength |= 0;
-		maxValueLength |= 0;
-		maxFileSize |= 0;
 
-		if (promises.length == 0)
-		{	promises[0] = socket.accept();
-		}
+		this.is_accepting = true;
 
-		try
-		{	while (promises.length != 0)
-			{	debug_assert(requests.length <= maxConns);
-				debug_assert(promises.length == (requests.length==maxConns || this.dont_accept ? requests.length : requests.length+1));
-
-				// If requests.length+requests_processing.length < maxConns, then i can accept new connections,
+		while (true)
+		{	try
+			{	// If requests.length < maxConns, then i can accept new connections,
 				// and promises[promises.length-1] is a promise for accepting a new connection,
 				// and promises.length == requests.length+1,
 				// and each requests[i] corresponds to each promises[i].
 				//
-				// If requests.length+requests_processing.length == maxConns, then i cannot accept new connections,
+				// If requests.length == maxConns, then i cannot accept new connections,
 				// and promises.length == requests.length.
 				//
 				// When accepted a connection (promises[promises.length-1] resolved), i create new "ServerRequest" object, and put it to "requests", and start polling this object, and poll promise i put to "promises".
-				// When some ServerRequest is polled till completion of FCGI_BEGIN_REQUEST and FCGI_PARAMS, i remove it from "requests", and it's resolved promise from "promises",
-				// and put this ServerRequest object to "requests_processing", and also yield this object to the caller.
+				// When some ServerRequest is polled till completion of FCGI_BEGIN_REQUEST and FCGI_PARAMS, i start polling it for completion (and put poll promise to "promises"), and return the object to the caller.
 				//
-				// When the caller calls "respond()" or when i/o or protocol error occures, the "ServerRequest" object calls it's "close()", and the "close()" calls "onretired()".
-				// When a request is retired, it's removed from "requests_processing".
+				// When the caller calls "respond()" or when i/o or protocol error occures, the "ServerRequest" object resolves its "complete_promise", and i remove this terminated request from "requests", and from "promises".
+
+				if (promises.length == 0)
+				{	debug_assert(requests.length == 0);
+					if (this.dont_accept)
+					{	socket.close();
+						throw new ServerShutDownError('Server shut down');
+					}
+					promises[0] = socket.accept();
+				}
+
+				debug_assert(requests.length <= maxConns);
+				debug_assert(promises.length == (requests.length==maxConns || this.dont_accept ? requests.length : requests.length+1));
 
 				let ready = await Promise.race(promises);
 				if (!(ready instanceof ServerRequest))
@@ -100,7 +115,8 @@ export class Server implements Deno.Listener
 					{	if (!ready.isTerminated())
 						{	promises[i] = ready.complete();
 							this.n_processing++;
-							yield ready;
+							this.is_accepting = false;
+							return ready;
 						}
 						else
 						{	let {next_request, next_request_ready} = ready[takeNextRequest]();
@@ -109,7 +125,8 @@ export class Server implements Deno.Listener
 								{	// assume: `next_request_ready = next_request.poll(false)` bringed directly to `respond()`, before assigning
 									requests[i] = next_request;
 									promises[i] = next_request.complete();
-									yield next_request;
+									this.is_accepting = false;
+									return next_request;
 								}
 								else
 								{	requests[i] = next_request;
@@ -138,30 +155,15 @@ export class Server implements Deno.Listener
 					}
 				}
 			}
-		}
-		catch (e)
-		{	this.onerror(e);
-			this.dont_accept = true;
-		}
-
-		debug_assert(this.dont_accept);
-		socket.close();
-		for (let result of await Promise.allSettled(promises))
-		{	if (result.status == 'rejected')
-			{	this.onerror(result.reason);
+			catch (e)
+			{	if (e instanceof ServerShutDownError)
+				{	this.is_accepting = false;
+					throw e;
+				}
+				this.stopAccepting();
+				this.onerror(e);
 			}
 		}
-		debug_assert(requests.length == 0);
-		promises.length = 0;
-	}
-
-	async accept(): Promise<ServerRequest>
-	{	let it = this[Symbol.asyncIterator]();
-		let {value, done} = await it.next();
-		if (done)
-		{	throw new Error('Server closed');
-		}
-		return value;
 	}
 
 	nAccepted()
@@ -194,11 +196,13 @@ export class Server implements Deno.Listener
 
 	close()
 	{	this.dont_accept = true;
-		for (let request of this.requests_processing)
-		{	request.respond({status: 503, body: '', headers: new Headers});
-		}
 		for (let request of this.requests)
-		{	request.close();
+		{	if (request[isProcessing]())
+			{	request.respond({status: 503, body: '', headers: new Headers}).catch(this.onerror).then(() => {request.close()});
+			}
+			else
+			{	request.close();
+			}
 		}
 	}
 }

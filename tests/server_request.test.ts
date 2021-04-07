@@ -343,9 +343,68 @@ Deno.test
 );
 
 Deno.test
+(	'User read error',
+	async () =>
+	{	for (let conn of test_connections())
+		{	let listener = new MockListener([conn]);
+			let server = new Server(listener);
+			let server_error;
+			server.on('error', e => {server_error = e});
+			// write request 1
+			conn.pend_read_fcgi_begin_request(1, 'responder', true);
+			conn.pend_read_fcgi_params(1, {id: 'req 1'});
+			conn.pend_read_fcgi_stdin(1, 'Body 1');
+			// write request 2
+			conn.pend_read_fcgi_begin_request(2, 'responder', true);
+			conn.pend_read_fcgi_params(2, {id: 'req 2'});
+			conn.pend_read_fcgi_stdin(2, 'Body 2');
+			// accept
+			let i = 1;
+			for await (let req of server)
+			{	assertEquals(map_to_obj(req.params), {id: 'req '+i});
+				assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body '+i);
+				assertEquals(server.nAccepted(), 1);
+				assertEquals(server.nProcessing(), 1);
+				if (i == 1)
+				{	let body = new MockConn;
+					body.close();
+					let error;
+					try
+					{	await req.respond({body});
+					}
+					catch (e)
+					{	error = e;
+					}
+					assert(error);
+					assert(req.isTerminated());
+				}
+				else
+				{	await req.respond();
+				}
+				assertEquals(server.nAccepted(), 1);
+				if (++i > 2)
+				{	server.stopAccepting();
+				}
+			}
+			// read
+			assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n');
+			assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+			assertEquals(conn.take_written_fcgi_stdout(2), 'status: 200\r\n\r\n');
+			assertEquals(conn.take_written_fcgi_end_request(2), 'request_complete');
+			assertEquals(conn.take_written_fcgi(), undefined);
+			// check
+			assert(!server_error);
+			assertEquals(server.nAccepted(), 0);
+			assertEquals(server.nProcessing(), 0);
+		}
+	}
+);
+
+Deno.test
 (	'Abort request',
 	async () =>
 	{	let was_write_error = false;
+		let was_log_error = false;
 		for (let conn of test_connections())
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
@@ -393,6 +452,17 @@ Deno.test
 					if (error instanceof AbortedError)
 					{	was_write_error = true;
 					}
+					// try logError
+					error = undefined;
+					try
+					{	req.logError('Hello');
+					}
+					catch (e)
+					{	error = e;
+					}
+					if (error instanceof AbortedError)
+					{	was_log_error = true;
+					}
 					// try to respond
 					error = undefined;
 					try
@@ -408,6 +478,15 @@ Deno.test
 					error = undefined;
 					try
 					{	await req.respond({body: 'Response body'});
+					}
+					catch (e)
+					{	error = e;
+					}
+					assert(error instanceof TerminatedError);
+					// try logError when terminated
+					error = undefined;
+					try
+					{	req.logError('Hello');
 					}
 					catch (e)
 					{	error = e;
@@ -457,6 +536,7 @@ Deno.test
 			assertEquals(server.nAccepted(), 0);
 			assertEquals(server.nProcessing(), 0);
 			assert(was_write_error);
+			assert(was_log_error);
 		}
 	}
 );

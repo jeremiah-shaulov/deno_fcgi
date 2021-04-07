@@ -6,7 +6,7 @@ FastCGI implementation for Deno.
 ```ts
 import {Server} from 'https://deno.land/x/fcgi/mod.ts';
 
-const listener = Deno.listen({port: 8080});
+const listener = Deno.listen({hostname: "0.0.0.0", port: 8080});
 const server = new Server(listener);
 console.log(`Started on ${(listener.addr as Deno.NetAddr).port}`);
 
@@ -94,7 +94,7 @@ deno run --unstable --allow-read --allow-write main.ts & sleep 3 && sudo chown "
 First thing to do is to create `Server` object.
 
 ```ts
-const listener = Deno.listen({port: 8080});
+const listener = Deno.listen({hostname: "0.0.0.0", port: 8080});
 const options =
 {	maxConns: 128,
 	structuredParams: true,
@@ -133,7 +133,7 @@ Response headers and data can be set before calling `respond()`, or they can be 
 ```ts
 import {Server} from 'https://deno.land/x/fcgi/mod.ts';
 
-const listener = Deno.listen({port: 8080});
+const listener = Deno.listen({hostname: "0.0.0.0", port: 8080});
 const server = new Server(listener);
 console.log(`Started on ${(listener.addr as Deno.NetAddr).port}`);
 
@@ -152,7 +152,7 @@ Or:
 ```ts
 import {Server} from 'https://deno.land/x/fcgi/mod.ts';
 
-const listener = Deno.listen({port: 8080});
+const listener = Deno.listen({hostname: "0.0.0.0", port: 8080});
 const server = new Server(listener);
 console.log(`Started on ${(listener.addr as Deno.NetAddr).port}`);
 
