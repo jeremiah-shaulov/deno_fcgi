@@ -2,6 +2,7 @@ import {Server, AbortedError, TerminatedError, ProtocolError, PathNode} from "..
 import {TEST_CHUNK_SIZES, map_to_obj, MockListener, MockFcgiConn, MockConn} from './mock/mod.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
 import {exists} from "https://deno.land/std/fs/mod.ts";
+import {sleep} from "https://deno.land/x/sleep/mod.ts";
 
 function *test_connections(only_chunk_sizes?: number[]): Generator<MockFcgiConn>
 {	for (let chunk_size of only_chunk_sizes || TEST_CHUNK_SIZES)
@@ -339,6 +340,74 @@ Deno.test
 			assertEquals(server.nAccepted(), 0);
 			assertEquals(server.nProcessing(), 0);
 		}
+	}
+);
+
+Deno.test
+(	'Accept',
+	async () =>
+	{	let conn = new MockFcgiConn(1024, -1, true);
+		let listener = new MockListener([conn]);
+		let server = new Server(listener);
+		let server_error;
+		server.on('error', e => {server_error = e});
+		// write request 1
+		conn.pend_read_fcgi_begin_request(1, 'responder', true);
+		conn.pend_read_fcgi_params(1, {id: 'req 1'});
+		conn.pend_read_fcgi_stdin(1, 'Body 1');
+		// write request 2
+		conn.pend_read_fcgi_begin_request(2, 'responder', true);
+		conn.pend_read_fcgi_params(2, {id: 'req 2'});
+		conn.pend_read_fcgi_stdin(2, 'Body 2');
+		// accept 1
+		let req_promise = server.accept();
+		// try accepting simultaneously
+		let error;
+		try
+		{	await server.accept();
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, 'Busy: Another accept task is ongoing');
+		assertEquals(server.nAccepted(), 0);
+		let req = await req_promise;
+		// req 1
+		assertEquals(map_to_obj(req.params), {id: 'req 1'});
+		assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 1');
+		assertEquals(server.nAccepted(), 1);
+		assertEquals(server.nProcessing(), 1);
+		await req.respond();
+		assertEquals(server.nAccepted(), 1);
+		// accept 2
+		req = await server.accept();
+		// req 2
+		assertEquals(map_to_obj(req.params), {id: 'req 2'});
+		assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 2');
+		assertEquals(server.nAccepted(), 1);
+		assertEquals(server.nProcessing(), 1);
+		await req.respond();
+		assertEquals(server.nAccepted(), 1);
+		// stop accepting
+		server.stopAccepting();
+		error = undefined;
+		try
+		{	await server.accept();
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, 'Server shut down');
+		// read
+		assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n');
+		assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+		assertEquals(conn.take_written_fcgi_stdout(2), 'status: 200\r\n\r\n');
+		assertEquals(conn.take_written_fcgi_end_request(2), 'request_complete');
+		assertEquals(conn.take_written_fcgi(), undefined);
+		// check
+		assert(!server_error);
+		assertEquals(server.nAccepted(), 0);
+		assertEquals(server.nProcessing(), 0);
 	}
 );
 
@@ -1080,6 +1149,7 @@ Deno.test
 					assertEquals(req_id?.slice(0, 4), 'req ');
 					req_id = req_id!.slice(4);
 					assertEquals(new TextDecoder().decode(body), `Body ${req_id}`);
+					await sleep(0);
 					await req.respond({body: `Response ${req_id}`});
 					assert(server.nAccepted() <= maxConns);
 					assert(server.nProcessing() <= maxConns);

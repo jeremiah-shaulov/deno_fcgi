@@ -6,8 +6,6 @@ const MAX_NAME_LENGTH = 256;
 const MAX_VALUE_LENGTH = 256;
 const MAX_FILE_SIZE = 256;
 
-export class ServerShutDownError extends Error {}
-
 export interface ServerOptions
 {	structuredParams?: boolean,
 	maxConns?: number,
@@ -48,7 +46,7 @@ export class Server implements Deno.Listener
 			{	yield await this.accept();
 			}
 			catch (e)
-			{	debug_assert(this.dont_accept && this.promises.length==0 && e instanceof ServerShutDownError);
+			{	debug_assert(this.dont_accept && this.promises.length==0);
 				break;
 			}
 		}
@@ -82,7 +80,7 @@ export class Server implements Deno.Listener
 				{	debug_assert(requests.length == 0);
 					if (this.dont_accept)
 					{	socket.close();
-						throw new ServerShutDownError('Server shut down');
+						throw new Error('Server shut down');
 					}
 					promises[0] = socket.accept();
 				}
@@ -111,52 +109,50 @@ export class Server implements Deno.Listener
 				else
 				{	// Some ServerRequest is ready (params are read)
 					let i = requests.indexOf(ready);
-					if (i != -1)
-					{	if (!ready.isTerminated())
-						{	promises[i] = ready.complete();
-							this.n_processing++;
-							this.is_accepting = false;
-							return ready;
-						}
-						else
-						{	let {next_request, next_request_ready} = ready[takeNextRequest]();
-							if (next_request)
-							{	if (!next_request_ready)
-								{	// assume: `next_request_ready = next_request.poll(false)` bringed directly to `respond()`, before assigning
-									requests[i] = next_request;
-									promises[i] = next_request.complete();
-									this.is_accepting = false;
-									return next_request;
-								}
-								else
-								{	requests[i] = next_request;
-									promises[i] = next_request_ready;
-									this.n_processing--;
-								}
-							}
-							else
-							{	let j = requests.length - 1;
-								requests[i] = requests[j];
-								promises[i] = promises[j];
-								if (promises.length != requests.length)
-								{	debug_assert(promises.length == requests.length+1);
-									promises[j] = promises[j+1];
-								}
-								requests.length--;
-								promises.length--;
-								if (ready[isProcessing]())
-								{	this.n_processing--;
-								}
-							}
-						}
+					debug_assert(i != -1);
+					if (!ready.isTerminated())
+					{	promises[i] = ready.complete();
+						this.n_processing++;
+						this.is_accepting = false;
+						return ready;
 					}
 					else
-					{	// assume: ready.is_terminated (poll() called onretired(), and then returned this object to Promise.race())
+					{	let {next_request, next_request_ready} = ready[takeNextRequest]();
+						if (next_request)
+						{	debug_assert(next_request_ready);
+							requests[i] = next_request;
+							promises[i] = next_request_ready;
+							this.n_processing--;
+						}
+						else
+						{	let j = requests.length - 1;
+							requests[i] = requests[j];
+							promises[i] = promises[j];
+							if (promises.length != requests.length)
+							{	debug_assert(promises.length == requests.length+1);
+								promises[j] = promises[j+1];
+								requests.length--;
+								promises.length--;
+							}
+							else
+							{	debug_assert(j == promises.length-1);
+								requests.length--;
+								if (!this.dont_accept)
+								{	promises[j] = socket.accept();
+								}
+								else
+								{	promises.length--;
+								}
+							}
+							if (ready[isProcessing]())
+							{	this.n_processing--;
+							}
+						}
 					}
 				}
 			}
 			catch (e)
-			{	if (e instanceof ServerShutDownError)
+			{	if (this.dont_accept && this.promises.length==0)
 				{	this.is_accepting = false;
 					throw e;
 				}

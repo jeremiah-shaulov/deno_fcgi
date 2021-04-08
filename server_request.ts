@@ -859,7 +859,7 @@ export class ServerRequest implements Deno.Conn
 									this.next_request.ongoing_write = this.ongoing_write;
 									this.ongoing_write = undefined;
 									// from now on i only poll "this.next_request_ready", not "this"
-									this.next_request_ready = this.next_request.poll(false);
+									this.next_request_ready = this.next_request.poll();
 									this.is_polling_request = false;
 									this.ongoing_read = undefined;
 								}
