@@ -5,8 +5,8 @@ import {Cookies} from "./cookies.ts";
 import {ServerResponse} from './server_response.ts';
 import {AbortedError, TerminatedError, ProtocolError} from './error.ts';
 
-export const isProcessing = Symbol('isProcessing');
-export const takeNextRequest = Symbol('takeNextRequest');
+export const is_processing = Symbol('is_processing');
+export const take_next_request = Symbol('take_next_request');
 export const poll = Symbol('poll');
 
 const BUFFER_LEN = 8*1024;
@@ -37,9 +37,9 @@ const FCGI_KEEP_CONN          =  1;
 debug_assert(BUFFER_LEN >= 256+16);
 
 export class ServerRequest implements Deno.Conn
-{	public localAddr: Deno.Addr;
-	public remoteAddr: Deno.Addr;
-	public rid: number;
+{	public readonly localAddr: Deno.Addr;
+	public readonly remoteAddr: Deno.Addr;
+	public readonly rid: number;
 	/// The SCRIPT_URL of the request, like '/path/index.html'
 	public url = '';
 	/// Request method, like 'GET'
@@ -340,13 +340,13 @@ export class ServerRequest implements Deno.Conn
 
 	/**	For internal use.
 	 **/
-	[isProcessing]()
+	[is_processing]()
 	{	return this.is_processing;
 	}
 
 	/**	For internal use.
 	 **/
-	[takeNextRequest]()
+	[take_next_request]()
 	{	let {next_request, next_request_ready} = this;
 		this.next_request = undefined; // free memory (don't hold links)
 		this.next_request_ready = undefined; // free memory (don't hold links)

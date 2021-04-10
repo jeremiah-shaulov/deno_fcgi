@@ -1,6 +1,8 @@
+import {MockFcgiConn} from './mod.ts';
+
 export class MockListener implements Deno.Listener
-{	public addr = {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 999999999};
-	public rid = 999999999;
+{	public addr = {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: Math.floor(Math.random()*0xFFFF)};
+	public rid = Math.floor(Math.random()*0x7FFFFFFF);
 
 	public is_closed = false;
 
@@ -10,14 +12,16 @@ export class MockListener implements Deno.Listener
 	{
 	}
 
-	pend_accept(conn: Deno.Conn)
-	{	let satisfy = this.satisfy.shift();
+	pend_accept(chunk_size: number, force_padding=-1, split_stream_records=false)
+	{	let conn = new MockFcgiConn(chunk_size, force_padding, split_stream_records, this.addr);
+		let satisfy = this.satisfy.shift();
 		if (satisfy)
 		{	satisfy.y(conn);
 		}
 		else
 		{	this.pending.push(conn);
 		}
+		return conn;
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<Deno.Conn, void, unknown>

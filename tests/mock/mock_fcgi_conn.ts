@@ -31,8 +31,8 @@ const RECORD_TYPE_NAMES = ['', 'BEGIN_REQUEST', 'ABORT_REQUEST', 'END_REQUEST', 
 export class MockFcgiConn extends MockConn
 {	private written_pos = new Map<number, number>();
 
-	constructor(chunk_size: number, private force_padding=-1, private split_stream_records=false)
-	{	super('', chunk_size);
+	constructor(chunk_size: number, private force_padding=-1, private split_stream_records=false, remoteAddr?: Deno.Addr)
+	{	super('', chunk_size, remoteAddr);
 	}
 
 	pend_read_fcgi(record_type: number, request_id: number, payload: string|Uint8Array)
