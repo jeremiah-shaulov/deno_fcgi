@@ -21,6 +21,7 @@ export class Server implements Deno.Listener
 	private listeners: Deno.Listener[];
 	private active_listeners: Deno.Listener[] = [];
 	private removed_listeners: Deno.Listener[] = [];
+	private active_listeners_start = 0;
 	private structuredParams: boolean;
 	private maxConns: number;
 	private maxNameLength: number;
@@ -115,7 +116,8 @@ export class Server implements Deno.Listener
 
 			let to = Math.min(maxConns, requests.length + listeners.length);
 			if (promises.length < to)
-			{	for (let listener of listeners)
+			{	this.reset_active_listeners_start();
+				for (let listener of listeners)
 				{	if (active_listeners.indexOf(listener) == -1)
 					{	active_listeners.push(listener);
 						promises.push(listener.accept());
@@ -127,7 +129,7 @@ export class Server implements Deno.Listener
 			}
 			clear_removed_listeners();
 			if (promises.length == 0)
-			{	debug_assert(active_listeners.length==0 && listeners.length==0 && removed_listeners.length==0 && requests.length==0);
+			{	debug_assert(active_listeners.length==0 && listeners.length==0 && removed_listeners.length==0 && requests.length==0 && this.active_listeners_start==0);
 				throw new Error('Server shut down');
 			}
 
@@ -139,21 +141,25 @@ export class Server implements Deno.Listener
 				if (!(ready instanceof ServerRequest))
 				{	// Accepted connection
 					let request = new ServerRequest(ready, onerror, null, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize);
-					let i = find_listener(ready);
-					debug_assert(i != -1);
+					let listener_i = find_listener(ready);
+					debug_assert(listener_i != -1);
+					let i = (listener_i + active_listeners.length - this.active_listeners_start) % active_listeners.length;
 					let j = requests.length;
 					requests[j] = request;
 					promises[j+i] = promises[j];
 					promises[j] = request[poll]();
-					let listener = active_listeners[i];
-					active_listeners[i] = active_listeners[0];
-					if (j+1+listeners.length >= maxConns)
-					{	active_listeners.shift();
+					let listener = active_listeners[listener_i];
+					active_listeners[listener_i] = active_listeners[this.active_listeners_start];
+					if (j+1+listeners.length < maxConns)
+					{	// Immediately start waiting for new
+						active_listeners[this.active_listeners_start] = listener;
+						this.active_listeners_start = this.active_listeners_start==active_listeners.length-1 ? 0 : this.active_listeners_start+1;
+						promises.push(listener.accept());
 					}
 					else
-					{	active_listeners.shift();
-						active_listeners.push(listener);
-						promises.push(listener.accept());
+					{	// Take a break accepting new connections
+						this.reset_active_listeners_start();
+						active_listeners.shift();
 					}
 				}
 				else
@@ -180,12 +186,10 @@ export class Server implements Deno.Listener
 							let j = requests.length - 1;
 							requests[i] = requests[j];
 							promises[i] = promises[j];
-							if (promises.length != requests.length)
-							{	debug_assert(promises.length == requests.length+active_listeners.length);
+							if (promises.length != j+1)
+							{	debug_assert(promises.length == j+1+active_listeners.length);
 								promises[j] = promises[promises.length-1];
-								if (active_listeners.length > 1)
-								{	active_listeners.unshift(active_listeners.pop()!);
-								}
+								this.active_listeners_start = this.active_listeners_start==0 ? active_listeners.length-1 : this.active_listeners_start-1;
 							}
 							requests.length--;
 							promises.length--;
@@ -201,6 +205,16 @@ export class Server implements Deno.Listener
 				this.close();
 			}
 		}
+	}
+
+	private reset_active_listeners_start()
+	{	let {active_listeners} = this;
+		for (let i=0, j=this.active_listeners_start, j_end=active_listeners.length; j<j_end; i++, j++)
+		{	let tmp = active_listeners[i];
+			active_listeners[i] = active_listeners[j];
+			active_listeners[j] = tmp;
+		}
+		this.active_listeners_start = 0;
 	}
 
 	nConnections()
@@ -254,8 +268,9 @@ export class Server implements Deno.Listener
 		);
 		if (i != -1)
 		{	// found, so remove from "active_listeners" and corresponding "promises"
+			let j = (i + this.active_listeners.length - this.active_listeners_start) % this.active_listeners.length;
 			this.active_listeners.splice(i, 1);
-			this.promises.splice(this.requests.length+i, 1);
+			this.promises.splice(this.requests.length+j, 1);
 		}
 		// some ongoing request belongs to this listener?
 		i = this.requests.findIndex
