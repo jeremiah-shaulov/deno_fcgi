@@ -35,10 +35,14 @@ export class MockConn implements Deno.Conn
 		if (this.read_pos == this.read_data.length)
 		{	return null;
 		}
-		let chunk_size = Math.min(this.read_data.length-this.read_pos, buffer.length, this.chunk_size);
-		buffer.set(this.read_data.subarray(this.read_pos, this.read_pos+chunk_size));
-		this.read_pos += chunk_size;
-		return chunk_size;
+		return Promise.resolve().then
+		(	() =>
+			{	let chunk_size = Math.min(this.read_data.length-this.read_pos, buffer.length, this.chunk_size);
+				buffer.set(this.read_data.subarray(this.read_pos, this.read_pos+chunk_size));
+				this.read_pos += chunk_size;
+				return chunk_size;
+			}
+		);
 	}
 
 	async write(buffer: Uint8Array): Promise<number>

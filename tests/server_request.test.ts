@@ -736,6 +736,33 @@ Deno.test
 );
 
 Deno.test
+(	'Close server before yielding a request',
+	async () =>
+	{	let conn = new MockFcgiConn(999, 0, false);
+		let listener = new MockListener([conn]);
+		let server = new Server(listener);
+		// write
+		conn.pend_read_fcgi_begin_request(1, 'responder', true);
+		conn.pend_read_fcgi_params(1, {a: '1'});
+		conn.pend_read_fcgi_stdin(1, 'Body 1');
+		// accept
+		let promise = server.accept();
+		server.close();
+		let error;
+		try
+		{	await promise;
+		}
+		catch (e)
+		{	error = e;
+		}
+		assertEquals(error?.message, 'Server shut down');
+		// check
+		assertEquals(server.nRequests(), 0);
+		assertEquals(server.nConnections(), 0);
+	}
+);
+
+Deno.test
 (	'Write body when terminated',
 	async () =>
 	{	for (let conn of test_connections())
@@ -834,6 +861,38 @@ Deno.test
 		assertEquals(conn_2.take_written_fcgi(), undefined);
 		// check
 		assert(!server_error);
+		assertEquals(server.nConnections(), 0);
+		assertEquals(server.nRequests(), 0);
+	}
+);
+
+Deno.test
+(	'Protocol error + onerror throws Error',
+	async () =>
+	{	let conn_1 = new MockFcgiConn(999, 0, false);
+		let conn_2 = new MockFcgiConn(999, 0, false);
+		let listener = new MockListener([conn_1, conn_2]);
+		let server = new Server(listener);
+		server.on('error', e => {throw e});
+		// write request 1 (protocol error)
+		conn_1.pend_read_fcgi_begin_request(1, 'responder', true);
+		conn_1.currupt_last_bytes(1);
+		// write request 2
+		conn_2.pend_read_fcgi_begin_request(1, 'responder', true);
+		conn_2.pend_read_fcgi_params(1, {id: 'req 2'});
+		conn_2.pend_read_fcgi_stdin(1, 'Body 2');
+		// accept
+		for await (let req of server)
+		{	assertEquals(map_to_obj(req.params), {id: 'req 2'});
+			assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 2');
+			await req.respond({body: 'Hello'});
+			server.removeListeners();
+		}
+		// read
+		assertEquals(conn_2.take_written_fcgi_stdout(1), 'status: 200\r\n\r\nHello');
+		assertEquals(conn_2.take_written_fcgi_end_request(1), 'request_complete');
+		assertEquals(conn_2.take_written_fcgi(), undefined);
+		// check
 		assertEquals(server.nConnections(), 0);
 		assertEquals(server.nRequests(), 0);
 	}
@@ -1120,7 +1179,7 @@ Deno.test
 Deno.test
 (	'Simultaneous connections + Multiple listeners',
 	async () =>
-	{	const n_listeners = 30;
+	{	const n_listeners = 15;
 		const maxConns = 10;
 		const multiplier = 10;
 		const multiplier_2 = 2;
@@ -1145,6 +1204,8 @@ Deno.test
 				}
 			}
 		}
+		// try adding the same listener
+		assert(!server.addListener(listeners[0].listener));
 		// accept
 		let i = 0;
 		for await (let req of server)
@@ -1164,6 +1225,8 @@ Deno.test
 			);
 			if (++i == n_listeners*maxConns*multiplier*multiplier_2)
 			{	server.removeListeners();
+				// try removing inexistant listener
+				assert(!server.removeListener(listeners[0].listener.addr));
 			}
 		}
 		// read

@@ -21,7 +21,6 @@ export class Server implements Deno.Listener
 	private listeners: Deno.Listener[];
 	private active_listeners: Deno.Listener[] = [];
 	private removed_listeners: Deno.Listener[] = [];
-	private active_listeners_start = 0;
 	private structuredParams: boolean;
 	private maxConns: number;
 	private maxNameLength: number;
@@ -66,9 +65,6 @@ export class Server implements Deno.Listener
 		if (maxConns < listeners.length)
 		{	maxConns = listeners.length;
 		}
-		if (maxConns < active_listeners.length)
-		{	maxConns = active_listeners.length;
-		}
 
 		this.is_accepting = true;
 
@@ -77,7 +73,7 @@ export class Server implements Deno.Listener
 			let i = active_listeners.length==1 ? 0 : active_listeners.findIndex
 			(	l =>
 				{	let addr = l.addr as any;
-					return addr.transport===transport && addr.hostname===hostname && addr.port===port && addr.path===path
+					return addr.port===port && addr.path===path && addr.hostname===hostname && addr.transport===transport
 				}
 			);
 			return i;
@@ -89,7 +85,7 @@ export class Server implements Deno.Listener
 				let j = requests.findIndex
 				(	l =>
 					{	let l_addr = l.remoteAddr as any;
-						return l_addr.transport===transport && l_addr.hostname===hostname && l_addr.port===port && l_addr.path===path
+						return l_addr.port===port && l_addr.path===path && l_addr.hostname===hostname && l_addr.transport===transport
 					}
 				);
 				if (j == -1)
@@ -100,24 +96,24 @@ export class Server implements Deno.Listener
 		}
 
 		while (true)
-		{	// If requests.length < maxConns, then i can accept new connections,
-			// and promises[promises.length-1] is a promise for accepting a new connection,
-			// and promises.length == requests.length+1,
+		{	// "listeners" are all available listeners, added with "addListener()" (plus one passed to the constructor), and not yet removed with "removeListener()".
+			// When i call "accept()" on some listener, i add it to "active_listeners".
+			//
+			// If requests.length < maxConns, then i can accept new connections (and add them to "active_listeners"),
+			// and promises[promises.length - active_listeners.length .. promises.length] are promises that "accept()" returned for each corresponding listener from "active_listeners",
+			// and promises.length == requests.length + active_listeners.length,
 			// and each requests[i] corresponds to each promises[i].
 			//
-			// If requests.length == maxConns, then i cannot accept new connections,
-			// and promises.length == requests.length.
-			//
-			// When accepted a connection (promises[promises.length-1] resolved), i create new "ServerRequest" object, and put it to "requests", and start polling this object, and poll promise i put to "promises".
-			// When some ServerRequest is polled till completion of FCGI_BEGIN_REQUEST and FCGI_PARAMS, i start polling it for completion (and put poll promise to "promises"), and return the object to the caller.
+			// When accepted a connection (one of promises[promises.length - active_listeners.length .. promises.length] resolved),
+			// i create new "ServerRequest" object, and add it to "requests", and start polling this object, and add the poll promise to "promises".
+			// When some ServerRequest is polled till completion of FCGI_BEGIN_REQUEST and FCGI_PARAMS, i return this object to the caller,
+			// but before returning i start polling it for termination ("respond()"), and put the poll promise to "promises" overriding the previous (resolved) poll promise.
 			//
 			// When the caller calls "respond()" or when i/o or protocol error occures, the "ServerRequest" object resolves its "complete_promise", and i remove this terminated request from "requests", and from "promises".
 
-
 			let to = Math.min(maxConns, requests.length + listeners.length);
 			if (promises.length < to)
-			{	this.reset_active_listeners_start();
-				for (let listener of listeners)
+			{	for (let listener of listeners)
 				{	if (active_listeners.indexOf(listener) == -1)
 					{	active_listeners.push(listener);
 						promises.push(listener.accept());
@@ -129,92 +125,76 @@ export class Server implements Deno.Listener
 			}
 			clear_removed_listeners();
 			if (promises.length == 0)
-			{	debug_assert(active_listeners.length==0 && listeners.length==0 && removed_listeners.length==0 && requests.length==0 && this.active_listeners_start==0);
+			{	debug_assert(active_listeners.length==0 && listeners.length==0 && removed_listeners.length==0 && requests.length==0);
 				throw new Error('Server shut down');
 			}
 
 			debug_assert(promises.length == requests.length + active_listeners.length);
 			debug_assert(this.n_processing>=0 && this.n_processing<=requests.length);
 
-			try
-			{	let ready = await Promise.race(promises);
-				if (!(ready instanceof ServerRequest))
-				{	// Accepted connection
-					let request = new ServerRequest(ready, onerror, null, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize);
-					let listener_i = find_listener(ready);
-					debug_assert(listener_i != -1);
-					let i = (listener_i + active_listeners.length - this.active_listeners_start) % active_listeners.length;
+			let ready = await Promise.race(promises);
+			if (!(ready instanceof ServerRequest))
+			{	// Accepted connection
+				let i = find_listener(ready);
+				if (i == -1)
+				{	// assume: the listener removed
+					ready.close();
+				}
+				else
+				{	let request = new ServerRequest(ready, onerror, null, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize);
 					let j = requests.length;
 					requests[j] = request;
 					promises[j+i] = promises[j];
 					promises[j] = request[poll]();
-					let listener = active_listeners[listener_i];
-					active_listeners[listener_i] = active_listeners[this.active_listeners_start];
+					let listener = active_listeners[i];
+					active_listeners[i] = active_listeners[0];
+					active_listeners.shift();
 					if (j+1+listeners.length < maxConns)
-					{	// Immediately start waiting for new
-						active_listeners[this.active_listeners_start] = listener;
-						this.active_listeners_start = this.active_listeners_start==active_listeners.length-1 ? 0 : this.active_listeners_start+1;
+					{	active_listeners.push(listener);
 						promises.push(listener.accept());
 					}
-					else
-					{	// Take a break accepting new connections
-						this.reset_active_listeners_start();
-						active_listeners.shift();
-					}
+				}
+			}
+			else
+			{	// Some ServerRequest is ready (params are read)
+				let i = requests.indexOf(ready);
+				debug_assert(i != -1);
+				if (!ready.isTerminated())
+				{	promises[i] = ready.complete();
+					this.n_processing++;
+					this.is_accepting = false;
+					return ready;
 				}
 				else
-				{	// Some ServerRequest is ready (params are read)
-					let i = requests.indexOf(ready);
-					debug_assert(i != -1);
-					if (!ready.isTerminated())
-					{	promises[i] = ready.complete();
-						this.n_processing++;
-						this.is_accepting = false;
-						return ready;
+				{	let {next_request, next_request_ready} = ready[take_next_request]();
+					if (next_request)
+					{	// update requests[i] with new request
+						debug_assert(next_request_ready);
+						requests[i] = next_request;
+						promises[i] = next_request_ready;
+						this.n_processing--;
 					}
 					else
-					{	let {next_request, next_request_ready} = ready[take_next_request]();
-						if (next_request)
-						{	// update requests[i] with new request
-							debug_assert(next_request_ready);
-							requests[i] = next_request;
-							promises[i] = next_request_ready;
-							this.n_processing--;
+					{	// remove requests[i]
+						let j = requests.length - 1;
+						requests[i] = requests[j];
+						promises[i] = promises[j];
+						if (promises.length != requests.length)
+						{	debug_assert(promises.length == requests.length+active_listeners.length);
+							promises[j] = promises[promises.length-1];
+							if (active_listeners.length > 1)
+							{	active_listeners.unshift(active_listeners.pop()!);
+							}
 						}
-						else
-						{	// remove requests[i]
-							let j = requests.length - 1;
-							requests[i] = requests[j];
-							promises[i] = promises[j];
-							if (promises.length != j+1)
-							{	debug_assert(promises.length == j+1+active_listeners.length);
-								promises[j] = promises[promises.length-1];
-								this.active_listeners_start = this.active_listeners_start==0 ? active_listeners.length-1 : this.active_listeners_start-1;
-							}
-							requests.length--;
-							promises.length--;
-							if (ready[is_processing]())
-							{	this.n_processing--;
-							}
+						requests.length--;
+						promises.length--;
+						if (ready[is_processing]())
+						{	this.n_processing--;
 						}
 					}
 				}
 			}
-			catch (e)
-			{	this.onerror(e);
-				this.close();
-			}
 		}
-	}
-
-	private reset_active_listeners_start()
-	{	let {active_listeners} = this;
-		for (let i=0, j=this.active_listeners_start, j_end=active_listeners.length; j<j_end; i++, j++)
-		{	let tmp = active_listeners[i];
-			active_listeners[i] = active_listeners[j];
-			active_listeners[j] = tmp;
-		}
-		this.active_listeners_start = 0;
 	}
 
 	nConnections()
@@ -231,7 +211,7 @@ export class Server implements Deno.Listener
 		let i = this.listeners.findIndex
 		(	l =>
 			{	let l_addr = l.addr as any;
-				return l_addr.transport===transport && l_addr.hostname===hostname && l_addr.port===port && l_addr.path===path
+				return l_addr.port===port && l_addr.path===path && l_addr.hostname===hostname && l_addr.transport===transport
 			}
 		);
 		if (i != -1)
@@ -248,7 +228,7 @@ export class Server implements Deno.Listener
 		let i = this.listeners.findIndex
 		(	l =>
 			{	let l_addr = l.addr as any;
-				return l_addr.transport===transport && l_addr.hostname===hostname && l_addr.port===port && l_addr.path===path
+				return l_addr.port===port && l_addr.path===path && l_addr.hostname===hostname && l_addr.transport===transport
 			}
 		);
 		if (i == -1)
@@ -263,20 +243,19 @@ export class Server implements Deno.Listener
 		i = this.active_listeners.findIndex
 		(	l =>
 			{	let l_addr = l.addr as any;
-				return l_addr.transport===transport && l_addr.hostname===hostname && l_addr.port===port && l_addr.path===path
+				return l_addr.port===port && l_addr.path===path && l_addr.hostname===hostname && l_addr.transport===transport
 			}
 		);
 		if (i != -1)
 		{	// found, so remove from "active_listeners" and corresponding "promises"
-			let j = (i + this.active_listeners.length - this.active_listeners_start) % this.active_listeners.length;
 			this.active_listeners.splice(i, 1);
-			this.promises.splice(this.requests.length+j, 1);
+			this.promises.splice(this.requests.length+i, 1);
 		}
 		// some ongoing request belongs to this listener?
 		i = this.requests.findIndex
 		(	l =>
 			{	let l_addr = l.remoteAddr as any;
-				return l_addr.transport===transport && l_addr.hostname===hostname && l_addr.port===port && l_addr.path===path
+				return l_addr.port===port && l_addr.path===path && l_addr.hostname===hostname && l_addr.transport===transport
 			}
 		);
 		if (i == -1)
