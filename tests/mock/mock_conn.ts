@@ -4,7 +4,7 @@
 	`get_written()` returns what is written through `Deno.Writer`.
  **/
 export class MockConn implements Deno.Conn
-{	public localAddr = {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 999999999};
+{	public localAddr: Deno.Addr;
 	public remoteAddr: Deno.Addr;
 	public rid = 999999999;
 
@@ -16,8 +16,9 @@ export class MockConn implements Deno.Conn
 	private write_data = new Uint8Array(1024);
 	private write_pos = 0;
 
-	constructor(str = '', public chunk_size = 10, remoteAddr?: Deno.Addr)
+	constructor(str = '', public chunk_size = 10, localAddr?: Deno.Addr, remoteAddr?: Deno.Addr)
 	{	this.read_data = new TextEncoder().encode(str);
+		this.localAddr = localAddr || {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 999999999};
 		this.remoteAddr = remoteAddr || {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 999999999};
 	}
 

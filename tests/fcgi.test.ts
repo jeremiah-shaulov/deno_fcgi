@@ -5,8 +5,8 @@ import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts
 Deno.test
 (	'Basic',
 	async () =>
-	{	let conn = new MockFcgiConn(1024, -1, false);
-		let listener = new MockListener([conn]);
+	{	let listener = new MockListener;
+		let conn = listener.pend_accept(1024, -1, false);
 		// write
 		conn.pend_read_fcgi_begin_request(1, 'responder', false);
 		conn.pend_read_fcgi_params(1, {a: '1'});
@@ -14,6 +14,7 @@ Deno.test
 		// accept
 		fcgi.listen
 		(	listener,
+			'',
 			async req =>
 			{	await req.post.parse();
 				await req.respond({body: 'Response body'});

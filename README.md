@@ -9,6 +9,7 @@ import {fcgi} from 'https://deno.land/x/fcgi/mod.ts';
 console.log(`Started on 8080`);
 fcgi.listen
 (	8080,
+	'',
 	async req =>
 	{	await req.post.parse();
 		console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${[...req.post.entries()]}`);
@@ -75,6 +76,7 @@ import {fcgi} from 'https://deno.land/x/fcgi/mod.ts';
 console.log(`Started on /run/deno-server/main.sock`);
 fcgi.listen
 (	'/run/deno-server/main.sock',
+	'',
 	async req =>
 	{	await req.post.parse();
 		console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${[...req.post.entries()]}`);
@@ -115,6 +117,7 @@ import {fcgi} from 'https://deno.land/x/fcgi/mod.ts';
 console.log(`Started on 8080`);
 fcgi.listen
 (	8080,
+	'',
 	async req =>
 	{	await req.post.parse();
 		console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${[...req.post.entries()]}`);
@@ -126,11 +129,14 @@ fcgi.listen
 
 The main interface is the `fcgi` object. It has the following methods:
 
-  - `listen()` - creates FastCGI listener on specified network address. It can be called several times with the same or different addresses. Requests that arrive can be optionally handled by calling `req.respond()` and awaiting for the result. If the handler function doesn't want to handle such request, it can return without actions taken, and other added handlers will take their chance to handle this request. If no handler took care of the request, a 404 response will be sent.
+  - `listen(addr, pathPattern, callback)` - creates FastCGI listener on specified network address. It can be called multiple times with the same or different addresses. Requests that arrive can be optionally handled by calling `req.respond()` and awaiting for the result. If the handler function doesn't want to handle such request, it can return without actions taken, and other added handlers will take their chance to handle this request. If no handler took care of the request, a 404 response will be sent.
   - `unlisten()` - stop listening to specified address, or to all addresses.
   - `on()` - allows to register event handlers for errors (`on('error', callback)`) and for server termination (`on('end', callback)`). The server will be terminated after you remove all listeners.
 
-Address given to `listen()` can be a port number, a string that represents unix-domain socket node, a `Deno.Addr` object, or a `Deno.Listener`.
+Arguments of `listen(addr, pathPattern, callback)` are:
+  - Network address for the listener. It can be a port number, a string that represents unix-domain socket node, a string like `hostname:8080` or `[::1]:8080`, a `Deno.Addr` object, or a `Deno.Listener`.
+  - Request path filter. It uses [path-to-regexp](https://github.com/pillarjs/path-to-regexp) library, like `x/oak`.
+  - Callback that gets 2 arguments: the request, and parameters extracted from path according to `pathPattern`.
 
 ## Using the low-level API
 

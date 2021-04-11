@@ -69,8 +69,11 @@ export class Server implements Deno.Listener
 		this.is_accepting = true;
 
 		function find_listener(conn: Deno.Conn)
-		{	let {transport, hostname, port, path} = conn.remoteAddr as any;
-			let i = active_listeners.length==1 ? 0 : active_listeners.findIndex
+		{	if (active_listeners.length == 1)
+			{	return 0;
+			}
+			let {transport, hostname, port, path} = conn.localAddr as any;
+			let i = active_listeners.findIndex
 			(	l =>
 				{	let addr = l.addr as any;
 					return addr.port===port && addr.path===path && addr.hostname===hostname && addr.transport===transport
@@ -84,7 +87,7 @@ export class Server implements Deno.Listener
 			{	let {transport, hostname, port, path} = removed_listeners[i].addr as any;
 				let j = requests.findIndex
 				(	l =>
-					{	let l_addr = l.remoteAddr as any;
+					{	let l_addr = l.localAddr as any;
 						return l_addr.port===port && l_addr.path===path && l_addr.hostname===hostname && l_addr.transport===transport
 					}
 				);
@@ -254,7 +257,7 @@ export class Server implements Deno.Listener
 		// some ongoing request belongs to this listener?
 		i = this.requests.findIndex
 		(	l =>
-			{	let l_addr = l.remoteAddr as any;
+			{	let l_addr = l.localAddr as any;
 				return l_addr.port===port && l_addr.path===path && l_addr.hostname===hostname && l_addr.transport===transport
 			}
 		);
