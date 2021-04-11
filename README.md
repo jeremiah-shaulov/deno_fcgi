@@ -4,6 +4,23 @@ FastCGI implementation for Deno.
 ## Example
 
 ```ts
+import {fcgi} from 'https://deno.land/x/fcgi/mod.ts';
+
+console.log(`Started on 8080`);
+fcgi.listen
+(	8080,
+	async req =>
+	{	await req.post.parse();
+		console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${[...req.post.entries()]}`);
+		req.responseHeaders.set('Content-Type', 'text/html');
+		await req.respond({body: 'Hello'});
+	}
+);
+```
+
+## Example of low-level usage
+
+```ts
 import {Server} from 'https://deno.land/x/fcgi/mod.ts';
 
 const listener = Deno.listen({hostname: "0.0.0.0", port: 8080});
@@ -14,6 +31,7 @@ for await (let req of server)
 {	req.post.parse().then
 	(	async () =>
 		{	console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${[...req.post.entries()]}`);
+			req.responseHeaders.set('Content-Type', 'text/html');
 			await req.respond({body: 'Hello'});
 		}
 	);
@@ -52,20 +70,18 @@ Now requests to `http://deno-server.loc/` will be forwarded to our Deno applicat
 
 ### Using unix-domain socket
 ```ts
-import {Server} from 'https://deno.land/x/fcgi/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi/mod.ts';
 
-const listener = Deno.listen({transport: 'unix', path: '/run/deno-server/main.sock'});
-const server = new Server(listener);
-console.log(`Started on ${(listener.addr as Deno.UnixAddr).path}`);
-
-for await (let req of server)
-{	req.post.parse().then
-	(	async () =>
-		{	console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${[...req.post.entries()]}`);
-			await req.respond({body: 'Hello'});
-		}
-	);
-}
+console.log(`Started on /run/deno-server/main.sock`);
+fcgi.listen
+(	'/run/deno-server/main.sock',
+	async req =>
+	{	await req.post.parse();
+		console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${[...req.post.entries()]}`);
+		req.responseHeaders.set('Content-Type', 'text/html');
+		await req.respond({body: 'Hello'});
+	}
+);
 ```
 ```apache
 <VirtualHost *:80>
@@ -91,7 +107,34 @@ deno run --unstable --allow-read --allow-write main.ts & sleep 3 && sudo chown "
 
 ## Using the API
 
-First thing to do is to create `Server` object.
+Let's take a look again to the simplest example.
+
+```ts
+import {fcgi} from 'https://deno.land/x/fcgi/mod.ts';
+
+console.log(`Started on 8080`);
+fcgi.listen
+(	8080,
+	async req =>
+	{	await req.post.parse();
+		console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${[...req.post.entries()]}`);
+		req.responseHeaders.set('Content-Type', 'text/html');
+		await req.respond({body: 'Hello'});
+	}
+);
+```
+
+The main interface is the `fcgi` object. It has the following methods:
+
+  - `listen()` - creates FastCGI listener on specified network address. It can be called several times with the same or different addresses. Requests that arrive can be optionally handled by calling `req.respond()` and awaiting for the result. If the handler function doesn't want to handle such request, it can return without actions taken, and other added handlers will take their chance to handle this request. If no handler took care of the request, a 404 response will be sent.
+  - `unlisten()` - stop listening to specified address, or to all addresses.
+  - `on()` - allows to register event handlers for errors (`on('error', callback)`) and for server termination (`on('end', callback)`). The server will be terminated after you remove all listeners.
+
+Address given to `listen()` can be a port number, a string that represents unix-domain socket node, a `Deno.Addr` object, or a `Deno.Listener`.
+
+## Using the low-level API
+
+Low-level API is similar to `std/http`. First thing to do is to create a `Server` object.
 
 ```ts
 const listener = Deno.listen({hostname: "0.0.0.0", port: 8080});
