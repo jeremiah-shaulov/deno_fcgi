@@ -41,8 +41,7 @@ export function addr_to_string(addr: Deno.Addr)
 		if (is_default_route(hostname))
 		{	return ':'+port;
 		}
-		let is_not_ipv6 = hostname.indexOf(':')==-1;
-		return (is_not_ipv6 ? hostname+':' : '['+hostname+']:') + port;
+		return (hostname.charAt(0)=='[' || hostname.indexOf(':')==-1 ? hostname+':' : '['+hostname+']:') + port;
 	}
 	else if (addr.transport == 'unix')
 	{	return addr.path;

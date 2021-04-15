@@ -9,7 +9,7 @@ export function map_to_obj(map: any)
 {	let j = JSON.stringify
 	(	map,
 		(k, v) =>
-		{	if (v instanceof Map)
+		{	if (v instanceof Map || v instanceof Headers)
 			{	let obj: any = {};
 				for (let [mk, mv] of v)
 				{	obj[mk] = mv;

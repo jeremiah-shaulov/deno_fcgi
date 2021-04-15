@@ -5,7 +5,7 @@ import {pack_nvp} from "./server_request.ts";
 import {SetCookies} from "./set_cookies.ts";
 import {writeAll} from 'https://deno.land/std/io/util.ts';
 
-const SERVER_SOFTWARE = 'DenoFcgi/0.0';
+export const SERVER_SOFTWARE = 'DenoFcgi/0.0';
 const BUFFER_LEN = 8*1024;
 const DEFAULT_TIMEOUT = 10000;
 
