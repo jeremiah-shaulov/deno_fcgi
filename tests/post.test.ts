@@ -2,6 +2,7 @@ import {Post} from "../post.ts";
 import {TEST_CHUNK_SIZES, map_to_obj, MockConn} from './mock/mod.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
 import {exists} from "https://deno.land/std/fs/mod.ts";
+import {readAll} from 'https://deno.land/std/io/util.ts';
 
 Deno.test
 (	'Urlencoded',
@@ -103,7 +104,7 @@ Deno.test
 				assert(tmpName);
 				assert(await exists(tmpName));
 				let f = await Deno.open(tmpName, {read: true});
-				let contents = new TextDecoder().decode(await Deno.readAll(f));
+				let contents = new TextDecoder().decode(await readAll(f));
 				f.close();
 				assertEquals(contents, file_contents);
 				assertEquals(uploaded_file, {error: 0, name: '/tmp/current_file', size: file_contents.length, tmpName: uploaded_file!.tmpName, type: 'application/octet-stream'});
@@ -234,7 +235,7 @@ Deno.test
 				if (tmpName)
 				{	assert(await exists(tmpName));
 					let f = await Deno.open(tmpName, {read: true});
-					let contents = new TextDecoder().decode(await Deno.readAll(f));
+					let contents = new TextDecoder().decode(await readAll(f));
 					f.close();
 					assertEquals(contents, file_contents);
 					uploaded_file!.tmpName = '';

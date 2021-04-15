@@ -39,11 +39,11 @@ export class MockFcgiConn extends MockConn
 	{	let payload_bytes = typeof(payload)!='string' ? payload : new TextEncoder().encode(payload);
 		let padding = this.force_padding>=0 && this.force_padding<=255 ? this.force_padding : (8 - payload_bytes.length%8) % 8;
 		let n_records = Math.ceil(payload_bytes.length / 0xFFFF) || 1; // 0..=0xFFFF = 1rec, 0x10000..=0xFFFF*2 = 2rec
-		let tmp_2 = new Uint8Array(8*n_records + payload_bytes.length + padding);
+		let buffer = new Uint8Array(8*n_records + payload_bytes.length + padding);
 		let pos = 0;
 		while (payload_bytes.length > 0xFFFF)
 		{	// header
-			let header = new DataView(tmp_2.buffer, pos);
+			let header = new DataView(buffer.buffer, pos);
 			header.setUint8(0, 1); // version
 			header.setUint8(1, record_type); // type
 			header.setUint16(2, request_id); // request_id
@@ -51,12 +51,12 @@ export class MockFcgiConn extends MockConn
 			header.setUint8(6, 0); // padding_length
 			pos += 8;
 			// payload
-			tmp_2.set(payload_bytes.subarray(0, 0xFFFF), pos);
+			buffer.set(payload_bytes.subarray(0, 0xFFFF), pos);
 			payload_bytes = payload_bytes.subarray(0xFFFF);
 			pos += 0xFFFF;
 		}
 		// header
-		let header = new DataView(tmp_2.buffer, pos);
+		let header = new DataView(buffer.buffer, pos);
 		header.setUint8(0, 1); // version
 		header.setUint8(1, record_type); // type
 		header.setUint16(2, request_id); // request_id
@@ -64,11 +64,11 @@ export class MockFcgiConn extends MockConn
 		header.setUint8(6, padding); // padding_length
 		pos += 8;
 		// payload
-		tmp_2.set(payload_bytes, pos);
+		buffer.set(payload_bytes, pos);
 		pos += payload_bytes.length + padding;
-		assertEquals(pos, tmp_2.length);
+		assertEquals(pos, buffer.length);
 		// pend_read
-		this.pend_read(tmp_2);
+		this.pend_read(buffer);
 	}
 
 	pend_read_fcgi_begin_request(request_id: number, role: 'responder'|'authorizer'|'filter', keep_conn: boolean)
@@ -148,7 +148,7 @@ export class MockFcgiConn extends MockConn
 	{	this.read_data = this.read_data.slice(0, -n_bytes);
 	}
 
-	take_written_fcgi(request_id=-1, only_id_record_type=-1, include_header_and_padding=false): {request_id: number, record_type: number, record_type_name: string, payload: Uint8Array} | undefined
+	take_written_fcgi(request_id=-1, only_id_record_type=-1, include_header_and_padding=false): {record_type: number, request_id: number, record_type_name: string, payload: Uint8Array} | undefined
 	{	let written = this.get_written();
 		let pos = request_id==-1 ? 0 : this.written_pos.get(request_id) || 0;
 		while (pos+8 <= written.length)

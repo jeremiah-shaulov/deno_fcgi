@@ -1,5 +1,6 @@
 import {debug_assert} from './debug_assert.ts';
 import {ServerRequest, poll, take_next_request, is_processing} from './server_request.ts';
+import {is_default_route} from './addr.ts';
 
 const MAX_CONNS = 128;
 const MAX_NAME_LENGTH = 256;
@@ -14,6 +15,12 @@ export interface ServerOptions
 	maxFileSize?: number,
 }
 
+class AcceptError
+{	constructor(public listener: Deno.Listener, public error: Error)
+	{
+	}
+}
+
 export class Server implements Deno.Listener
 {	public readonly addr: Deno.Addr;
 	public readonly rid: number;
@@ -26,7 +33,7 @@ export class Server implements Deno.Listener
 	private maxNameLength: number;
 	private maxValueLength: number;
 	private maxFileSize: number;
-	private promises: Promise<Deno.Conn | ServerRequest>[] = [];
+	private promises: Promise<Deno.Conn | ServerRequest | AcceptError>[] = [];
 	private requests: ServerRequest[] = [];
 	private onerror: (error: Error) => void = () => {};
 	private is_accepting = false;
@@ -49,8 +56,10 @@ export class Server implements Deno.Listener
 			{	yield await this.accept();
 			}
 			catch (e)
-			{	debug_assert(this.listeners.length==0 && this.promises.length==0);
-				break;
+			{	if (this.listeners.length==0 && this.promises.length==0)
+				{	break;
+				}
+				throw e;
 			}
 		}
 	}
@@ -76,7 +85,7 @@ export class Server implements Deno.Listener
 			let i = active_listeners.findIndex
 			(	l =>
 				{	let addr = l.addr as any;
-					return addr.port===port && addr.path===path && addr.hostname===hostname && addr.transport===transport
+					return addr.port===port && addr.path===path && (addr.hostname===hostname || is_default_route(addr.hostname)) && addr.transport===transport
 				}
 			);
 			return i;
@@ -85,10 +94,11 @@ export class Server implements Deno.Listener
 		function clear_removed_listeners()
 		{	for (let i=0; i<removed_listeners.length; i++)
 			{	let {transport, hostname, port, path} = removed_listeners[i].addr as any;
+				let is_def = is_default_route(hostname);
 				let j = requests.findIndex
 				(	l =>
 					{	let l_addr = l.localAddr as any;
-						return l_addr.port===port && l_addr.path===path && l_addr.hostname===hostname && l_addr.transport===transport
+						return l_addr.port===port && l_addr.path===path && (is_def || l_addr.hostname===hostname) && l_addr.transport===transport
 					}
 				);
 				if (j == -1)
@@ -119,7 +129,7 @@ export class Server implements Deno.Listener
 			{	for (let listener of listeners)
 				{	if (active_listeners.indexOf(listener) == -1)
 					{	active_listeners.push(listener);
-						promises.push(listener.accept());
+						promises.push(listener.accept().catch(error => new AcceptError(listener, error)));
 						if (promises.length >= to)
 						{	break;
 						}
@@ -136,12 +146,21 @@ export class Server implements Deno.Listener
 			debug_assert(this.n_processing>=0 && this.n_processing<=requests.length);
 
 			let ready = await Promise.race(promises);
-			if (!(ready instanceof ServerRequest))
+			if (ready instanceof AcceptError)
+			{	this.onerror(ready.error);
+				this.removeListener(ready.listener.addr);
+			}
+			else if (!(ready instanceof ServerRequest))
 			{	// Accepted connection
 				let i = find_listener(ready);
 				if (i == -1)
 				{	// assume: the listener removed
-					ready.close();
+					try
+					{	ready.close();
+					}
+					catch (e)
+					{	this.onerror(e);
+					}
 				}
 				else
 				{	let request = new ServerRequest(ready, onerror, null, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize);
@@ -154,7 +173,7 @@ export class Server implements Deno.Listener
 					active_listeners.shift();
 					if (j+1+listeners.length < maxConns)
 					{	active_listeners.push(listener);
-						promises.push(listener.accept());
+						promises.push(listener.accept().catch(error => new AcceptError(listener, error)));
 					}
 				}
 			}
@@ -225,8 +244,19 @@ export class Server implements Deno.Listener
 		return true;
 	}
 
+	getListener(addr: Deno.Addr)
+	{	let {transport, hostname, port, path} = addr as any;
+		return this.listeners.find
+		(	l =>
+			{	let l_addr = l.addr as any;
+				return l_addr.port===port && l_addr.path===path && l_addr.hostname===hostname && l_addr.transport===transport
+			}
+		);
+	}
+
 	removeListener(addr: Deno.Addr)
 	{	let {transport, hostname, port, path} = addr as any;
+		let is_def = is_default_route(hostname);
 		// find in "listeners"
 		let i = this.listeners.findIndex
 		(	l =>
@@ -258,7 +288,7 @@ export class Server implements Deno.Listener
 		i = this.requests.findIndex
 		(	l =>
 			{	let l_addr = l.localAddr as any;
-				return l_addr.port===port && l_addr.path===path && l_addr.hostname===hostname && l_addr.transport===transport
+				return l_addr.port===port && l_addr.path===path && (is_def || l_addr.hostname===hostname) && l_addr.transport===transport
 			}
 		);
 		if (i == -1)

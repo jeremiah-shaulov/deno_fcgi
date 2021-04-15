@@ -181,13 +181,14 @@ Response headers and data can be set before calling `respond()`, or they can be 
 
 ```ts
 import {Server} from 'https://deno.land/x/fcgi/mod.ts';
+import {readAll} from 'https://deno.land/std/io/util.ts';
 
 const listener = Deno.listen({hostname: "0.0.0.0", port: 8080});
 const server = new Server(listener);
 console.log(`Started on ${(listener.addr as Deno.NetAddr).port}`);
 
 for await (let req of server)
-{	Deno.readAll(req.body).then
+{	readAll(req.body).then
 	(	async postData =>
 		{	let postStr = new TextDecoder().decode(postData);
 			console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${postStr}`);
@@ -200,18 +201,19 @@ Or:
 
 ```ts
 import {Server} from 'https://deno.land/x/fcgi/mod.ts';
+import {writeAll, readAll} from 'https://deno.land/std/io/util.ts';
 
 const listener = Deno.listen({hostname: "0.0.0.0", port: 8080});
 const server = new Server(listener);
 console.log(`Started on ${(listener.addr as Deno.NetAddr).port}`);
 
 for await (let req of server)
-{	Deno.readAll(req.body).then
+{	readAll(req.body).then
 	(	async postData =>
 		{	let postStr = new TextDecoder().decode(postData);
 			console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${postStr}`);
 			req.responseHeaders.set('Content-Type', 'text/html');
-			await Deno.writeAll(req, new TextEncoder().encode('Hello'));
+			await writeAll(req, new TextEncoder().encode('Hello'));
 			await req.respond();
 		}
 	);

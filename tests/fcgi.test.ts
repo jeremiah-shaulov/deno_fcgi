@@ -21,19 +21,51 @@ Deno.test
 				fcgi.unlisten();
 			}
 		);
-		await new Promise<void>
-		(	y =>
-			{	fcgi.on
-				(	'end',
-					() =>
-					{	// read
-						assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\nResponse body');
-						assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
-						assertEquals(conn.take_written_fcgi(), undefined);
-						y();
-					}
-				);
+		await fcgi.on('end');
+		// read
+		assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\nResponse body');
+		assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+		assertEquals(conn.take_written_fcgi(), undefined);
+	}
+);
+
+Deno.test
+(	'Basic 2',
+	async () =>
+	{	const N_LISTENERS = 4;
+		let server_error;
+		fcgi.on('error', (e: any) => {server_error = e});
+		// accept
+		let listeners: Deno.Listener[] = [];
+		for (let i=0; i<N_LISTENERS; i++)
+		{	listeners[i] = fcgi.listen
+			(	0,
+				'',
+				async req =>
+				{	await req.post.parse();
+					assertEquals(req.params.get('HTTP_HOST'), 'example.com');
+					assertEquals(req.get.get('i'), i+'');
+					await req.respond({body: `Response body ${i}`});
+					fcgi.unlisten(listeners[i].addr);
+				}
+			);
+		}
+		// query
+		for (let i=0; i<N_LISTENERS; i++)
+		{	let response = await fcgi.fetch
+			(	{	addr: listeners[i].addr
+				},
+				`http://example.com/?i=${i}`
+			);
+			assertEquals(response.status, 200);
+			let data = '';
+			if (response.body)
+			{	for await (let chunk of response.body)
+				{	data += new TextDecoder().decode(chunk);
+				}
 			}
-		);
+			assertEquals(data, `Response body ${i}`);
+		}
+		assert(!server_error);
 	}
 );

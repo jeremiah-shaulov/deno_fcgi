@@ -1,6 +1,7 @@
 import {debug_assert} from "./debug_assert.ts";
 import {StructuredMap} from "./structured_map.ts";
 import {exists} from "https://deno.land/std/fs/mod.ts";
+import {writeAll} from 'https://deno.land/std/io/util.ts';
 
 const BUFFER_LEN = 8*1024;
 const REALLOC_THRESHOLD = 256; // max length for header line like `Content-Disposition: form-data; name="image"; filename="/tmp/current_file"` is BUFFER_LEN-REALLOC_THRESHOLD
@@ -366,7 +367,7 @@ L:		while (true)
 								{	if (size > maxFileSize)
 									{	throw new Error('Uploaded file is too large');
 									}
-									await Deno.writeAll(fh, buffer.subarray(buffer_start, i2));
+									await writeAll(fh, buffer.subarray(buffer_start, i2));
 								}
 								catch (e)
 								{	// maybe disk full

@@ -3,6 +3,7 @@ import {TEST_CHUNK_SIZES, map_to_obj, MockListener, MockFcgiConn, MockConn} from
 import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
 import {exists} from "https://deno.land/std/fs/mod.ts";
 import {sleep} from "https://deno.land/x/sleep/mod.ts";
+import {writeAll, readAll} from 'https://deno.land/std/io/util.ts';
 
 function *test_connections(only_chunk_sizes?: number[]): Generator<MockFcgiConn>
 {	for (let chunk_size of only_chunk_sizes || TEST_CHUNK_SIZES)
@@ -46,11 +47,11 @@ Deno.test
 				assertEquals(req.proto, 'HTTP/2');
 				assertEquals(req.protoMajor, 2);
 				assertEquals(req.protoMinor, 0);
-				assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body');
+				assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body');
 				assertEquals(server.nConnections(), 1);
 				assertEquals(server.nRequests(), 1);
 				req.responseHeaders.set('X-Hello', 'all');
-				Deno.writeAll(req, new TextEncoder().encode('Response body'));
+				writeAll(req, new TextEncoder().encode('Response body'));
 				await req.respond();
 				// try to use terminated request
 				let error;
@@ -130,7 +131,7 @@ Deno.test
 				assertEquals(req.proto, 'HTTP/3.4');
 				assertEquals(req.protoMajor, 3);
 				assertEquals(req.protoMinor, 4);
-				assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), '\r\n');
+				assertEquals(new TextDecoder().decode(await readAll(req.body)), '\r\n');
 				assertEquals(server.nConnections(), 1);
 				let body = new MockConn('Response body');
 				await req.respond({body, status: 404});
@@ -210,7 +211,7 @@ Deno.test
 				assertEquals(map_to_obj(req.post), {a: 'Hello', b: 'World'});
 				//
 				assertEquals(server.nConnections(), 1);
-				Deno.writeAll(req, new TextEncoder().encode('Response body'));
+				writeAll(req, new TextEncoder().encode('Response body'));
 				await req.respond();
 				server.removeListeners();
 			}
@@ -320,7 +321,7 @@ Deno.test
 			let i = 1;
 			for await (let req of server)
 			{	assertEquals(map_to_obj(req.params), {id: 'req '+i});
-				assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body '+i);
+				assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body '+i);
 				assertEquals(server.nConnections(), 1);
 				assertEquals(server.nRequests(), 1);
 				await req.respond();
@@ -374,7 +375,7 @@ Deno.test
 		let req = await req_promise;
 		// req 1
 		assertEquals(map_to_obj(req.params), {id: 'req 1'});
-		assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 1');
+		assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body 1');
 		assertEquals(server.nConnections(), 1);
 		assertEquals(server.nRequests(), 1);
 		await req.respond();
@@ -383,7 +384,7 @@ Deno.test
 		req = await server.accept();
 		// req 2
 		assertEquals(map_to_obj(req.params), {id: 'req 2'});
-		assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 2');
+		assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body 2');
 		assertEquals(server.nConnections(), 1);
 		assertEquals(server.nRequests(), 1);
 		await req.respond();
@@ -431,7 +432,7 @@ Deno.test
 			let i = 1;
 			for await (let req of server)
 			{	assertEquals(map_to_obj(req.params), {id: 'req '+i});
-				assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body '+i);
+				assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body '+i);
 				assertEquals(server.nConnections(), 1);
 				assertEquals(server.nRequests(), 1);
 				if (i == 1)
@@ -504,7 +505,7 @@ Deno.test
 				{	// try to read POST body
 					let error;
 					try
-					{	await Deno.readAll(req.body);
+					{	await readAll(req.body);
 					}
 					catch (e)
 					{	error = e;
@@ -513,7 +514,7 @@ Deno.test
 					// try to write
 					error = undefined;
 					try
-					{	await Deno.writeAll(req, new TextEncoder().encode('Response body'));
+					{	await writeAll(req, new TextEncoder().encode('Response body'));
 					}
 					catch (e)
 					{	error = e;
@@ -563,7 +564,7 @@ Deno.test
 					assert(error instanceof TerminatedError);
 				}
 				else
-				{	assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body '+i);
+				{	assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body '+i);
 					assertEquals(server.nConnections(), 1);
 					assertEquals(server.nRequests(), 1);
 					await req.respond();
@@ -626,7 +627,7 @@ Deno.test
 			conn.close();
 			let error;
 			try
-			{	await Deno.readAll(req.body);
+			{	await readAll(req.body);
 			}
 			catch (e)
 			{	error = e;
@@ -714,7 +715,7 @@ Deno.test
 			server.close();
 			let error;
 			try
-			{	await Deno.readAll(req.body); // may not fail if data was in buffer before calling close()
+			{	await readAll(req.body); // may not fail if data was in buffer before calling close()
 			}
 			catch (e)
 			{	error = e;
@@ -779,7 +780,7 @@ Deno.test
 			{	await req.respond();
 				let error;
 				try
-				{	await Deno.writeAll(req, new TextEncoder().encode('Test'));
+				{	await writeAll(req, new TextEncoder().encode('Test'));
 				}
 				catch (e)
 				{	error = e;
@@ -811,7 +812,7 @@ Deno.test
 			for await (let req of server)
 			{	req.closeWrite();
 				assertEquals(map_to_obj(req.params), {a: '1'});
-				assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Hello');
+				assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Hello');
 				let error;
 				try
 				{	await req.respond();
@@ -851,7 +852,7 @@ Deno.test
 		{	assert(server_error instanceof ProtocolError);
 			server_error = undefined;
 			assertEquals(map_to_obj(req.params), {id: 'req 2'});
-			assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 2');
+			assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body 2');
 			await req.respond({body: 'Hello'});
 			server.removeListeners();
 		}
@@ -884,7 +885,7 @@ Deno.test
 		// accept
 		for await (let req of server)
 		{	assertEquals(map_to_obj(req.params), {id: 'req 2'});
-			assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 2');
+			assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body 2');
 			await req.respond({body: 'Hello'});
 			server.removeListeners();
 		}
@@ -917,7 +918,7 @@ Deno.test
 				for await (let req of server)
 				{	assertEquals(req.params.size, 1);
 					assertEquals(req.params.get(str_ok), 'ok');
-					assertEquals((await Deno.readAll(req.body)).length, 0);
+					assertEquals((await readAll(req.body)).length, 0);
 					await req.respond();
 					server.removeListeners();
 				}
@@ -953,7 +954,7 @@ Deno.test
 				for await (let req of server)
 				{	assertEquals(req.params.size, 1);
 					assertEquals(req.params.get('ok'), str_ok);
-					assertEquals((await Deno.readAll(req.body)).length, 0);
+					assertEquals((await readAll(req.body)).length, 0);
 					await req.respond();
 					server.removeListeners();
 				}
@@ -987,7 +988,7 @@ Deno.test
 				conn.pend_read_fcgi_stdin(1, new TextDecoder().decode(str_request));
 				// accept
 				for await (let req of server)
-				{	assertEquals((await Deno.readAll(req.body)), str_request);
+				{	assertEquals((await readAll(req.body)), str_request);
 					if (len==1 || len==0xFFF8)
 					{	req.logError('Hello');
 					}
@@ -1030,7 +1031,7 @@ Deno.test
 			conn.pend_read_fcgi_stdin(1, '');
 			// accept
 			for await (let req of server)
-			{	Deno.writeAll(req, new TextEncoder().encode(str_response));
+			{	writeAll(req, new TextEncoder().encode(str_response));
 				await req.respond();
 				server.removeListeners();
 			}
@@ -1128,7 +1129,7 @@ Deno.test
 		// accept
 		for await (let req of server)
 		{	assertEquals(map_to_obj(req.params), {a: '2'});
-			assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 2');
+			assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body 2');
 			await req.respond();
 			server.removeListeners();
 		}
@@ -1159,7 +1160,7 @@ Deno.test
 		// accept
 		for await (let req of server)
 		{	assertEquals(map_to_obj(req.params), {a: '1'});
-			assertEquals(new TextDecoder().decode(await Deno.readAll(req.body)), 'Body 1');
+			assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body 1');
 			await req.respond();
 			server.removeListeners();
 		}
@@ -1209,7 +1210,7 @@ Deno.test
 		// accept
 		let i = 0;
 		for await (let req of server)
-		{	Deno.readAll(req.body).then
+		{	readAll(req.body).then
 			(	async body =>
 				{	assertEquals(req.params.size, 2);
 					let l = req.params.get('l');

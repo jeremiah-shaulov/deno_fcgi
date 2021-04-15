@@ -4,6 +4,7 @@ import {Post} from "./post.ts";
 import {Cookies} from "./cookies.ts";
 import {ServerResponse} from './server_response.ts';
 import {AbortedError, TerminatedError, ProtocolError} from './error.ts';
+import {writeAll} from 'https://deno.land/std/io/util.ts';
 
 export const is_processing = Symbol('is_processing');
 export const take_next_request = Symbol('take_next_request');
@@ -366,7 +367,16 @@ export class ServerRequest implements Deno.Conn
 		}
 		let till = this.buffer_start + n_bytes;
 		while (this.buffer_end < till)
-		{	let n_read = await this.conn.read(this.buffer.subarray(this.buffer_end));
+		{	try
+			{	var n_read = await this.conn.read(this.buffer.subarray(this.buffer_end));
+			}
+			catch (e)
+			{	if (!can_eof || !this.stdin_complete)
+				{	throw e;
+				}
+				this.onerror(e);
+				n_read = null;
+			}
 			if (n_read == null)
 			{	if (can_eof && this.buffer_end-this.buffer_start==0)
 				{	return false;
@@ -533,7 +543,7 @@ export class ServerRequest implements Deno.Conn
 	}
 
 	private write_raw(value: Uint8Array)
-	{	return this.schedule_write(() => Deno.writeAll(this.conn, value));
+	{	return this.schedule_write(() => writeAll(this.conn, value));
 	}
 
 	private write_stdout(value: Uint8Array, record_type=FCGI_STDOUT, is_last=false): Promise<number>
@@ -563,7 +573,7 @@ export class ServerRequest implements Deno.Conn
 						let headers_bytes = this.encoder.encode(headers_str);
 						let padding_length = (8 - headers_bytes.length%8) % 8;
 						set_record_stdout(headers_bytes, 0, FCGI_STDOUT, this.request_id, headers_bytes.length-16, padding_length);
-						await Deno.writeAll(this.conn, headers_bytes.subarray(0, headers_bytes.length-(8 - padding_length)));
+						await writeAll(this.conn, headers_bytes.subarray(0, headers_bytes.length-(8 - padding_length)));
 					}
 				}
 				else if (value.length > 0)
@@ -572,14 +582,14 @@ export class ServerRequest implements Deno.Conn
 				// Send body
 				let orig_len = value.length;
 				while (value.length > 0xFFF8) // max packet length without padding is 0xFFF8 (0xFFF9..0xFFFF must be padded, and 0x10000 is impossible, because such number cannot be represented in content_length field)
-				{	await Deno.writeAll(this.conn, set_record_stdout(new Uint8Array(8), 0, record_type, this.request_id, 0xFFF8));
-					await Deno.writeAll(this.conn, value.subarray(0, 0xFFF8));
+				{	await writeAll(this.conn, set_record_stdout(new Uint8Array(8), 0, record_type, this.request_id, 0xFFF8));
+					await writeAll(this.conn, value.subarray(0, 0xFFF8));
 					value = value.subarray(0xFFF8);
 				}
 				if (value.length > BUFFER_LEN) // i don't want to allocate chunks larger than BUFFER_LEN
 				{	let padding_length = (8 - value.length%8) % 8;
-					await Deno.writeAll(this.conn, set_record_stdout(new Uint8Array(8), 0, record_type, this.request_id, value.length, padding_length));
-					await Deno.writeAll(this.conn, value);
+					await writeAll(this.conn, set_record_stdout(new Uint8Array(8), 0, record_type, this.request_id, value.length, padding_length));
+					await writeAll(this.conn, value);
 					if (is_last || padding_length>0)
 					{	let all = new Uint8Array(padding_length + (!is_last ? 0 : !this.has_stderr ? 24 : 32));
 						if (is_last)
@@ -592,7 +602,7 @@ export class ServerRequest implements Deno.Conn
 							}
 							set_record_end_request(all, pos, this.request_id, FCGI_REQUEST_COMPLETE);
 						}
-						await Deno.writeAll(this.conn, all);
+						await writeAll(this.conn, all);
 					}
 				}
 				else if (value.length > 0)
@@ -610,7 +620,7 @@ export class ServerRequest implements Deno.Conn
 						}
 						set_record_end_request(all, pos, this.request_id, FCGI_REQUEST_COMPLETE);
 					}
-					await Deno.writeAll(this.conn, all);
+					await writeAll(this.conn, all);
 				}
 				else if (is_last)
 				{	let all = new Uint8Array(!this.has_stderr ? 24 : 32);
@@ -622,7 +632,7 @@ export class ServerRequest implements Deno.Conn
 					else
 					{	set_record_end_request(all, 8, this.request_id, FCGI_REQUEST_COMPLETE);
 					}
-					await Deno.writeAll(this.conn, all);
+					await writeAll(this.conn, all);
 				}
 				return orig_len;
 			}
@@ -630,7 +640,7 @@ export class ServerRequest implements Deno.Conn
 	}
 
 	private write_nvp(value: Map<string, string>)
-	{	this.schedule_write(() => Deno.writeAll(this.conn, pack_nvp(FCGI_GET_VALUES_RESULT, 0, value, this.maxNameLength, this.maxValueLength)));
+	{	this.schedule_write(() => writeAll(this.conn, pack_nvp(FCGI_GET_VALUES_RESULT, 0, value, this.maxNameLength, this.maxValueLength)));
 	}
 
 	/**	For internal use.
