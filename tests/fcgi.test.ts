@@ -51,21 +51,28 @@ Deno.test
 			);
 		}
 		// query
+		let promises = [];
 		for (let i=0; i<N_LISTENERS; i++)
-		{	let response = await fcgi.fetch
-			(	{	addr: listeners[i].addr
-				},
-				`http://example.com/?i=${i}`
-			);
-			assertEquals(response.status, 200);
-			let data = '';
-			if (response.body)
-			{	for await (let chunk of response.body)
-				{	data += new TextDecoder().decode(chunk);
+		{	promises[promises.length] = Promise.resolve().then
+			(	async () =>
+				{	let response = await fcgi.fetch
+					(	{	addr: listeners[i].addr
+						},
+						`http://example.com/?i=${i}`
+					);
+					assertEquals(response.status, 200);
+					let data = '';
+					if (response.body)
+					{	for await (let chunk of response.body)
+						{	data += new TextDecoder().decode(chunk);
+						}
+					}
+					assertEquals(data, `Response body ${i}`);
 				}
-			}
-			assertEquals(data, `Response body ${i}`);
+			);
 		}
+		await fcgi.on('end');
+		await Promise.all(promises);
 		assert(!server_error);
 	}
 );

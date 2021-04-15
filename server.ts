@@ -91,23 +91,6 @@ export class Server implements Deno.Listener
 			return i;
 		}
 
-		function clear_removed_listeners()
-		{	for (let i=0; i<removed_listeners.length; i++)
-			{	let {transport, hostname, port, path} = removed_listeners[i].addr as any;
-				let is_def = is_default_route(hostname);
-				let j = requests.findIndex
-				(	l =>
-					{	let l_addr = l.localAddr as any;
-						return l_addr.port===port && l_addr.path===path && (is_def || l_addr.hostname===hostname) && l_addr.transport===transport
-					}
-				);
-				if (j == -1)
-				{	removed_listeners[i--] = removed_listeners[removed_listeners.length - 1];
-					removed_listeners.length--;
-				}
-			}
-		}
-
 		while (true)
 		{	// "listeners" are all available listeners, added with "addListener()" (plus one passed to the constructor), and not yet removed with "removeListener()".
 			// When i call "accept()" on some listener, i add it to "active_listeners".
@@ -136,7 +119,7 @@ export class Server implements Deno.Listener
 					}
 				}
 			}
-			clear_removed_listeners();
+			this.clear_removed_listeners();
 			if (promises.length == 0)
 			{	debug_assert(active_listeners.length==0 && listeners.length==0 && removed_listeners.length==0 && requests.length==0);
 				throw new Error('Server shut down');
@@ -147,8 +130,11 @@ export class Server implements Deno.Listener
 
 			let ready = await Promise.race(promises);
 			if (ready instanceof AcceptError)
-			{	this.onerror(ready.error);
-				this.removeListener(ready.listener.addr);
+			{	if (listeners.indexOf(ready.listener) != -1)
+				{	this.onerror(ready.error);
+					this.removeListener(ready.listener.addr);
+				}
+				debug_assert(active_listeners.indexOf(ready.listener) == -1);
 			}
 			else if (!(ready instanceof ServerRequest))
 			{	// Accepted connection
@@ -256,7 +242,6 @@ export class Server implements Deno.Listener
 
 	removeListener(addr: Deno.Addr)
 	{	let {transport, hostname, port, path} = addr as any;
-		let is_def = is_default_route(hostname);
 		// find in "listeners"
 		let i = this.listeners.findIndex
 		(	l =>
@@ -284,26 +269,33 @@ export class Server implements Deno.Listener
 			this.active_listeners.splice(i, 1);
 			this.promises.splice(this.requests.length+i, 1);
 		}
-		// some ongoing request belongs to this listener?
-		i = this.requests.findIndex
-		(	l =>
-			{	let l_addr = l.localAddr as any;
-				return l_addr.port===port && l_addr.path===path && (is_def || l_addr.hostname===hostname) && l_addr.transport===transport
-			}
-		);
-		if (i == -1)
-		{	// not found, so can close
-			listener.close();
-		}
-		else
-		{	this.removed_listeners.push(listener);
-		}
+		this.removed_listeners.push(listener);
+		this.clear_removed_listeners();
 		return true;
 	}
 
 	removeListeners()
 	{	while (this.listeners.length)
 		{	this.removeListener(this.listeners[0].addr);
+		}
+	}
+
+	clear_removed_listeners()
+	{	let {removed_listeners, requests} = this;
+		for (let i=0; i<removed_listeners.length; i++)
+		{	let {transport, hostname, port, path} = removed_listeners[i].addr as any;
+			let is_def = is_default_route(hostname);
+			let j = requests.findIndex
+			(	l =>
+				{	let l_addr = l.localAddr as any;
+					return l_addr.port===port && l_addr.path===path && (is_def || l_addr.hostname===hostname) && l_addr.transport===transport
+				}
+			);
+			if (j == -1)
+			{	removed_listeners[i].close();
+				removed_listeners[i--] = removed_listeners[removed_listeners.length - 1];
+				removed_listeners.length--;
+			}
 		}
 	}
 

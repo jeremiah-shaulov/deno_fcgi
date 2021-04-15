@@ -4,8 +4,7 @@ export class EventPromises<T>
 	add(callback?: (arg: T) => unknown)
 	{	let resolve, reject;
 		let promise = new Promise<void>((y, n) => {resolve=y; reject=n});
-		let event = new EventPromise(callback, resolve, reject);
-		this.events.push(event);
+		this.events.push(new EventPromise(callback, resolve, reject));
 		return promise;
 	}
 

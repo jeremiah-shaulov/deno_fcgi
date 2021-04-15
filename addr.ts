@@ -1,6 +1,7 @@
 export type FcgiAddr = number | string | Deno.Addr;
 
 const RE_NOT_DEFAULT_ROUTE = /[^0\.:]/;
+const RE_IS_NUMBER = /^\s*\d+\s*$/;
 
 export function faddr_to_addr(addr: FcgiAddr): Deno.Addr
 {	if (typeof(addr) == 'number')
@@ -10,7 +11,7 @@ export function faddr_to_addr(addr: FcgiAddr): Deno.Addr
 	{	if (addr.indexOf('/') != -1)
 		{	addr = {transport: 'unix', path: addr};
 		}
-		else if (/^\s*\d+\s*$/.test(addr))
+		else if (RE_IS_NUMBER.test(addr))
 		{	addr = {transport: 'tcp', hostname: '0.0.0.0', port: parseInt(addr)};
 		}
 		else
@@ -27,7 +28,7 @@ export function faddr_to_addr(addr: FcgiAddr): Deno.Addr
 				addr = {transport: 'tcp', hostname, port};
 			}
 			else
-			{	throw new Error(`Cannot interpret network address: ${JSON.stringify(addr)}`);
+			{	addr = {transport: 'tcp', hostname: addr, port: 0};
 			}
 		}
 	}
@@ -37,7 +38,7 @@ export function faddr_to_addr(addr: FcgiAddr): Deno.Addr
 export function addr_to_string(addr: Deno.Addr)
 {	if (addr.transport == 'tcp')
 	{	let {hostname, port} = addr;
-		if (!RE_NOT_DEFAULT_ROUTE.test(hostname))
+		if (is_default_route(hostname))
 		{	return ':'+port;
 		}
 		let is_not_ipv6 = hostname.indexOf(':')==-1;
@@ -46,7 +47,7 @@ export function addr_to_string(addr: Deno.Addr)
 	else if (addr.transport == 'unix')
 	{	return addr.path;
 	}
-	throw new Error(`Can use only tcp and unix transport: ${JSON.stringify(addr)}`);
+	throw new Error(`Can use only tcp or unix transport: ${JSON.stringify(addr)}`);
 }
 
 export function is_default_route(hostname: string)

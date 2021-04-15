@@ -374,7 +374,9 @@ export class ServerRequest implements Deno.Conn
 			{	if (!can_eof || !this.stdin_complete)
 				{	throw e;
 				}
-				this.onerror(e);
+				if (!this.is_terminated)
+				{	this.onerror(e);
+				}
 				n_read = null;
 			}
 			if (n_read == null)
