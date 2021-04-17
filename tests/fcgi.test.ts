@@ -64,7 +64,8 @@ Deno.test
 		{	promises[promises.length] = Promise.resolve().then
 			(	async () =>
 				{	let request: RequestOptions =
-					{	addr: listeners[i].addr
+					{	addr: listeners[i].addr,
+						keepAliveMax: 1,
 					};
 					if (i == 1)
 					{	request.scriptFilename = `/var/www/example.com/page-${i}.html`;
@@ -78,13 +79,7 @@ Deno.test
 						i!=1 ? undefined : {headers: new Headers(Object.entries({'X-Hello': 'All'}))}
 					);
 					assertEquals(response.status, 200);
-					let data = '';
-					if (response.body)
-					{	for await (let chunk of response.body)
-						{	data += new TextDecoder().decode(chunk);
-						}
-					}
-					assertEquals(data, `Response body ${i}`);
+					assertEquals(await response.text(), `Response body ${i}`);
 				}
 			);
 		}
@@ -92,6 +87,57 @@ Deno.test
 		await fcgi.on('end', () => {was_end = true});
 		await Promise.all(promises);
 		assert(was_end);
+		assert(!server_error);
+	}
+);
+
+Deno.test
+(	'Basic 3',
+	async () =>
+	{	let N_REQUESTS = 4;
+		let server_error;
+		fcgi.on('error', (e: any) => {server_error = e});
+		// accept
+		let n_accepted = 0;
+		let listener = fcgi.listen
+		(	0,
+			'',
+			async req =>
+			{	let i = n_accepted;
+				await req.post.parse();
+				assertEquals(req.params.get('REQUEST_METHOD'), 'POST');
+				assertEquals(req.params.get('REQUEST_SCHEME'), 'https');
+				assertEquals(req.params.get('HTTP_HOST'), 'example.com');
+				assertEquals(req.params.get('REQUEST_URI'), `/page-${i}.html?i=${i}`);
+				assertEquals(req.params.get('QUERY_STRING'), `i=${i}`);
+				assertEquals(req.params.get('SERVER_SOFTWARE'), SERVER_SOFTWARE);
+				assertEquals(req.params.get('SCRIPT_FILENAME'), `/var/www/example.com/page-${i}.html`);
+				assertEquals(req.get.get('i'), i+'');
+				assertEquals(map_to_obj(req.headers), {'host': 'example.com', 'x-hello': 'All'});
+				assertEquals(req.post.get('par'), 'val'+i);
+				await req.respond({body: `Response body ${i}`});
+				if (++n_accepted >= N_REQUESTS)
+				{	fcgi.unlisten(listener.addr);
+				}
+			}
+		);
+		// query
+		for (let i=0; i<N_REQUESTS; i++)
+		{	let response = await fcgi.fetch
+			(	{	addr: listener.addr,
+					keepAliveMax: 2,
+					scriptFilename: `/var/www/example.com/page-${i}.html`,
+				},
+				`https://example.com/page-${i}.html?i=${i}`,
+				{	method: 'post',
+					headers: new Headers(Object.entries({'Content-Type': 'application/x-www-form-urlencoded', 'X-Hello': 'All'})),
+					body: `par=val${i}`
+				}
+			);
+			assertEquals(response.status, 200);
+			assertEquals(await response.text(), `Response body ${i}`);
+		}
+		await fcgi.on('end');
 		assert(!server_error);
 	}
 );

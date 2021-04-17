@@ -224,11 +224,11 @@ export class ServerRequest implements Deno.Conn
 						catch (e)
 						{	read_error = e; // if it was write error, it is expected to happen again when writing the final packet (at `await ongoing_write`)
 						}
-						this.write_stdout(new Uint8Array, FCGI_STDOUT, true);
+						this.write_stdout(this.buffer.subarray(0, 0), FCGI_STDOUT, true);
 					}
 				}
 				else
-				{	this.write_stdout(new Uint8Array, FCGI_STDOUT, true);
+				{	this.write_stdout(this.buffer.subarray(0, 0), FCGI_STDOUT, true);
 				}
 			}
 			let ongoing_write = (this.next_request || this).ongoing_write;
