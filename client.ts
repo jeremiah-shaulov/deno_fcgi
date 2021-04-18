@@ -31,9 +31,6 @@ export class ResponseWithCookies extends Response
 class FcgiConns
 {	public all: FcgiConn[] = [];
 	public supports_reuse_connection = true; // set to false after first unsuccessful attempt
-	public values_last_queried_time = 0;
-	public fcgi_max_conns = -1;
-	public fcgi_max_reqs = -1;
 }
 
 export class Client
@@ -41,15 +38,15 @@ export class Client
 	private h_timer: number | undefined;
 
 	async fcgi_fetch(server_options: RequestOptions, input: Request|URL|string, init?: RequestInit): Promise<ResponseWithCookies>
-	{	// server_addr
-		let server_addr = faddr_to_addr(server_options.addr);
+	{	let {addr, scriptFilename, params, keepAliveTimeout, keepAliveMax, timeout, onLogError} = server_options;
+		// server_addr
+		let server_addr = faddr_to_addr(addr);
 		let server_addr_str = addr_to_string(server_addr);
 		// input
 		if (!(input instanceof Request))
 		{	input = new Request(input+'', init);
 		}
 		// params
-		let {params, scriptFilename, timeout, keepAliveTimeout, keepAliveMax} = server_options;
 		if (params == undefined)
 		{	params = new Map;
 		}
@@ -79,7 +76,7 @@ export class Client
 		// query
 		try
 		{	await conn.write_request(params, input.body, supports_reuse_connection);
-			var it = conn.read_response(headers, cookies, server_options.onLogError);
+			var it = conn.read_response(headers, cookies, onLogError);
 			var {value, done} = await it.next();
 		}
 		catch (e)
@@ -125,6 +122,17 @@ export class Client
 			},
 			cookies
 		);
+	}
+
+	async fcgi_constants(addr: FcgiAddr)
+	{	let server_addr = faddr_to_addr(addr);
+		let server_addr_str = addr_to_string(server_addr);
+		let {conn} = await this.get_conn(server_addr_str, server_addr, 0, 1);
+		await conn.write_record_get_values(new Map(Object.entries({FCGI_MAX_CONNS: '', FCGI_MAX_REQS: '', FCGI_MPXS_CONNS: ''})));
+		let header = await conn.read_record_header();
+		let result = await conn.read_record_get_values_result(header.content_length, header.padding_length);
+		this.return_conn(server_addr_str, conn, false);
+		return {FCGI_MAX_CONNS: result.get('FCGI_MAX_CONNS'), FCGI_MAX_REQS: result.get('FCGI_MAX_REQS'), FCGI_MPXS_CONNS: result.get('FCGI_MPXS_CONNS')};
 	}
 
 	private async get_conn(server_addr_str: string, server_addr: Deno.Addr, keepAliveTimeout?: number, keepAliveMax?: number)

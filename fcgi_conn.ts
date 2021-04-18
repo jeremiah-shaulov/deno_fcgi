@@ -1,6 +1,6 @@
 import {debug_assert} from './debug_assert.ts';
 import {pack_nvp} from "./server_request.ts";
-import {Server} from "./mod.ts";
+import {Server} from "./server.ts";
 import {SetCookies} from "./set_cookies.ts";
 import {writeAll} from 'https://deno.land/std/io/util.ts';
 
@@ -307,12 +307,12 @@ export class FcgiConn
 		data_view.setUint8(1, FCGI_BEGIN_REQUEST); // record_type
 		data_view.setUint16(2, 1); // request_id
 		data_view.setUint16(4, 8); // content_length
-		//data_view.setUint8(6, 0); // padding_length
-		//data_view.setUint8(7, 0); // reserved
+		data_view.setUint16(6, 0); // padding_length=0, reserved=0
 
 		// 2. Set FCGI_BEGIN_REQUEST
 		data_view.setUint16(8, FCGI_RESPONDER); // role
-		//data_view.setUint8(10, 0); // flags
+		data_view.setUint16(10, 0); // flags=0, reserved=0
+		data_view.setUint32(12, 0); // reserved
 
 		// 3. Set header of FCGI_PARAMS record, so i can parse it as params.
 		data_view.setUint8(16, 1); // version
@@ -320,7 +320,7 @@ export class FcgiConn
 		data_view.setUint16(18, 1); // request_id
 		data_view.setUint16(20, content_length); // content_length
 		data_view.setUint8(22, padding_length); // padding_length
-		//data_view.setUint8(23, 0); // reserved
+		data_view.setUint8(23, 0); // reserved
 
 		// 4. Read content_length and padding_length of the FCGI_GET_VALUES_RESULT record
 		let pos = REC_BEGIN_REQUEST_LEN + REC_PARAMS_HEADER_LEN;
@@ -338,9 +338,7 @@ export class FcgiConn
 		data_view.setUint8(pos+0, 1); // version
 		data_view.setUint8(pos+1, FCGI_STDIN); // record_type
 		data_view.setUint16(pos+2, 1); // request_id
-		//data_view.setUint16(pos+4, 0); // content_length
-		//data_view.setUint8(pos+6, 0); // padding_length
-		//data_view.setUint8(pos+7, 0); // reserved
+		data_view.setUint32(pos+4, 0); // content_length=0, padding_length=0, reserved=0
 
 		// 6. Set FCGI_END_REQUEST
 		pos += REC_STDIN_LEN;
@@ -348,13 +346,11 @@ export class FcgiConn
 		data_view.setUint8(pos+1, FCGI_END_REQUEST); // record_type
 		data_view.setUint16(pos+2, 1); // request_id
 		data_view.setUint16(pos+4, 8); // content_length
-		//data_view.setUint8(pos+6, 0); // padding_length
-		//data_view.setUint8(pos+7, 0); // reserved
-		//data_view.setUint32(pos+8, 0); // appStatus
+		data_view.setUint16(pos+6, 0); // padding_length=0, reserved=0
+		data_view.setUint32(pos+8, 0); // appStatus
 		data_view.setUint8(pos+12, FCGI_REQUEST_COMPLETE); // protocol_status
-		//data_view.setUint8(pos+13, 0); // reserved
-		//data_view.setUint8(pos+14, 0); // reserved
-		//data_view.setUint8(pos+15, 0); // reserved
+		data_view.setUint8(pos+13, 0); // reserved
+		data_view.setUint16(pos+14, 0); // reserved
 
 		// 7. Use Server to parse the request
 		let read_pos = 0;
@@ -367,7 +363,10 @@ export class FcgiConn
 				},
 
 				async accept(): Promise<Deno.Conn>
-				{	let conn =
+				{	if (read_pos != 0)
+					{	throw new Error('Failed to get constants');
+					}
+					let conn =
 					{	localAddr: {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 1},
 						remoteAddr: {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 2},
 						rid: 1,

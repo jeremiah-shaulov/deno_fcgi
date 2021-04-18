@@ -1,4 +1,4 @@
-import {Server} from './mod.ts';
+import {Server} from './server.ts';
 import {faddr_to_addr, addr_to_string} from './addr.ts';
 import type {FcgiAddr} from './addr.ts';
 import {Routes} from './routes.ts';
