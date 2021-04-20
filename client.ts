@@ -93,6 +93,7 @@ export class Client
 						var {conn} = await this.get_conn(server_addr_str, server_addr, keepAliveTimeout, keepAliveMax);
 						continue;
 					}
+					throw e;
 				}
 				break;
 			}
