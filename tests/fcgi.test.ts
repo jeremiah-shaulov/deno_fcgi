@@ -31,7 +31,7 @@ Deno.test
 );
 
 Deno.test
-(	'Basic 2',
+(	'Parallel requests',
 	async () =>
 	{	const FILTERS = ['', '/page-1.html', '', '/page-3.html'];
 		let server_error;
@@ -92,7 +92,7 @@ Deno.test
 );
 
 Deno.test
-(	'Basic 3',
+(	'Sequential requests',
 	async () =>
 	{	let N_REQUESTS = 4;
 		let server_error;
@@ -137,7 +137,6 @@ Deno.test
 			assertEquals(response.status, 200);
 			assertEquals(await response.text(), `Response body ${i}`);
 		}
-		await fcgi.on('end');
 		assert(!server_error);
 	}
 );

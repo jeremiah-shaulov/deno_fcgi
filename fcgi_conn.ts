@@ -68,7 +68,7 @@ export class FcgiConn
 		await this.write_record_stdin(this.request_id, this.buffer.subarray(0, 0), true);
 	}
 
-	async *read_response(headers?: Headers, cookies?: SetCookies, on_log_error?: (error: string) => void): AsyncGenerator<Uint8Array>
+	async *read_response(headers: Headers, cookies: SetCookies, on_log_error?: (error: string) => void): AsyncGenerator<Uint8Array>
 	{	let headers_read = false;
 		let headers_buffer: Uint8Array | undefined;
 		let headers_buffer_len = 0;
@@ -78,7 +78,7 @@ export class FcgiConn
 				headers_buffer = undefined;
 				debug_assert(headers_buffer_len == 0);
 			}
-			else if (headers || cookies)
+			else
 			{	let pos = line.indexOf(COLON);
 				let name = new TextDecoder().decode(line.subarray(0, pos)).trim().toLowerCase();
 				pos++;

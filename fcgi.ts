@@ -1,4 +1,4 @@
-import {Server} from './server.ts';
+import {Server, ServerOptions} from './server.ts';
 import {faddr_to_addr, addr_to_string} from './addr.ts';
 import type {FcgiAddr} from './addr.ts';
 import {Routes} from './routes.ts';
@@ -13,7 +13,7 @@ class Fcgi
 	private onend = new EventPromises<void>();
 	private client = new Client;
 
-	listen(addr_or_listener: FcgiAddr | Deno.Listener, path_pattern: PathPattern, callback: Callback)
+	listen(addr_or_listener: FcgiAddr | Deno.Listener, path_pattern: PathPattern, callback: Callback, options?: ServerOptions)
 	{	if (typeof(addr_or_listener)=='object' && (addr_or_listener as Deno.Listener).addr)
 		{	var listener = addr_or_listener as Deno.Listener;
 		}
@@ -39,7 +39,7 @@ class Fcgi
 		{	this.server.addListener(listener);
 		}
 		else
-		{	let server = new Server(listener);
+		{	let server = new Server(listener, options);
 			server.on('error', e => {this.onerror.trigger(e)});
 			this.server = server;
 			(	async () =>
@@ -110,8 +110,12 @@ class Fcgi
 		}
 	}
 
-	async fetch(server_options: RequestOptions, input: Request|URL|string, init?: RequestInit): Promise<ResponseWithCookies>
-	{	return this.client.fcgi_fetch(server_options, input, init);
+	fetch(server_options: RequestOptions, input: Request|URL|string, init?: RequestInit): Promise<ResponseWithCookies>
+	{	return this.client.fetch(server_options, input, init);
+	}
+
+	fetchCapabilities(addr: FcgiAddr): Promise<{FCGI_MAX_CONNS?: number, FCGI_MAX_REQS?: number, FCGI_MPXS_CONNS?: number}>
+	{	return this.client.fetch_capabilities(addr);
 	}
 }
 
