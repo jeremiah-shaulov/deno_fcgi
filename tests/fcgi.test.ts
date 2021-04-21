@@ -140,3 +140,33 @@ Deno.test
 		assert(!server_error);
 	}
 );
+
+Deno.test
+(	'Capabilities',
+	async () =>
+	{	let MAX_REQS = [1, 10, Number.MAX_SAFE_INTEGER];
+		let server_error;
+		fcgi.on('error', (e: any) => {server_error = e});
+		let was_request = false;
+		for (let i=0; i<MAX_REQS.length; i++)
+		{	fcgi.options({maxConns: MAX_REQS[i]});
+			// accept
+			let listener = fcgi.listen
+			(	0,
+				'',
+				async () =>
+				{	was_request = true;
+				}
+			);
+			// query
+			let result = await fcgi.fetchCapabilities(listener.addr);
+			assertEquals(result.FCGI_MAX_CONNS, MAX_REQS[i]);
+			assertEquals(result.FCGI_MAX_REQS, MAX_REQS[i]);
+			assertEquals(result.FCGI_MPXS_CONNS, 0);
+			fcgi.unlisten();
+			await fcgi.on('end');
+		}
+		assert(!was_request);
+		assert(!server_error);
+	}
+);

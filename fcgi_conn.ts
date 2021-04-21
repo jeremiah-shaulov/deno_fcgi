@@ -297,8 +297,7 @@ export class FcgiConn
 		const REC_BEGIN_REQUEST_LEN = 16;
 		const REC_PARAMS_HEADER_LEN = 8;
 		const REC_STDIN_LEN = 8;
-		const REC_END_REQUEST_LEN = 16;
-		let data_len = REC_BEGIN_REQUEST_LEN + REC_PARAMS_HEADER_LEN + content_length + padding_length + REC_STDIN_LEN + REC_END_REQUEST_LEN;
+		let data_len = REC_BEGIN_REQUEST_LEN + REC_PARAMS_HEADER_LEN + content_length + padding_length + REC_STDIN_LEN;
 		let data = data_len<=BUFFER_LEN ? this.buffer.subarray(0, data_len) : new Uint8Array(data_len);
 		let data_view = new DataView(data.buffer);
 
@@ -340,19 +339,7 @@ export class FcgiConn
 		data_view.setUint16(pos+2, 1); // request_id
 		data_view.setUint32(pos+4, 0); // content_length=0, padding_length=0, reserved=0
 
-		// 6. Set FCGI_END_REQUEST
-		pos += REC_STDIN_LEN;
-		data_view.setUint8(pos+0, 1); // version
-		data_view.setUint8(pos+1, FCGI_END_REQUEST); // record_type
-		data_view.setUint16(pos+2, 1); // request_id
-		data_view.setUint16(pos+4, 8); // content_length
-		data_view.setUint16(pos+6, 0); // padding_length=0, reserved=0
-		data_view.setUint32(pos+8, 0); // appStatus
-		data_view.setUint8(pos+12, FCGI_REQUEST_COMPLETE); // protocol_status
-		data_view.setUint8(pos+13, 0); // reserved
-		data_view.setUint16(pos+14, 0); // reserved
-
-		// 7. Use Server to parse the request
+		// 6. Use Server to parse the request
 		let read_pos = 0;
 		let server = new Server
 		(	{	addr: {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 1},
@@ -404,6 +391,8 @@ export class FcgiConn
 			await req.respond();
 			server.close();
 		}
+
+		// 7. Done
 		return params || new Map;
 	}
 }

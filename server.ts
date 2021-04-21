@@ -50,6 +50,26 @@ export class Server implements Deno.Listener
 		this.maxFileSize = options?.maxFileSize || MAX_FILE_SIZE;
 	}
 
+	options(options: ServerOptions): ServerOptions
+	{	let {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = options;
+		if (structuredParams != undefined)
+		{	this.structuredParams = structuredParams;
+		}
+		if (maxConns != undefined)
+		{	this.maxConns = maxConns;
+		}
+		if (maxNameLength != undefined)
+		{	this.maxNameLength = maxNameLength;
+		}
+		if (maxValueLength != undefined)
+		{	this.maxValueLength = maxValueLength;
+		}
+		if (maxFileSize != undefined)
+		{	this.maxFileSize = maxFileSize;
+		}
+		return {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize};
+	}
+
 	async *[Symbol.asyncIterator](): AsyncGenerator<ServerRequest>
 	{	while (true)
 		{	try

@@ -7,13 +7,17 @@ import {Client, RequestOptions, ResponseWithCookies} from './client.ts';
 import {EventPromises} from './event_promises.ts';
 
 class Fcgi
-{	private server: Server | undefined;
+{	private init_options: ServerOptions = {};
+	private server: Server | undefined;
 	private routes = new Routes;
 	private onerror = new EventPromises<Error>();
 	private onend = new EventPromises<void>();
 	private client = new Client;
 
-	listen(addr_or_listener: FcgiAddr | Deno.Listener, path_pattern: PathPattern, callback: Callback, options?: ServerOptions)
+	/**	Register a FastCGI `Server` on specified network address.
+		This function can be called multiple times with the same or different addresses.
+	 **/
+	listen(addr_or_listener: FcgiAddr | Deno.Listener, path_pattern: PathPattern, callback: Callback)
 	{	if (typeof(addr_or_listener)=='object' && (addr_or_listener as Deno.Listener).addr)
 		{	var listener = addr_or_listener as Deno.Listener;
 		}
@@ -39,7 +43,7 @@ class Fcgi
 		{	this.server.addListener(listener);
 		}
 		else
-		{	let server = new Server(listener, options);
+		{	let server = new Server(listener, this.init_options);
 			server.on('error', e => {this.onerror.trigger(e)});
 			this.server = server;
 			(	async () =>
@@ -88,6 +92,8 @@ class Fcgi
 		return listener;
 	}
 
+	/**	Stop serving requests on specified network address.
+	 **/
 	unlisten(addr?: FcgiAddr)
 	{	if (this.server)
 		{	if (addr == undefined)
@@ -101,6 +107,9 @@ class Fcgi
 		}
 	}
 
+	/**	`on('error', callback)` - catch FastCGI `Server` errors.
+		`on('end', callback)` or `await on('end')` - catch that moment when FastCGI `Server` stops accepting connections (when all listeners removed, and ongoing requests completed).
+	 **/
 	on(event_name: string, callback?: any)
 	{	if (event_name == 'error')
 		{	return this.onerror.add(callback);
@@ -108,6 +117,35 @@ class Fcgi
 		else if (event_name == 'end')
 		{	return this.onend.add(callback);
 		}
+	}
+
+	/**	Modify FastCGI `Server` options. This can be done at any time, but the new options can take effect later, on new connections.
+	 **/
+	options(options: ServerOptions): ServerOptions
+	{	if (this.server)
+		{	this.init_options = this.server.options(options);
+		}
+		else
+		{	let {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = options;
+			let {init_options} = this;
+			if (structuredParams != undefined)
+			{	init_options.structuredParams = structuredParams;
+			}
+			if (maxConns != undefined)
+			{	init_options.maxConns = maxConns;
+			}
+			if (maxNameLength != undefined)
+			{	init_options.maxNameLength = maxNameLength;
+			}
+			if (maxValueLength != undefined)
+			{	init_options.maxValueLength = maxValueLength;
+			}
+			if (maxFileSize != undefined)
+			{	init_options.maxFileSize = maxFileSize;
+			}
+		}
+		let {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this.init_options;
+		return {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize};
 	}
 
 	fetch(server_options: RequestOptions, input: Request|URL|string, init?: RequestInit): Promise<ResponseWithCookies>
