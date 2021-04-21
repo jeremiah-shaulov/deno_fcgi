@@ -5,9 +5,9 @@ import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts
 Deno.test
 (	'Cookies 1',
 	() =>
-	{	let cookies = new Cookies('coo-1="val <1>"; coo-2=val <2>.');
+	{	let cookies = new Cookies('coo-1= val <1> ; coo-2=val <2>.');
 		assertEquals(cookies.size, 2);
-		assertEquals(cookies.get('coo-1'), 'val <1>');
+		assertEquals(cookies.get('coo-1'), ' val <1> ');
 		assertEquals(cookies.get('coo-2'), 'val <2>.');
 		cookies.set('coo-1', 'New value', {domain: 'example.com'});
 		assertEquals(cookies.size, 2);
@@ -23,9 +23,9 @@ Deno.test
 Deno.test
 (	'Cookies 2',
 	() =>
-	{	let cookies = new Cookies('coo-1="val <1>"; coo-2=val <2>.; ');
+	{	let cookies = new Cookies('coo-1= val <1> ; coo-2=val <2>.; ');
 		assertEquals(cookies.size, 2);
-		assertEquals(cookies.get('coo-1'), 'val <1>');
+		assertEquals(cookies.get('coo-1'), ' val <1> ');
 		assertEquals(cookies.get('coo-2'), 'val <2>.');
 		cookies.set('coo[1]', 'val[1]', {path: '/', secure: true, httpOnly: true, sameSite: 'strict'});
 		assertEquals(cookies.size, 3);
@@ -41,9 +41,9 @@ Deno.test
 Deno.test
 (	'Cookies: unicode',
 	() =>
-	{	let cookies = new Cookies('א="א"; ב=ב;');
+	{	let cookies = new Cookies('א= א ; ב=ב;');
 		assertEquals(cookies.size, 2);
-		assertEquals(cookies.get('א'), 'א');
+		assertEquals(cookies.get('א'), ' א ');
 		assertEquals(cookies.get('ב'), 'ב');
 		cookies.set('ג', 'ג', {path: '/'});
 		assertEquals(cookies.size, 3);
@@ -135,7 +135,7 @@ Deno.test
 Deno.test
 (	'Cookies: entries',
 	() =>
-	{	let cookies = new Cookies('coo-1="val <1>"; coo-2=val <2>.');
+	{	let cookies = new Cookies('coo-1= val <1> ; coo-2=val <2>.');
 		cookies.set('coo-3', 'val <3>', {maxAge: 30});
 		cookies.set('coo-1', '');
 		assertEquals([...cookies.keys()], ['coo-2', 'coo-3']);

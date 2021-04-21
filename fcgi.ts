@@ -6,7 +6,7 @@ import type {Callback, PathPattern} from './routes.ts';
 import {Client, RequestOptions, ResponseWithCookies} from './client.ts';
 import {EventPromises} from './event_promises.ts';
 
-class Fcgi
+export class Fcgi
 {	private init_options: ServerOptions = {};
 	private server: Server | undefined;
 	private routes = new Routes;

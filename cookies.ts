@@ -77,6 +77,7 @@ export class Cookies extends Map<string, string>
 	{	this.setHeader('');
 	}
 
+	/// According to RFC https://tools.ietf.org/html/rfc6265#section-5.4 the delimiter must be '; '
 	private init()
 	{	if (!this.is_inited)
 		{	this.is_inited = true;
@@ -84,26 +85,19 @@ export class Cookies extends Map<string, string>
 			this.cookie_header = ''; // free memory
 			let i = 0;
 			while (i < cookie_header.length)
-			{	while (cookie_header.charCodeAt(i) == 32) // skip spaces
-				{	i++;
-				}
-				let i_end = cookie_header.indexOf('=', i);
+			{	let i_end = cookie_header.indexOf('=', i);
 				if (i_end == -1)
 				{	break;
 				}
 				let name = cookie_header.slice(i, i_end);
 				i = i_end + 1;
-				let is_qt = cookie_header.charAt(i) == '"'; // according to RFC, cookie value can be optionally quoted
-				if (is_qt)
-				{	i++;
-				}
 				i_end = cookie_header.indexOf(';', i);
 				if (i_end == -1)
 				{	i_end = cookie_header.length;
 				}
-				let value = decodeURIComponent(cookie_header.slice(i, is_qt ? i_end-1 : i_end));
+				let value = decodeURIComponent(cookie_header.slice(i, i_end));
 				super.set(name, value);
-				i = i_end + 1;
+				i = i_end + 2; // skip the '; ' delimiter
 			}
 		}
 	}

@@ -1,6 +1,7 @@
 import {fcgi} from "../mod.ts";
 import {map_to_obj, MockListener} from './mock/mod.ts';
 import {SERVER_SOFTWARE, RequestOptions} from '../client.ts';
+import {SetCookies} from '../set_cookies.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
 
 Deno.test
@@ -52,7 +53,10 @@ Deno.test
 					assertEquals(req.params.get('SERVER_SOFTWARE'), SERVER_SOFTWARE);
 					assertEquals(req.params.get('SCRIPT_FILENAME'), i==1 || i==2 ? `/var/www/example.com/page-${i}.html` : undefined);
 					assertEquals(req.get.get('i'), i+'');
-					assertEquals(map_to_obj(req.headers), i!=1 ? {'host': 'example.com'} : {'host': 'example.com', 'x-hello': 'All'});
+					assertEquals(map_to_obj(req.headers), i==1 ? {'host': 'example.com', 'x-hello': 'All'} : i==2 ? {'host': 'example.com', 'cookie': 'coo-1= val <1> ; coo-2=val <2>.'} : {'host': 'example.com'});
+					if (i == 2)
+					{	assertEquals(map_to_obj(req.cookies), {'coo-1': ' val <1> ', 'coo-2': 'val <2>.'});
+					}
 					await req.respond({body: `Response body ${i}`});
 					fcgi.unlisten(listeners[i].addr);
 				}
@@ -71,7 +75,7 @@ Deno.test
 					{	request.scriptFilename = `/var/www/example.com/page-${i}.html`;
 					}
 					else if (i == 2)
-					{	request.params = new Map([['SCRIPT_FILENAME', `/var/www/example.com/page-${i}.html`]]);
+					{	request.params = new Map(Object.entries({SCRIPT_FILENAME: `/var/www/example.com/page-${i}.html`, HTTP_COOKIE: 'coo-1= val <1> ; coo-2=val <2>.'}));
 					}
 					let response = await fcgi.fetch
 					(	request,
@@ -95,6 +99,7 @@ Deno.test
 (	'Sequential requests',
 	async () =>
 	{	let N_REQUESTS = 4;
+		const SET_COOKIE_OPTIONS = {domain: 'example.com', path: '/', httpOnly: true, secure: true, sameSite: 'None'};
 		let server_error;
 		fcgi.on('error', (e: any) => {server_error = e});
 		// accept
@@ -115,6 +120,8 @@ Deno.test
 				assertEquals(req.get.get('i'), i+'');
 				assertEquals(map_to_obj(req.headers), {'host': 'example.com', 'x-hello': 'All'});
 				assertEquals(req.post.get('par'), 'val'+i);
+				req.cookies.set('coo-1', ' val <1> ');
+				req.cookies.set('coo-2', 'val <2>.', SET_COOKIE_OPTIONS);
 				await req.respond({body: `Response body ${i}`});
 				if (++n_accepted >= N_REQUESTS)
 				{	fcgi.unlisten(listener.addr);
@@ -135,6 +142,7 @@ Deno.test
 				}
 			);
 			assertEquals(response.status, 200);
+			assertEquals(map_to_obj(response.cookies), {'coo-1': {value: ' val <1> ', options: {}}, 'coo-2': {value: 'val <2>.', options: SET_COOKIE_OPTIONS}});
 			assertEquals(await response.text(), `Response body ${i}`);
 		}
 		assert(!server_error);

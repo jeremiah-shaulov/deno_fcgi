@@ -7,9 +7,9 @@ import {writeAll} from 'https://deno.land/std/io/util.ts';
 const BUFFER_LEN = 8*1024;
 
 const CR = '\r'.charCodeAt(0);
-const LF = '\n'.charCodeAt(0);;
+const LF = '\n'.charCodeAt(0);
 const TAB = '\t'.charCodeAt(0);
-const SPACE = ' '.charCodeAt(0)
+const SPACE = ' '.charCodeAt(0);
 const COLON = ':'.charCodeAt(0);
 
 const FCGI_BEGIN_REQUEST      =  1;

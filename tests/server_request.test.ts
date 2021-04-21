@@ -275,12 +275,12 @@ Deno.test
 			server.on('error', e => {server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
-			conn.pend_read_fcgi_params(1, {HTTP_COOKIE: 'coo-1="val <1>"; coo-2=val <2>.'});
+			conn.pend_read_fcgi_params(1, {HTTP_COOKIE: 'coo-1= val <1> ; coo-2=val <2>.'});
 			conn.pend_read_fcgi_stdin(1, '');
 			// accept
 			for await (let req of server)
 			{	assertEquals(req.cookies.size, 2);
-				assertEquals(req.cookies.get('coo-1'), 'val <1>');
+				assertEquals(req.cookies.get('coo-1'), ' val <1> ');
 				assertEquals(req.cookies.get('coo-2'), 'val <2>.');
 				req.cookies.set('coo-1', 'New value', {domain: 'example.com'});
 				await req.respond();
