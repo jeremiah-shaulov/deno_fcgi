@@ -3,7 +3,8 @@ import {faddr_to_addr, addr_to_string} from './addr.ts';
 import type {FcgiAddr} from './addr.ts';
 import {Routes} from './routes.ts';
 import type {Callback, PathPattern} from './routes.ts';
-import {Client, RequestOptions, ResponseWithCookies} from './client.ts';
+import {Client, ResponseWithCookies} from './client.ts';
+import type {ClientOptions, RequestOptions} from './client.ts';
 import {EventPromises} from './event_promises.ts';
 
 export class Fcgi
@@ -134,7 +135,26 @@ export class Fcgi
 	}
 
 	fetchCapabilities(addr: FcgiAddr): Promise<{FCGI_MAX_CONNS?: number, FCGI_MAX_REQS?: number, FCGI_MPXS_CONNS?: number}>
-	{	return this.client.fetch_capabilities(addr);
+	{	return this.client.fetchCapabilities(addr);
+	}
+
+	/**	`fetch()` and `fetchCapabilities()` throw Error if number of ongoing requests is more than the configured value (`maxConns`).
+		`canFetch()` checks whether there are free slots, and returns true if so.
+		It's recommended not to call `fetch()` untill `canFetch()` grants a green light.
+		Example:
+		```
+		while (!fcgi.canFetch())
+		{	await fcgi.pollCanFetch();
+		}
+		await fcgi.fetch(...);
+		```
+	 **/
+	canFetch(): boolean
+	{	return this.client.canFetch();
+	}
+
+	pollCanFetch(): Promise<void>
+	{	return this.client.pollCanFetch();
 	}
 }
 

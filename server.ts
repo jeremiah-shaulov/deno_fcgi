@@ -2,10 +2,10 @@ import {debug_assert} from './debug_assert.ts';
 import {ServerRequest, poll, take_next_request, is_processing} from './server_request.ts';
 import {is_default_route} from './addr.ts';
 
-const MAX_CONNS = 128;
-const MAX_NAME_LENGTH = 256;
-const MAX_VALUE_LENGTH = 256;
-const MAX_FILE_SIZE = 256;
+const DEFAULT_MAX_CONNS = 128;
+const DEFAULT_MAX_NAME_LENGTH = 256;
+const DEFAULT_MAX_VALUE_LENGTH = 256;
+const DEFAULT_MAX_FILE_SIZE = 256;
 
 export interface ServerOptions
 {	structuredParams?: boolean,
@@ -26,10 +26,10 @@ export function merge_options(server: Server | undefined, base_options: ServerOp
 	{	options = server.options(options);
 	}
 	base_options.structuredParams = options.structuredParams ?? false;
-	base_options.maxConns = options.maxConns ?? MAX_CONNS;
-	base_options.maxNameLength = options.maxNameLength ?? MAX_NAME_LENGTH;
-	base_options.maxValueLength = options.maxValueLength ?? MAX_VALUE_LENGTH;
-	base_options.maxFileSize = options.maxFileSize ?? MAX_FILE_SIZE;
+	base_options.maxConns = options.maxConns ?? DEFAULT_MAX_CONNS;
+	base_options.maxNameLength = options.maxNameLength ?? DEFAULT_MAX_NAME_LENGTH;
+	base_options.maxValueLength = options.maxValueLength ?? DEFAULT_MAX_VALUE_LENGTH;
+	base_options.maxFileSize = options.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
 }
 
 export class Server implements Deno.Listener
@@ -55,10 +55,10 @@ export class Server implements Deno.Listener
 		this.rid = listener.rid;
 		this.listeners = [listener];
 		this.structuredParams = options?.structuredParams || false;
-		this.maxConns = options?.maxConns || MAX_CONNS;
-		this.maxNameLength = options?.maxNameLength || MAX_NAME_LENGTH;
-		this.maxValueLength = options?.maxValueLength || MAX_VALUE_LENGTH;
-		this.maxFileSize = options?.maxFileSize || MAX_FILE_SIZE;
+		this.maxConns = options?.maxConns || DEFAULT_MAX_CONNS;
+		this.maxNameLength = options?.maxNameLength || DEFAULT_MAX_NAME_LENGTH;
+		this.maxValueLength = options?.maxValueLength || DEFAULT_MAX_VALUE_LENGTH;
+		this.maxFileSize = options?.maxFileSize || DEFAULT_MAX_FILE_SIZE;
 	}
 
 	options(options: ServerOptions): ServerOptions

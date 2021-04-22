@@ -3,12 +3,24 @@ import {faddr_to_addr, addr_to_string} from './addr.ts';
 import type {FcgiAddr} from './addr.ts';
 import {FcgiConn} from "./fcgi_conn.ts";
 import {SetCookies} from "./set_cookies.ts";
+import {TooManyConnsError} from './error.ts';
 
 export const SERVER_SOFTWARE = 'DenoFcgi/0.0';
+const DEFAULT_MAX_CONNS = 128;
 const DEFAULT_TIMEOUT = 10000;
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 10000;
+const DEFAULT_KEEP_ALIVE_MAX = Number.MAX_SAFE_INTEGER;
 const KEEPALIVE_CHECK_EACH = 1000;
 const FORGET_CONNECTION_STATE_AFTER = 10*60*60*1000;
+
+export interface ClientOptions
+{	maxConns?: number,
+	timeout?: number,
+	keepAliveTimeout?: number,
+	keepAliveMax?: number,
+	/** Handler for errors logged from the requested service. */
+	onLogError?: (error: string) => void,
+}
 
 export interface RequestOptions
 {	/** FastCGI service address. For example address of PHP-FPM service (what appears in "listen" directive in PHP-FPM pool configuration file). */
@@ -32,18 +44,68 @@ export class ResponseWithCookies extends Response
 
 class FcgiConns
 {	public idle: FcgiConn[] = [];
-	public in_use: FcgiConn[] = [];
+	public busy: FcgiConn[] = [];
 	public supports_reuse_connection = true; // set to false after first unsuccessful attempt
 	public last_use_time = Date.now();
 }
 
 export class Client
 {	private conns_pool = new Map<string, FcgiConns>();
-	private n_in_use_all = 0;
+	private n_idle_all = 0;
+	private n_busy_all = 0;
 	private h_timer: number | undefined;
+	private can_fetch_callbacks: (() => void)[] = [];
+
+	private maxConns: number;
+	private timeout: number;
+	private keepAliveTimeout: number;
+	private keepAliveMax: number;
+	private onLogError: ((error: string) => void) | undefined;
+
+	constructor(options?: ClientOptions)
+	{	this.maxConns = options?.maxConns || DEFAULT_MAX_CONNS;
+		this.timeout = options?.timeout || DEFAULT_TIMEOUT;
+		this.keepAliveTimeout = options?.keepAliveTimeout || DEFAULT_KEEP_ALIVE_TIMEOUT;
+		this.keepAliveMax = options?.keepAliveMax || DEFAULT_KEEP_ALIVE_MAX;
+		this.onLogError = options?.onLogError;
+	}
+
+	options(options: ClientOptions): ClientOptions
+	{	{	let {maxConns, timeout, keepAliveTimeout, keepAliveMax, onLogError} = options;
+			if (maxConns != undefined)
+			{	this.maxConns = maxConns;
+			}
+			if (timeout != undefined)
+			{	this.timeout = timeout;
+			}
+			if (keepAliveTimeout != undefined)
+			{	this.keepAliveTimeout = keepAliveTimeout;
+			}
+			if (keepAliveMax != undefined)
+			{	this.keepAliveMax = keepAliveMax;
+			}
+			if (onLogError != undefined)
+			{	this.onLogError = onLogError;
+			}
+		}
+		let {maxConns, timeout, keepAliveTimeout, keepAliveMax, onLogError} = this;
+		return {maxConns, timeout, keepAliveTimeout, keepAliveMax, onLogError};
+	}
 
 	async fetch(server_options: RequestOptions, input: Request|URL|string, init?: RequestInit): Promise<ResponseWithCookies>
-	{	let {addr, scriptFilename, params, keepAliveTimeout, keepAliveMax, timeout, onLogError} = server_options;
+	{	let {addr, scriptFilename, params, timeout, keepAliveTimeout, keepAliveMax, onLogError} = server_options;
+		if (timeout == undefined)
+		{	timeout = this.timeout;
+		}
+		if (keepAliveTimeout == undefined)
+		{	keepAliveTimeout = this.keepAliveTimeout;
+		}
+		if (keepAliveMax == undefined)
+		{	keepAliveMax = this.keepAliveMax;
+		}
+		if (onLogError == undefined)
+		{	onLogError = this.onLogError;
+		}
 		// server_addr
 		let server_addr = faddr_to_addr(addr);
 		let server_addr_str = addr_to_string(server_addr);
@@ -137,7 +199,7 @@ export class Client
 		);
 	}
 
-	async fetch_capabilities(addr: FcgiAddr)
+	async fetchCapabilities(addr: FcgiAddr)
 	{	let server_addr = faddr_to_addr(addr);
 		let server_addr_str = addr_to_string(server_addr);
 		let {conn} = await this.get_conn(server_addr_str, server_addr, DEFAULT_TIMEOUT, 0, 1);
@@ -161,6 +223,29 @@ export class Client
 		return result;
 	}
 
+	/**	`fetch()` and `fetchCapabilities()` throw Error if number of ongoing requests is more than the configured value (`maxConns`).
+		`canFetch()` checks whether there are free slots, and returns true if so.
+		It's recommended not to call `fetch()` untill `canFetch()` grants a green light.
+		Example:
+		```
+		while (!fcgi.canFetch())
+		{	await fcgi.pollCanFetch();
+		}
+		await fcgi.fetch(...);
+		```
+	 **/
+	canFetch(): boolean
+	{	return this.n_busy_all < this.maxConns;
+	}
+
+	pollCanFetch(): Promise<void>
+	{	if (this.n_busy_all < this.maxConns)
+		{	return Promise.resolve();
+		}
+		let promise = new Promise<void>(y => {this.can_fetch_callbacks.push(y)});
+		return promise;
+	}
+
 	private get_conns(server_addr_str: string)
 	{	let conns = this.conns_pool.get(server_addr_str);
 		if (!conns)
@@ -170,10 +255,13 @@ export class Client
 		return conns;
 	}
 
-	private async get_conn(server_addr_str: string, server_addr: Deno.Addr, timeout?: number, keepAliveTimeout?: number, keepAliveMax?: number)
-	{	debug_assert(this.n_in_use_all >= 0);
+	private async get_conn(server_addr_str: string, server_addr: Deno.Addr, timeout: number, keepAliveTimeout: number, keepAliveMax: number)
+	{	debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
+		if (this.n_busy_all >= this.maxConns)
+		{	throw new TooManyConnsError('Too many connections');
+		}
 		let conns = this.get_conns(server_addr_str);
-		let {idle, in_use, supports_reuse_connection} = conns;
+		let {idle, busy, supports_reuse_connection} = conns;
 		let now = Date.now();
 		while (true)
 		{	let conn = idle.pop();
@@ -181,20 +269,23 @@ export class Client
 			{	conn = new FcgiConn(await Deno.connect(server_addr as any));
 			}
 			else if (conn.use_till <= now)
-			{	conn.close();
+			{	this.n_idle_all--;
+				conn.close();
 				continue;
 			}
-			debug_assert(conn.request_till == 0);
-			conn.request_till = now + (timeout || DEFAULT_TIMEOUT);
-			conn.use_till = Math.min(conn.use_till, now+(keepAliveTimeout || DEFAULT_KEEP_ALIVE_TIMEOUT));
-			if (keepAliveMax)
-			{	conn.use_n_times = Math.min(conn.use_n_times, keepAliveMax);
+			else
+			{	this.n_idle_all--;
 			}
+			debug_assert(conn.request_till == 0);
+			conn.request_till = now + timeout;
+			conn.use_till = Math.min(conn.use_till, now+keepAliveTimeout);
+			conn.use_n_times = Math.min(conn.use_n_times, keepAliveMax);
 			if (this.h_timer == undefined)
 			{	this.h_timer = setInterval(() => {this.close_kept_alive_timed_out()}, KEEPALIVE_CHECK_EACH);
 			}
-			in_use.push(conn);
-			this.n_in_use_all++;
+			busy.push(conn);
+			this.n_busy_all++;
+			this.close_exceeding_idle_conns(idle);
 			return {conn, supports_reuse_connection};
 		}
 	}
@@ -205,25 +296,35 @@ export class Client
 		{	// assume: return_conn() already called for this connection
 			return;
 		}
-		let i = conns.in_use.indexOf(conn);
+		let i = conns.busy.indexOf(conn);
 		if (i == -1)
 		{	// assume: return_conn() already called for this connection
 			return;
 		}
 		debug_assert(conn.request_till > 0);
-		this.n_in_use_all--;
-		debug_assert(this.n_in_use_all >= 0);
-		conns.in_use[i] = conns.in_use[conns.in_use.length - 1];
-		conns.in_use.length--;
+		this.n_busy_all--;
+		debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
+		conns.busy[i] = conns.busy[conns.busy.length - 1];
+		conns.busy.length--;
 		if (!reuse_connection || --conn.use_n_times<=0 || conn.use_till<=Date.now())
 		{	conn.close();
 		}
 		else
 		{	conn.request_till = 0;
 			conns.idle.push(conn);
+			this.n_idle_all++;
 		}
-		if (this.n_in_use_all == 0)
-		{	this.close_kept_alive_timed_out();
+		if (this.n_busy_all < this.maxConns)
+		{	let n = this.can_fetch_callbacks.length;
+			if (n > 0)
+			{	while (n-- > 0)
+				{	this.can_fetch_callbacks[n]();
+				}
+				this.can_fetch_callbacks.length = 0;
+			}
+			else if (this.n_busy_all == 0)
+			{	this.close_kept_alive_timed_out();
+			}
 		}
 	}
 
@@ -231,10 +332,10 @@ export class Client
 	{	let {conns_pool} = this;
 		let now = Date.now();
 		let want_stop = true;
-		for (let [server_addr_str, {idle, in_use, last_use_time}] of conns_pool)
+		for (let [server_addr_str, {idle, busy, last_use_time}] of conns_pool)
 		{	// Some request timed out?
-			for (let i=in_use.length-1; i>=0; i--)
-			{	let conn = in_use[i];
+			for (let i=busy.length-1; i>=0; i--)
+			{	let conn = busy[i];
 				debug_assert(conn.request_till > 0);
 				if (conn.request_till <= now)
 				{	this.return_conn(server_addr_str, conn, false);
@@ -246,11 +347,12 @@ export class Client
 				debug_assert(conn.request_till == 0);
 				if (conn.use_till <= now)
 				{	idle.splice(i, 1);
+					this.n_idle_all--;
 					conn.close();
 				}
 			}
 			//
-			if (in_use.length!=0 || idle.length!=0)
+			if (busy.length!=0 || idle.length!=0)
 			{	want_stop = false;
 			}
 			else if (last_use_time+FORGET_CONNECTION_STATE_AFTER < now)
@@ -260,6 +362,36 @@ export class Client
 		if (want_stop)
 		{	clearInterval(this.h_timer);
 			this.h_timer = undefined;
+		}
+	}
+
+	private close_exceeding_idle_conns(idle: FcgiConn[])
+	{	debug_assert(this.n_busy_all <= this.maxConns);
+		let n_close_idle = this.n_busy_all + this.n_idle_all - this.maxConns;
+		while (n_close_idle > 0)
+		{	let conn = idle.pop();
+			if (!conn)
+			{	for (let c_conns of this.conns_pool.values())
+				{	while (true)
+					{	conn = c_conns.idle.pop();
+						if (!conn)
+						{	break;
+						}
+						n_close_idle--;
+						this.n_idle_all--;
+						conn.close();
+						debug_assert(this.n_idle_all >= 0);
+						if (n_close_idle == 0)
+						{	return;
+						}
+					}
+				}
+				return;
+			}
+			n_close_idle--;
+			this.n_idle_all--;
+			conn.close();
+			debug_assert(this.n_idle_all >= 0);
 		}
 	}
 }
