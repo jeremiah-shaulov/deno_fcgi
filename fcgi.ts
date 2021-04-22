@@ -1,4 +1,4 @@
-import {Server, ServerOptions} from './server.ts';
+import {Server, ServerOptions, merge_options} from './server.ts';
 import {faddr_to_addr, addr_to_string} from './addr.ts';
 import type {FcgiAddr} from './addr.ts';
 import {Routes} from './routes.ts';
@@ -62,11 +62,13 @@ export class Fcgi
 										}
 										catch (e)
 										{	this.onerror.trigger(e);
-											try
-											{	await request.respond({status: 500, body: ''});
-											}
-											catch (e2)
-											{	this.onerror.trigger(e2);
+											if (!request.isTerminated())
+											{	try
+												{	await request.respond({status: 500, body: ''});
+												}
+												catch (e2)
+												{	this.onerror.trigger(e2);
+												}
 											}
 										}
 										if (request.isTerminated())
@@ -122,28 +124,7 @@ export class Fcgi
 	/**	Modify FastCGI `Server` options. This can be done at any time, but the new options can take effect later, on new connections.
 	 **/
 	options(options: ServerOptions): ServerOptions
-	{	if (this.server)
-		{	this.init_options = this.server.options(options);
-		}
-		else
-		{	let {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = options;
-			let {init_options} = this;
-			if (structuredParams != undefined)
-			{	init_options.structuredParams = structuredParams;
-			}
-			if (maxConns != undefined)
-			{	init_options.maxConns = maxConns;
-			}
-			if (maxNameLength != undefined)
-			{	init_options.maxNameLength = maxNameLength;
-			}
-			if (maxValueLength != undefined)
-			{	init_options.maxValueLength = maxValueLength;
-			}
-			if (maxFileSize != undefined)
-			{	init_options.maxFileSize = maxFileSize;
-			}
-		}
+	{	merge_options(this.server, this.init_options, options);
 		let {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this.init_options;
 		return {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize};
 	}

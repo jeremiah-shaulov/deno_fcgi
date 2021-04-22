@@ -21,6 +21,17 @@ class AcceptError
 	}
 }
 
+export function merge_options(server: Server | undefined, base_options: ServerOptions, options: ServerOptions)
+{	if (server)
+	{	options = server.options(options);
+	}
+	base_options.structuredParams = options.structuredParams ?? false;
+	base_options.maxConns = options.maxConns ?? MAX_CONNS;
+	base_options.maxNameLength = options.maxNameLength ?? MAX_NAME_LENGTH;
+	base_options.maxValueLength = options.maxValueLength ?? MAX_VALUE_LENGTH;
+	base_options.maxFileSize = options.maxFileSize ?? MAX_FILE_SIZE;
+}
+
 export class Server implements Deno.Listener
 {	public readonly addr: Deno.Addr;
 	public readonly rid: number;
@@ -51,22 +62,24 @@ export class Server implements Deno.Listener
 	}
 
 	options(options: ServerOptions): ServerOptions
-	{	let {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = options;
-		if (structuredParams != undefined)
-		{	this.structuredParams = structuredParams;
+	{	{	let {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = options;
+			if (structuredParams != undefined)
+			{	this.structuredParams = structuredParams;
+			}
+			if (maxConns != undefined)
+			{	this.maxConns = maxConns;
+			}
+			if (maxNameLength != undefined)
+			{	this.maxNameLength = maxNameLength;
+			}
+			if (maxValueLength != undefined)
+			{	this.maxValueLength = maxValueLength;
+			}
+			if (maxFileSize != undefined)
+			{	this.maxFileSize = maxFileSize;
+			}
 		}
-		if (maxConns != undefined)
-		{	this.maxConns = maxConns;
-		}
-		if (maxNameLength != undefined)
-		{	this.maxNameLength = maxNameLength;
-		}
-		if (maxValueLength != undefined)
-		{	this.maxValueLength = maxValueLength;
-		}
-		if (maxFileSize != undefined)
-		{	this.maxFileSize = maxFileSize;
-		}
+		let {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this;
 		return {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize};
 	}
 
@@ -127,9 +140,18 @@ export class Server implements Deno.Listener
 			//
 			// When the caller calls "respond()" or when i/o or protocol error occures, the "ServerRequest" object resolves its "complete_promise", and i remove this terminated request from "requests", and from "promises".
 
-			let to = Math.min(maxConns, requests.length + listeners.length);
+			let can_add_all = true;
+			let to = requests.length + listeners.length;
+			if (to > maxConns)
+			{	to = maxConns;
+				can_add_all = false;
+			}
 			if (promises.length < to)
-			{	for (let listener of listeners)
+			{	if (!can_add_all && listeners.length>1)
+				{	// shuffle listeners to establish equal rights
+					shuffle_array(listeners);
+				}
+				for (let listener of listeners)
 				{	if (active_listeners.indexOf(listener) == -1)
 					{	active_listeners.push(listener);
 						promises.push(listener.accept().catch(error => new AcceptError(listener, error)));
@@ -342,5 +364,14 @@ export class Server implements Deno.Listener
 			{	request.close();
 			}
 		}
+	}
+}
+
+function shuffle_array<T>(arr: T[])
+{	for (let i=arr.length-1; i>0; i--)
+	{	let j = Math.floor(Math.random() * (i + 1));
+		let tmp = arr[i];
+		arr[i] = arr[j];
+		arr[j] = tmp;
 	}
 }

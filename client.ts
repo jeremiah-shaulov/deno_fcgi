@@ -8,7 +8,7 @@ export const SERVER_SOFTWARE = 'DenoFcgi/0.0';
 const DEFAULT_TIMEOUT = 10000;
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 10000;
 const KEEPALIVE_CHECK_EACH = 1000;
-const FORGET_CONNECTIONS_AFTER = 10*60*60*1000;
+const FORGET_CONNECTION_STATE_AFTER = 10*60*60*1000;
 
 export interface RequestOptions
 {	/** FastCGI service address. For example address of PHP-FPM service (what appears in "listen" directive in PHP-FPM pool configuration file). */
@@ -17,9 +17,9 @@ export interface RequestOptions
 	scriptFilename?: string,
 	/** Additional parameters to send to FastCGI server. If sending to PHP, they will be found in $_SERVER. If `params` object is given, it will be modified - `scriptFilename` and parameters inferred from request URL will be added to it. */
 	params?: Map<string, string>,
+	timeout?: number,
 	keepAliveTimeout?: number,
 	keepAliveMax?: number,
-	timeout?: number,
 	/** Handler for errors logged from the requested service. */
 	onLogError?: (error: string) => void,
 }
@@ -31,9 +31,9 @@ export class ResponseWithCookies extends Response
 }
 
 class FcgiConns
-{	public all: FcgiConn[] = [];
+{	public idle: FcgiConn[] = [];
+	public in_use: FcgiConn[] = [];
 	public supports_reuse_connection = true; // set to false after first unsuccessful attempt
-	public n_in_use = 0;
 	public last_use_time = Date.now();
 }
 
@@ -77,7 +77,7 @@ export class Client
 		let headers = new Headers;
 		let cookies = new SetCookies;
 		// get_conn
-		var {conn, supports_reuse_connection} = await this.get_conn(server_addr_str, server_addr, keepAliveTimeout, keepAliveMax);
+		var {conn, supports_reuse_connection} = await this.get_conn(server_addr_str, server_addr, timeout, keepAliveTimeout, keepAliveMax);
 		// query
 		try
 		{	while (true)
@@ -90,7 +90,7 @@ export class Client
 						supports_reuse_connection = false;
 						this.return_conn(server_addr_str, conn, false);
 						this.get_conns(server_addr_str).supports_reuse_connection = false;
-						var {conn} = await this.get_conn(server_addr_str, server_addr, keepAliveTimeout, keepAliveMax);
+						var {conn} = await this.get_conn(server_addr_str, server_addr, timeout, keepAliveTimeout, keepAliveMax);
 						continue;
 					}
 					throw e;
@@ -107,7 +107,9 @@ export class Client
 		// return
 		let status_str = headers.get('status') || '';
 		let pos = status_str.indexOf(' ');
-		let h_timeout = setTimeout(() => {this.return_conn(server_addr_str, conn, false)}, timeout || DEFAULT_TIMEOUT);
+		if (done)
+		{	this.return_conn(server_addr_str, conn, supports_reuse_connection);
+		}
 		let that = this;
 		return new ResponseWithCookies
 		(	done ? value : new ReadableStream
@@ -118,8 +120,7 @@ export class Client
 					async pull(controller)
 					{	let {value, done} = await it.next();
 						if (done)
-						{	clearTimeout(h_timeout);
-							that.return_conn(server_addr_str, conn, supports_reuse_connection);
+						{	that.return_conn(server_addr_str, conn, supports_reuse_connection);
 							controller.close();
 						}
 						else
@@ -139,7 +140,7 @@ export class Client
 	async fetch_capabilities(addr: FcgiAddr)
 	{	let server_addr = faddr_to_addr(addr);
 		let server_addr_str = addr_to_string(server_addr);
-		let {conn} = await this.get_conn(server_addr_str, server_addr, 0, 1);
+		let {conn} = await this.get_conn(server_addr_str, server_addr, DEFAULT_TIMEOUT, 0, 1);
 		await conn.write_record_get_values(new Map(Object.entries({FCGI_MAX_CONNS: '', FCGI_MAX_REQS: '', FCGI_MPXS_CONNS: ''})));
 		let header = await conn.read_record_header();
 		let map = await conn.read_record_get_values_result(header.content_length, header.padding_length);
@@ -169,45 +170,57 @@ export class Client
 		return conns;
 	}
 
-	private async get_conn(server_addr_str: string, server_addr: Deno.Addr, keepAliveTimeout?: number, keepAliveMax?: number)
-	{	let conns = this.get_conns(server_addr_str);
-		debug_assert(conns.n_in_use>=0 && this.n_in_use_all>=0);
-		conns.n_in_use++;
-		this.n_in_use_all++;
-		let {all, supports_reuse_connection} = conns;
+	private async get_conn(server_addr_str: string, server_addr: Deno.Addr, timeout?: number, keepAliveTimeout?: number, keepAliveMax?: number)
+	{	debug_assert(this.n_in_use_all >= 0);
+		let conns = this.get_conns(server_addr_str);
+		let {idle, in_use, supports_reuse_connection} = conns;
+		let now = Date.now();
 		while (true)
-		{	let conn = all.pop();
+		{	let conn = idle.pop();
 			if (!conn)
 			{	conn = new FcgiConn(await Deno.connect(server_addr as any));
 			}
-			else if (conn.use_till <= Date.now())
+			else if (conn.use_till <= now)
 			{	conn.close();
 				continue;
 			}
-			conn.use_till = Math.min(conn.use_till, Date.now()+(keepAliveTimeout || DEFAULT_KEEP_ALIVE_TIMEOUT));
+			debug_assert(conn.request_till == 0);
+			conn.request_till = now + (timeout || DEFAULT_TIMEOUT);
+			conn.use_till = Math.min(conn.use_till, now+(keepAliveTimeout || DEFAULT_KEEP_ALIVE_TIMEOUT));
 			if (keepAliveMax)
 			{	conn.use_n_times = Math.min(conn.use_n_times, keepAliveMax);
 			}
-			conn.is_in_use = true;
 			if (this.h_timer == undefined)
 			{	this.h_timer = setInterval(() => {this.close_kept_alive_timed_out()}, KEEPALIVE_CHECK_EACH);
 			}
+			in_use.push(conn);
+			this.n_in_use_all++;
 			return {conn, supports_reuse_connection};
 		}
 	}
 
 	private return_conn(server_addr_str: string, conn: FcgiConn, reuse_connection: boolean)
 	{	let conns = this.conns_pool.get(server_addr_str);
-		debug_assert(conns);
-		conns.n_in_use--;
+		if (!conns)
+		{	// assume: return_conn() already called for this connection
+			return;
+		}
+		let i = conns.in_use.indexOf(conn);
+		if (i == -1)
+		{	// assume: return_conn() already called for this connection
+			return;
+		}
+		debug_assert(conn.request_till > 0);
 		this.n_in_use_all--;
-		debug_assert(conns.n_in_use>=0 && this.n_in_use_all>=0);
+		debug_assert(this.n_in_use_all >= 0);
+		conns.in_use[i] = conns.in_use[conns.in_use.length - 1];
+		conns.in_use.length--;
 		if (!reuse_connection || --conn.use_n_times<=0 || conn.use_till<=Date.now())
 		{	conn.close();
 		}
 		else
-		{	conn.is_in_use = false;
-			conns.all.push(conn);
+		{	conn.request_till = 0;
+			conns.idle.push(conn);
 		}
 		if (this.n_in_use_all == 0)
 		{	this.close_kept_alive_timed_out();
@@ -218,18 +231,29 @@ export class Client
 	{	let {conns_pool} = this;
 		let now = Date.now();
 		let want_stop = true;
-		for (let [server_addr_str, {all, n_in_use, last_use_time}] of conns_pool)
-		{	for (let i=all.length-1; i>=0; i--)
-			{	let conn = all[i];
-				if (!conn.is_in_use && conn.use_till<=now)
-				{	all.splice(i, 1);
+		for (let [server_addr_str, {idle, in_use, last_use_time}] of conns_pool)
+		{	// Some request timed out?
+			for (let i=in_use.length-1; i>=0; i--)
+			{	let conn = in_use[i];
+				debug_assert(conn.request_till > 0);
+				if (conn.request_till <= now)
+				{	this.return_conn(server_addr_str, conn, false);
+				}
+			}
+			// Some idle connection is no longer needed?
+			for (let i=idle.length-1; i>=0; i--)
+			{	let conn = idle[i];
+				debug_assert(conn.request_till == 0);
+				if (conn.use_till <= now)
+				{	idle.splice(i, 1);
 					conn.close();
 				}
 			}
-			if (n_in_use!=0 || all.length!=0)
+			//
+			if (in_use.length!=0 || idle.length!=0)
 			{	want_stop = false;
 			}
-			else if (last_use_time+FORGET_CONNECTIONS_AFTER < now)
+			else if (last_use_time+FORGET_CONNECTION_STATE_AFTER < now)
 			{	conns_pool.delete(server_addr_str);
 			}
 		}

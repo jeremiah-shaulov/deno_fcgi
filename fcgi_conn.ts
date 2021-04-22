@@ -38,7 +38,7 @@ const FCGI_KEEP_CONN          =  1;
 debug_assert(BUFFER_LEN >= 255); // record padding must fit
 
 export class FcgiConn
-{	public is_in_use = false; // for connections pool
+{	public request_till = 0; // for connections pool - 0 means no ongoing request, >0 means is executing request with timeout till this time
 	public use_till = Infinity; // if keepAliveTimeout specified
 	public use_n_times = Infinity; // if keepAliveMax specified
 
