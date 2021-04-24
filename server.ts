@@ -21,17 +21,6 @@ class AcceptError
 	}
 }
 
-export function merge_options(server: Server | undefined, base_options: ServerOptions, options: ServerOptions)
-{	if (server)
-	{	options = server.options(options);
-	}
-	base_options.structuredParams = options.structuredParams ?? false;
-	base_options.maxConns = options.maxConns ?? DEFAULT_MAX_CONNS;
-	base_options.maxNameLength = options.maxNameLength ?? DEFAULT_MAX_NAME_LENGTH;
-	base_options.maxValueLength = options.maxValueLength ?? DEFAULT_MAX_VALUE_LENGTH;
-	base_options.maxFileSize = options.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
-}
-
 export class Server implements Deno.Listener
 {	public readonly addr: Deno.Addr;
 	public readonly rid: number;
@@ -50,10 +39,10 @@ export class Server implements Deno.Listener
 	private is_accepting = false;
 	private n_processing = 0;
 
-	constructor(listener: Deno.Listener, options?: ServerOptions)
-	{	this.addr = listener.addr;
-		this.rid = listener.rid;
-		this.listeners = [listener];
+	constructor(listener?: Deno.Listener, options?: ServerOptions)
+	{	this.addr = listener?.addr ?? {transport: 'tcp', hostname: 'localhost', port: NaN};
+		this.rid = listener?.rid ?? -1;
+		this.listeners = listener ? [listener] : [];
 		this.structuredParams = options?.structuredParams || false;
 		this.maxConns = options?.maxConns || DEFAULT_MAX_CONNS;
 		this.maxNameLength = options?.maxNameLength || DEFAULT_MAX_NAME_LENGTH;
@@ -164,6 +153,7 @@ export class Server implements Deno.Listener
 			this.clear_removed_listeners();
 			if (promises.length == 0)
 			{	debug_assert(active_listeners.length==0 && listeners.length==0 && removed_listeners.length==0 && requests.length==0);
+				this.is_accepting = false;
 				throw new Error('Server shut down');
 			}
 
@@ -341,9 +331,12 @@ export class Server implements Deno.Listener
 		}
 	}
 
-	on(event_name: string, callback: (error: Error) => void)
+	/**	`on('error', callback)` - catch general connection errors. Only one handler is active. Second `on()` overrides the previous handler.
+		`on('error')` - removes the event handler.
+	 **/
+	on(event_name: string, callback?: (error: Error) => void)
 	{	if (event_name == 'error')
-		{	this.onerror = error =>
+		{	this.onerror = !callback ? () => {} : error =>
 			{	try
 				{	callback(error);
 				}

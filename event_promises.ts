@@ -8,6 +8,19 @@ export class EventPromises<T>
 		return promise;
 	}
 
+	remove(callback: (arg: T) => unknown)
+	{	for (let i=0, i_end=this.events.length; i<i_end; i++)
+		{	let event = this.events[i];
+			if (event.callback == callback)
+			{	this.events.splice(i, 1);
+				if (event.reject)
+				{	event.reject(new Error('Event cancelled'));
+				}
+				break;
+			}
+		}
+	}
+
 	trigger(arg: T)
 	{	for (let i=0, i_end=this.events.length; i<i_end; i++)
 		{	let event = this.events[i];
@@ -16,6 +29,8 @@ export class EventPromises<T>
 			event.reject = undefined;
 			if (!callback)
 			{	resolve?.();
+				this.events.splice(i--, 1);
+				i_end--;
 			}
 			else
 			{	try
@@ -38,7 +53,11 @@ export class EventPromises<T>
 	}
 
 	clear()
-	{	this.events.length = 0;
+	{	let error = new Error('Event cancelled');
+		for (let event of this.events)
+		{	event.reject?.(error);
+		}
+		this.events.length = 0;
 	}
 }
 

@@ -36,7 +36,7 @@ Deno.test
 	async () =>
 	{	const FILTERS = ['', '/page-1.html', '', '/page-3.html'];
 		let server_error;
-		fcgi.on('error', (e: any) => {server_error = e});
+		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
 		// accept
 		let listeners: Deno.Listener[] = [];
 		for (let i=0; i<FILTERS.length; i++)
@@ -101,7 +101,7 @@ Deno.test
 	{	let N_REQUESTS = 4;
 		const SET_COOKIE_OPTIONS = {domain: 'example.com', path: '/', httpOnly: true, secure: true, sameSite: 'None'};
 		let server_error;
-		fcgi.on('error', (e: any) => {server_error = e});
+		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
 		// accept
 		let n_accepted = 0;
 		let listener = fcgi.listen
@@ -224,7 +224,7 @@ Deno.test
 	async () =>
 	{	const SOCK_NAME = '/tmp/deno-fcgi-test.sock';
 		let server_error;
-		fcgi.on('error', (e: any) => {server_error = e});
+		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
 		// UDP
 		let error;
 		try
@@ -275,7 +275,7 @@ Deno.test
 	async () =>
 	{	let MAX_REQS = [1, 10, Number.MAX_SAFE_INTEGER];
 		let server_error;
-		fcgi.on('error', (e: any) => {server_error = e});
+		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
 		let was_request = false;
 		for (let i=0; i<MAX_REQS.length; i++)
 		{	fcgi.options({maxConns: MAX_REQS[i]});

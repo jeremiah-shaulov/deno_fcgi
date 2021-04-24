@@ -1,4 +1,4 @@
-import {Server, ServerOptions, merge_options} from './server.ts';
+import {Server, ServerOptions} from './server.ts';
 import {faddr_to_addr, addr_to_string} from './addr.ts';
 import type {FcgiAddr} from './addr.ts';
 import {Routes} from './routes.ts';
@@ -8,23 +8,28 @@ import type {ClientOptions, RequestOptions} from './client.ts';
 import {EventPromises} from './event_promises.ts';
 
 export class Fcgi
-{	private init_options: ServerOptions = {};
-	private server: Server | undefined;
+{	private server = new Server;
+	private is_serving = false;
 	private routes = new Routes;
 	private onerror = new EventPromises<Error>();
 	private onend = new EventPromises<void>();
 	private client = new Client;
 
+	constructor()
+	{	this.server.on('error', e => {this.onerror.trigger(e)});
+	}
+
 	/**	Register a FastCGI `Server` on specified network address.
 		This function can be called multiple times with the same or different addresses.
 	 **/
 	listen(addr_or_listener: FcgiAddr | Deno.Listener, path_pattern: PathPattern, callback: Callback)
-	{	if (typeof(addr_or_listener)=='object' && (addr_or_listener as Deno.Listener).addr)
+	{	let {server} = this;
+		if (typeof(addr_or_listener)=='object' && (addr_or_listener as Deno.Listener).addr)
 		{	var listener = addr_or_listener as Deno.Listener;
 		}
 		else
 		{	let addr = faddr_to_addr(addr_or_listener as FcgiAddr);
-			let found_listener = this.server?.getListener(addr);
+			let found_listener = server.getListener(addr);
 			if (found_listener)
 			{	listener = found_listener;
 			}
@@ -40,13 +45,9 @@ export class Fcgi
 		}
 		let {addr} = listener;
 		this.routes.add_route(addr_to_string(addr), path_pattern, callback);
-		if (this.server)
-		{	this.server.addListener(listener);
-		}
-		else
-		{	let server = new Server(listener, this.init_options);
-			server.on('error', e => {this.onerror.trigger(e)});
-			this.server = server;
+		server.addListener(listener);
+		if (!this.is_serving)
+		{	this.is_serving = true;
 			(	async () =>
 				{	try
 					{	for await (let request of server)
@@ -86,9 +87,8 @@ export class Fcgi
 					}
 					server.removeListeners();
 					this.routes.clear();
-					this.server = undefined;
+					this.is_serving = false;
 					this.onend.trigger();
-					this.onend.clear();
 				}
 			)();
 		}
@@ -98,36 +98,45 @@ export class Fcgi
 	/**	Stop serving requests on specified network address.
 	 **/
 	unlisten(addr?: FcgiAddr)
-	{	if (this.server)
-		{	if (addr == undefined)
-			{	this.server.removeListeners();
-			}
-			else
-			{	addr = faddr_to_addr(addr);
-				this.server.removeListener(addr);
-				this.routes.remove_addr(addr_to_string(addr));
-			}
+	{	if (addr == undefined)
+		{	this.server.removeListeners();
+		}
+		else
+		{	addr = faddr_to_addr(addr);
+			this.server.removeListener(addr);
+			this.routes.remove_addr(addr_to_string(addr));
 		}
 	}
 
-	/**	`on('error', callback)` - catch FastCGI `Server` errors.
+	/**	Multiple event handlers can be added to each event type.
+
+		`on('error', callback)` - catch FastCGI `Server` errors.
 		`on('end', callback)` or `await on('end')` - catch that moment when FastCGI `Server` stops accepting connections (when all listeners removed, and ongoing requests completed).
 	 **/
 	on(event_name: string, callback?: any)
-	{	if (event_name == 'error')
-		{	return this.onerror.add(callback);
+	{	let q = event_name=='error' ? this.onerror : event_name=='end' ? this.onend : undefined;
+		return q?.add(callback);
+	}
+
+	/**	`off('error' | 'end', callback)` - remove this callback from specified event handler.
+		`off('error' | 'end')` - remove all callbacks from specified event handler.
+	 **/
+	off(event_name: string, callback?: any)
+	{	let q = event_name=='error' ? this.onerror : event_name=='end' ? this.onend : undefined;
+		if (callback)
+		{	q?.remove(callback);
 		}
-		else if (event_name == 'end')
-		{	return this.onend.add(callback);
+		else
+		{	q?.clear();
 		}
 	}
 
 	/**	Modify FastCGI `Server` options. This can be done at any time, but the new options can take effect later, on new connections.
 	 **/
-	options(options: ServerOptions): ServerOptions
-	{	merge_options(this.server, this.init_options, options);
-		let {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this.init_options;
-		return {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize};
+	options(options: ServerOptions & ClientOptions): ServerOptions & ClientOptions
+	{	let server_options = this.server.options(options);
+		let client_options = this.client.options(options);
+		return {...server_options, ...client_options};
 	}
 
 	fetch(server_options: RequestOptions, input: Request|URL|string, init?: RequestInit): Promise<ResponseWithCookies>
