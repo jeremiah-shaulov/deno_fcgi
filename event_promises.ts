@@ -13,9 +13,7 @@ export class EventPromises<T>
 		{	let event = this.events[i];
 			if (event.callback == callback)
 			{	this.events.splice(i, 1);
-				if (event.reject)
-				{	event.reject(new Error('Event cancelled'));
-				}
+				event.resolve?.();
 				break;
 			}
 		}
@@ -53,9 +51,8 @@ export class EventPromises<T>
 	}
 
 	clear()
-	{	let error = new Error('Event cancelled');
-		for (let event of this.events)
-		{	event.reject?.(error);
+	{	for (let event of this.events)
+		{	event.resolve?.();
 		}
 		this.events.length = 0;
 	}

@@ -71,23 +71,11 @@ export class Client
 	}
 
 	options(options: ClientOptions): ClientOptions
-	{	{	let {maxConns, timeout, keepAliveTimeout, keepAliveMax, onLogError} = options;
-			if (maxConns != undefined)
-			{	this.maxConns = maxConns;
-			}
-			if (timeout != undefined)
-			{	this.timeout = timeout;
-			}
-			if (keepAliveTimeout != undefined)
-			{	this.keepAliveTimeout = keepAliveTimeout;
-			}
-			if (keepAliveMax != undefined)
-			{	this.keepAliveMax = keepAliveMax;
-			}
-			if (onLogError != undefined)
-			{	this.onLogError = onLogError;
-			}
-		}
+	{	this.maxConns = options.maxConns ?? this.maxConns;
+		this.timeout = options.timeout ?? this.timeout;
+		this.keepAliveTimeout = options.keepAliveTimeout ?? this.keepAliveTimeout;
+		this.keepAliveMax = options.keepAliveMax ?? this.keepAliveMax;
+		this.onLogError = options.onLogError ?? this.onLogError;
 		let {maxConns, timeout, keepAliveTimeout, keepAliveMax, onLogError} = this;
 		return {maxConns, timeout, keepAliveTimeout, keepAliveMax, onLogError};
 	}

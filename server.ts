@@ -51,23 +51,11 @@ export class Server implements Deno.Listener
 	}
 
 	options(options: ServerOptions): ServerOptions
-	{	{	let {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = options;
-			if (structuredParams != undefined)
-			{	this.structuredParams = structuredParams;
-			}
-			if (maxConns != undefined)
-			{	this.maxConns = maxConns;
-			}
-			if (maxNameLength != undefined)
-			{	this.maxNameLength = maxNameLength;
-			}
-			if (maxValueLength != undefined)
-			{	this.maxValueLength = maxValueLength;
-			}
-			if (maxFileSize != undefined)
-			{	this.maxFileSize = maxFileSize;
-			}
-		}
+	{	this.structuredParams = options.structuredParams ?? this.structuredParams;
+		this.maxConns = options.maxConns ?? this.maxConns;
+		this.maxNameLength = options.maxNameLength ?? this.maxNameLength;
+		this.maxValueLength = options.maxValueLength ?? this.maxValueLength;
+		this.maxFileSize = options.maxFileSize ?? this.maxFileSize;
 		let {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this;
 		return {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize};
 	}

@@ -1,14 +1,18 @@
-import {fcgi} from "../mod.ts";
+import {fcgi} from "../fcgi.ts";
+import {ProtocolError} from '../error.ts';
 import {map_to_obj, MockListener} from './mock/mod.ts';
 import {SERVER_SOFTWARE, RequestOptions} from '../client.ts';
 import {SetCookies} from '../set_cookies.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
+import {writeAll, readAll} from 'https://deno.land/std/io/util.ts';
 
 Deno.test
 (	'Basic',
 	async () =>
 	{	let listener = new MockListener;
 		let conn = listener.pend_accept(1024, -1, false);
+		let server_error: Error | undefined;
+		fcgi.on('error', (e: Error) => {server_error = e});
 		// write
 		conn.pend_read_fcgi_begin_request(1, 'responder', false);
 		conn.pend_read_fcgi_params(1, {a: '1'});
@@ -28,6 +32,96 @@ Deno.test
 		assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\nResponse body');
 		assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 		assertEquals(conn.take_written_fcgi(), undefined);
+		// check
+		assert(!server_error);
+	}
+);
+
+Deno.test
+(	'404',
+	async () =>
+	{	let listener = new MockListener;
+		let conn = listener.pend_accept(1024, -1, false);
+		let server_error: Error | undefined;
+		fcgi.on('error', (e: Error) => {server_error = e});
+		let n_requests = 0;
+		// write request 1
+		conn.pend_read_fcgi_begin_request(1, 'responder', true);
+		conn.pend_read_fcgi_params(1, {REQUEST_URI: '/hello'});
+		conn.pend_read_fcgi_stdin(1, 'Body 1');
+		// write request 2
+		conn.pend_read_fcgi_begin_request(2, 'responder', true);
+		conn.pend_read_fcgi_params(2, {REQUEST_URI: '/page'});
+		conn.pend_read_fcgi_stdin(2, 'Body 2');
+		// accept
+		fcgi.listen
+		(	listener,
+			'/page',
+			async req =>
+			{	n_requests++;
+				await req.post.parse();
+				await req.respond({body: 'Response body 2'});
+				fcgi.unlisten();
+			}
+		);
+		await fcgi.on('end');
+		// read
+		assertEquals(conn.take_written_fcgi_stdout(1), 'status: 404\r\n\r\nResource not found');
+		assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+		assertEquals(conn.take_written_fcgi_stdout(2), 'status: 200\r\n\r\nResponse body 2');
+		assertEquals(conn.take_written_fcgi_end_request(2), 'request_complete');
+		assertEquals(conn.take_written_fcgi(), undefined);
+		// check
+		assert(!server_error);
+		assertEquals(n_requests, 1);
+	}
+);
+
+Deno.test
+(	'Protocol error',
+	async () =>
+	{	let listener_1 = new MockListener;
+		let listener_2 = new MockListener;
+		let conn_1 = listener_1.pend_accept(1024, -1, false);
+		let conn_2 = listener_2.pend_accept(1024, -1, false);
+		let was_request = false;
+		let n_errors = 0;
+		let server_error: Error | undefined;
+		fcgi.on('error', (e: Error) => {server_error = e; n_errors++});
+		// write request 1 (protocol error)
+		conn_1.pend_read_fcgi_begin_request(1, 'responder', true);
+		conn_1.currupt_last_bytes(1);
+		// write request 2
+		conn_2.pend_read_fcgi_begin_request(1, 'responder', true);
+		conn_2.pend_read_fcgi_params(1, {id: 'req 2'});
+		conn_2.pend_read_fcgi_stdin(1, 'Body 2');
+		// accept
+		fcgi.listen
+		(	listener_1,
+			'',
+			async req =>
+			{	was_request = true;
+			}
+		);
+		fcgi.listen
+		(	listener_2,
+			'',
+			async req =>
+			{	assertEquals(map_to_obj(req.params), {id: 'req 2'});
+				assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body 2');
+				await req.respond({body: 'Hello'});
+				fcgi.unlisten();
+			}
+		);
+		await fcgi.on('end');
+		// read
+		assertEquals(conn_2.take_written_fcgi_stdout(1), 'status: 200\r\n\r\nHello');
+		assertEquals(conn_2.take_written_fcgi_end_request(1), 'request_complete');
+		assertEquals(conn_2.take_written_fcgi(), undefined);
+		// check
+		assert(!was_request);
+		assertEquals(n_errors, 1);
+		assert(server_error instanceof ProtocolError);
 	}
 );
 
@@ -92,6 +186,7 @@ Deno.test
 		await Promise.all(promises);
 		assert(was_end);
 		assert(!server_error);
+		fcgi.off('error');
 	}
 );
 
@@ -146,6 +241,7 @@ Deno.test
 			assertEquals(await response.text(), `Response body ${i}`);
 		}
 		assert(!server_error);
+		fcgi.off('error');
 	}
 );
 
@@ -216,6 +312,7 @@ Deno.test
 		fcgi.unlisten(listener.addr);
 		await fcgi.on('end');
 		assertEquals(server_error?.message, 'i is 1!');
+		fcgi.off('error');
 	}
 );
 
@@ -266,6 +363,7 @@ Deno.test
 			catch
 			{
 			}
+			fcgi.off('error');
 		}
 	}
 );
@@ -297,6 +395,7 @@ Deno.test
 		}
 		assert(!was_request);
 		assert(!server_error);
+		fcgi.off('error');
 	}
 );
 

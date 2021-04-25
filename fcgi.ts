@@ -7,6 +7,8 @@ import {Client, ResponseWithCookies} from './client.ts';
 import type {ClientOptions, RequestOptions} from './client.ts';
 import {EventPromises} from './event_promises.ts';
 
+const DEFAULT_404_PAGE = 'Resource not found';
+
 export class Fcgi
 {	private server = new Server;
 	private is_serving = false;
@@ -77,7 +79,7 @@ export class Fcgi
 										{	return;
 										}
 									}
-									request.respond({status: 404, body: 'Resource not found'});
+									request.respond({status: 404, body: DEFAULT_404_PAGE});
 								}
 							);
 						}
@@ -95,7 +97,7 @@ export class Fcgi
 		return listener;
 	}
 
-	/**	Stop serving requests on specified network address.
+	/**	Stop serving requests on specified network address, or on all addresses.
 	 **/
 	unlisten(addr?: FcgiAddr)
 	{	if (addr == undefined)
@@ -131,7 +133,7 @@ export class Fcgi
 		}
 	}
 
-	/**	Modify FastCGI `Server` options. This can be done at any time, but the new options can take effect later, on new connections.
+	/**	Modify FastCGI `Server` and/or `Client` options. You can call it at any time, but the new options can take effect later, on new connections.
 	 **/
 	options(options: ServerOptions & ClientOptions): ServerOptions & ClientOptions
 	{	let server_options = this.server.options(options);
