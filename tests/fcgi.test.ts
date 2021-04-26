@@ -5,6 +5,7 @@ import {SERVER_SOFTWARE, RequestOptions} from '../client.ts';
 import {SetCookies} from '../set_cookies.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
 import {writeAll, readAll} from 'https://deno.land/std/io/util.ts';
+import {sleep} from "https://deno.land/x/sleep/mod.ts";
 
 Deno.test
 (	'Basic',
@@ -131,6 +132,7 @@ Deno.test
 	{	const FILTERS = ['', '/page-1.html', '', '/page-3.html'];
 		let server_error;
 		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
+		fcgi.options({keepAliveMax: 1, maxConns: FILTERS.length});
 		// accept
 		let listeners: Deno.Listener[] = [];
 		for (let i=0; i<FILTERS.length; i++)
@@ -151,19 +153,22 @@ Deno.test
 					if (i == 2)
 					{	assertEquals(map_to_obj(req.cookies), {'coo-1': ' val <1> ', 'coo-2': 'val <2>.'});
 					}
+					if (i != FILTERS.length-1)
+					{	await sleep(0.5); // i want all the requests to accumulate, and test `fcgi.canFetch()`
+					}
 					await req.respond({body: `Response body ${i}`});
 					fcgi.unlisten(listeners[i].addr);
 				}
 			);
 		}
 		// query
+		assert(fcgi.canFetch());
 		let promises = [];
 		for (let i=0; i<FILTERS.length; i++)
 		{	promises[promises.length] = Promise.resolve().then
 			(	async () =>
 				{	let request: RequestOptions =
-					{	addr: listeners[i].addr,
-						keepAliveMax: 1,
+					{	addr: listeners[i].addr
 					};
 					if (i == 1)
 					{	request.scriptFilename = `/var/www/example.com/page-${i}.html`;
@@ -175,6 +180,19 @@ Deno.test
 					(	request,
 						`http://example.com/page-${i}.html?i=${i}`,
 						i!=1 ? undefined : {headers: new Headers(Object.entries({'X-Hello': 'All'}))}
+					).then
+					(	async response =>
+						{	if (i == FILTERS.length-1)
+							{	assert(!fcgi.canFetch());
+								for (let i=0; i<1000 && !fcgi.canFetch(); i++)
+								{	await fcgi.pollCanFetch();
+								}
+								assert(fcgi.canFetch());
+								await fcgi.pollCanFetch();
+								assert(fcgi.canFetch());
+							}
+							return response;
+						}
 					);
 					assertEquals(response.status, 200);
 					assertEquals(await response.text(), `Response body ${i}`);
@@ -196,7 +214,8 @@ Deno.test
 	{	let N_REQUESTS = 4;
 		const SET_COOKIE_OPTIONS = {domain: 'example.com', path: '/', httpOnly: true, secure: true, sameSite: 'None'};
 		let server_error;
-		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
+		let onerror = (e: any) => {console.error(e); server_error = e};
+		fcgi.on('error', onerror);
 		// accept
 		let n_accepted = 0;
 		let listener = fcgi.listen
@@ -241,7 +260,7 @@ Deno.test
 			assertEquals(await response.text(), `Response body ${i}`);
 		}
 		assert(!server_error);
-		fcgi.off('error');
+		fcgi.off('error', onerror);
 	}
 );
 
@@ -320,6 +339,12 @@ Deno.test
 (	'Unix-domain socket and UDP',
 	async () =>
 	{	const SOCK_NAME = '/tmp/deno-fcgi-test.sock';
+		try
+		{	await Deno.remove(SOCK_NAME);
+		}
+		catch
+		{
+		}
 		let server_error;
 		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
 		// UDP
@@ -358,7 +383,7 @@ Deno.test
 		}
 		finally
 		{	try
-			{	Deno.remove(SOCK_NAME);
+			{	await Deno.remove(SOCK_NAME);
 			}
 			catch
 			{

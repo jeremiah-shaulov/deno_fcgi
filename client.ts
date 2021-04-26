@@ -70,18 +70,20 @@ export class Client
 		this.onLogError = options?.onLogError;
 	}
 
-	options(options: ClientOptions): ClientOptions
-	{	this.maxConns = options.maxConns ?? this.maxConns;
-		this.timeout = options.timeout ?? this.timeout;
-		this.keepAliveTimeout = options.keepAliveTimeout ?? this.keepAliveTimeout;
-		this.keepAliveMax = options.keepAliveMax ?? this.keepAliveMax;
-		this.onLogError = options.onLogError ?? this.onLogError;
+	/**	Set and/or get configuration.
+	 **/
+	options(options?: ClientOptions): ClientOptions
+	{	this.maxConns = options?.maxConns ?? this.maxConns;
+		this.timeout = options?.timeout ?? this.timeout;
+		this.keepAliveTimeout = options?.keepAliveTimeout ?? this.keepAliveTimeout;
+		this.keepAliveMax = options?.keepAliveMax ?? this.keepAliveMax;
+		this.onLogError = options?.onLogError ?? this.onLogError;
 		let {maxConns, timeout, keepAliveTimeout, keepAliveMax, onLogError} = this;
 		return {maxConns, timeout, keepAliveTimeout, keepAliveMax, onLogError};
 	}
 
-	async fetch(server_options: RequestOptions, input: Request|URL|string, init?: RequestInit): Promise<ResponseWithCookies>
-	{	let {addr, scriptFilename, params, timeout, keepAliveTimeout, keepAliveMax, onLogError} = server_options;
+	async fetch(request_options: RequestOptions, input: Request|URL|string, init?: RequestInit): Promise<ResponseWithCookies>
+	{	let {addr, scriptFilename, params, timeout, keepAliveTimeout, keepAliveMax, onLogError} = request_options;
 		if (timeout == undefined)
 		{	timeout = this.timeout;
 		}
