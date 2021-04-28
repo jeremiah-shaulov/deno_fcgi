@@ -133,9 +133,10 @@ export class Fcgi
 		}
 	}
 
-	/**	Modify FastCGI `Server` and/or `Client` options. You can call it at any time, but the new options can take effect later, on new connections.
+	/**	Set and/or get FastCGI `Server` and/or `Client` options. You can call it at any time, but new options can take effect later, on new connections.
+		It returns current options.
 	 **/
-	options(options: ServerOptions & ClientOptions): ServerOptions & ClientOptions
+	options(options?: ServerOptions & ClientOptions): ServerOptions & ClientOptions
 	{	let server_options = this.server.options(options);
 		let client_options = this.client.options(options);
 		return {...server_options, ...client_options};
@@ -145,7 +146,7 @@ export class Fcgi
 	{	return this.client.fetch(server_options, input, init);
 	}
 
-	fetchCapabilities(addr: FcgiAddr): Promise<{FCGI_MAX_CONNS?: number, FCGI_MAX_REQS?: number, FCGI_MPXS_CONNS?: number}>
+	fetchCapabilities(addr: FcgiAddr | Deno.Conn): Promise<{FCGI_MAX_CONNS?: number, FCGI_MAX_REQS?: number, FCGI_MPXS_CONNS?: number}>
 	{	return this.client.fetchCapabilities(addr);
 	}
 

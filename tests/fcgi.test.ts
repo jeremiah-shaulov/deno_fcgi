@@ -1,7 +1,8 @@
 import {fcgi} from "../fcgi.ts";
 import {ProtocolError} from '../error.ts';
-import {map_to_obj, MockListener} from './mock/mod.ts';
+import {map_to_obj, MockListener, MockFcgiConn} from './mock/mod.ts';
 import {SERVER_SOFTWARE, RequestOptions} from '../client.ts';
+import {RECYCLE_REQUEST_ID_AFTER} from '../fcgi_conn.ts';
 import {SetCookies} from '../set_cookies.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
 import {writeAll, readAll} from 'https://deno.land/std/io/util.ts';
@@ -11,7 +12,7 @@ Deno.test
 (	'Basic',
 	async () =>
 	{	let listener = new MockListener;
-		let conn = listener.pend_accept(1024, -1, false);
+		let conn = listener.pend_accept(1024, -1, 'no');
 		let server_error: Error | undefined;
 		fcgi.on('error', (e: Error) => {server_error = e});
 		// write
@@ -42,7 +43,7 @@ Deno.test
 (	'404',
 	async () =>
 	{	let listener = new MockListener;
-		let conn = listener.pend_accept(1024, -1, false);
+		let conn = listener.pend_accept(1024, -1, 'no');
 		let server_error: Error | undefined;
 		fcgi.on('error', (e: Error) => {server_error = e});
 		let n_requests = 0;
@@ -79,12 +80,108 @@ Deno.test
 );
 
 Deno.test
+(	'Header across buffer boundary',
+	async () =>
+	{	for (let [chunk_size, strlen] of [[12, 3000], [123, 123]])
+		{	const LONG_STR = '*'.repeat(strlen);
+			let conn = new MockFcgiConn(chunk_size, -1, 'full');
+			conn.pend_read_fcgi_stdout(1, `Status: 403\r\nContent-Type: text/junk\r\nX-Hello: "a\rb\nc"\r\nX-Long: ${LONG_STR}\r\n\r\nResponse body`);
+			conn.pend_read_fcgi_end_request(1, 'request_complete');
+			let response = await fcgi.fetch({addr: conn}, `http://example.com/`, {body: 'Request body'});
+			// check request
+			assertEquals(conn.take_written_fcgi_begin_request(1), {role: 'responder', keep_conn: true});
+			assertEquals(map_to_obj(await conn.take_written_fcgi_params(1)), {HTTP_HOST: 'example.com', QUERY_STRING: '', REQUEST_METHOD: 'GET', REQUEST_SCHEME: 'http', REQUEST_URI: '/', SERVER_SOFTWARE});
+			assertEquals(conn.take_written_fcgi_stdin(1), 'Request body');
+			assertEquals(conn.take_written_fcgi(), undefined);
+			// check response
+			assertEquals(response.status, 403);
+			assertEquals(await response.text(), 'Response body');
+			assertEquals(map_to_obj(response.headers), {'content-type': 'text/junk', 'x-long': LONG_STR});
+		}
+	}
+);
+
+Deno.test
+(	'More than RECYCLE_REQUEST_ID_AFTER requests within connection',
+	async () =>
+	{	const N_REQUESTS = RECYCLE_REQUEST_ID_AFTER + 1;
+		let server_error;
+		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
+		// accept
+		let n_request = 0;
+		let listener = fcgi.listen
+		(	0,
+			'',
+			async req =>
+			{	await req.respond();
+				if (++n_request >= N_REQUESTS)
+				{	fcgi.unlisten(listener.addr);
+				}
+			}
+		);
+		// query
+		for (let i=0; i<N_REQUESTS; i++)
+		{	let response = await fcgi.fetch
+			(	{	addr: listener.addr,
+					keepAliveMax: N_REQUESTS,
+					keepAliveTimeout: 5*60*1000,
+				},
+				`https://example.com/page.html`
+			);
+			assertEquals(response.status, 200);
+			assertEquals(await response.text(), '');
+		}
+		assert(!server_error);
+	}
+);
+
+Deno.test
+(	'stderr',
+	async () =>
+	{	const N_REQUESTS = 2;
+		let server_error;
+		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
+		// accept
+		let n_request = 0;
+		let listener = fcgi.listen
+		(	0,
+			'',
+			async req =>
+			{	req.logError(`Message ${n_request}.a`);
+				req.logError(`Message ${n_request}.b`);
+				await req.respond();
+				if (++n_request >= N_REQUESTS)
+				{	fcgi.unlisten(listener.addr);
+				}
+			}
+		);
+		// query
+		for (let i=0; i<N_REQUESTS; i++)
+		{	let messages: string[] = [];
+			let response = await fcgi.fetch
+			(	{	addr: listener.addr,
+					keepAliveMax: N_REQUESTS,
+					onLogError(message)
+					{	messages.push(message);
+					}
+				},
+				`https://example.com/page.html`
+			);
+			assertEquals(response.status, 200);
+			assertEquals(await response.text(), '');
+			assertEquals(messages, [`Message ${i}.a`, `Message ${i}.b`]);
+		}
+		assert(!server_error);
+	}
+);
+
+Deno.test
 (	'Protocol error',
 	async () =>
 	{	let listener_1 = new MockListener;
 		let listener_2 = new MockListener;
-		let conn_1 = listener_1.pend_accept(1024, -1, false);
-		let conn_2 = listener_2.pend_accept(1024, -1, false);
+		let conn_1 = listener_1.pend_accept(1024, -1, 'no');
+		let conn_2 = listener_2.pend_accept(1024, -1, 'no');
 		let was_request = false;
 		let n_errors = 0;
 		let server_error: Error | undefined;
@@ -154,7 +251,7 @@ Deno.test
 					{	assertEquals(map_to_obj(req.cookies), {'coo-1': ' val <1> ', 'coo-2': 'val <2>.'});
 					}
 					if (i != FILTERS.length-1)
-					{	await sleep(0.5); // i want all the requests to accumulate, and test `fcgi.canFetch()`
+					{	await sleep(1); // i want all the requests to accumulate, and test `fcgi.canFetch()`
 					}
 					await req.respond({body: `Response body ${i}`});
 					fcgi.unlisten(listeners[i].addr);

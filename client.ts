@@ -24,7 +24,7 @@ export interface ClientOptions
 
 export interface RequestOptions
 {	/** FastCGI service address. For example address of PHP-FPM service (what appears in "listen" directive in PHP-FPM pool configuration file). */
-	addr: FcgiAddr,
+	addr: FcgiAddr | Deno.Conn,
 	/** `scriptFilename` can be specified here, or in `params` under 'SCRIPT_FILENAME' key. Note that if sending to PHP-FPM, the response will be empty unless you provide this parameter. This parameter must contain PHP script file name. */
 	scriptFilename?: string,
 	/** Additional parameters to send to FastCGI server. If sending to PHP, they will be found in $_SERVER. If `params` object is given, it will be modified - `scriptFilename` and parameters inferred from request URL will be added to it. */
@@ -96,9 +96,6 @@ export class Client
 		if (onLogError == undefined)
 		{	onLogError = this.onLogError;
 		}
-		// server_addr
-		let server_addr = faddr_to_addr(addr);
-		let server_addr_str = addr_to_string(server_addr);
 		// input
 		if (!(input instanceof Request))
 		{	input = new Request(input+'', init);
@@ -129,12 +126,12 @@ export class Client
 		let headers = new Headers;
 		let cookies = new SetCookies;
 		// get_conn
-		var {conn, supports_reuse_connection} = await this.get_conn(server_addr_str, server_addr, timeout, keepAliveTimeout, keepAliveMax);
+		var {conn, server_addr_str, keep_conn, supports_reuse_connection} = await this.get_conn(addr, timeout, keepAliveTimeout, keepAliveMax);
 		// query
 		try
 		{	while (true)
 			{	try
-				{	await conn.write_request(params, input.body, supports_reuse_connection);
+				{	await conn.write_request(params, input.body, keep_conn);
 				}
 				catch (e)
 				{	if (supports_reuse_connection && e.name=='BrokenPipe')
@@ -142,7 +139,7 @@ export class Client
 						supports_reuse_connection = false;
 						this.return_conn(server_addr_str, conn, false);
 						this.get_conns(server_addr_str).supports_reuse_connection = false;
-						var {conn} = await this.get_conn(server_addr_str, server_addr, timeout, keepAliveTimeout, keepAliveMax);
+						var {conn} = await this.get_conn(server_addr_str, timeout, keepAliveTimeout, keepAliveMax);
 						continue;
 					}
 					throw e;
@@ -157,7 +154,11 @@ export class Client
 			throw e;
 		}
 		// return
-		let status_str = headers.get('status') || '';
+		let status = headers.get('status');
+		if (status != null)
+		{	headers.delete('status');
+		}
+		let status_str = status || '';
 		let pos = status_str.indexOf(' ');
 		if (done)
 		{	this.return_conn(server_addr_str, conn, supports_reuse_connection);
@@ -189,10 +190,8 @@ export class Client
 		);
 	}
 
-	async fetchCapabilities(addr: FcgiAddr)
-	{	let server_addr = faddr_to_addr(addr);
-		let server_addr_str = addr_to_string(server_addr);
-		let {conn} = await this.get_conn(server_addr_str, server_addr, DEFAULT_TIMEOUT, 0, 1);
+	async fetchCapabilities(addr: FcgiAddr | Deno.Conn)
+	{	let {conn, server_addr_str} = await this.get_conn(addr, DEFAULT_TIMEOUT, 0, 1);
 		await conn.write_record_get_values(new Map(Object.entries({FCGI_MAX_CONNS: '', FCGI_MAX_REQS: '', FCGI_MPXS_CONNS: ''})));
 		let header = await conn.read_record_header();
 		let map = await conn.read_record_get_values_result(header.content_length, header.padding_length);
@@ -245,11 +244,16 @@ export class Client
 		return conns;
 	}
 
-	private async get_conn(server_addr_str: string, server_addr: Deno.Addr, timeout: number, keepAliveTimeout: number, keepAliveMax: number)
-	{	debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
+	private async get_conn(addr: FcgiAddr | Deno.Conn, timeout: number, keepAliveTimeout: number, keepAliveMax: number): Promise<{conn: FcgiConn, server_addr_str: string, keep_conn: boolean, supports_reuse_connection: boolean}>
+	{	if (typeof(addr)=='object' && 'remoteAddr' in addr)
+		{	return {conn: new FcgiConn(addr), server_addr_str: '', keep_conn: true, supports_reuse_connection: false};
+		}
+		debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
 		if (this.n_busy_all >= this.maxConns)
 		{	throw new TooManyConnsError('Too many connections');
 		}
+		let server_addr = faddr_to_addr(addr);
+		let server_addr_str = addr_to_string(server_addr);
 		let conns = this.get_conns(server_addr_str);
 		let {idle, busy, supports_reuse_connection} = conns;
 		let now = Date.now();
@@ -276,14 +280,14 @@ export class Client
 			busy.push(conn);
 			this.n_busy_all++;
 			this.close_exceeding_idle_conns(idle);
-			return {conn, supports_reuse_connection};
+			return {conn, server_addr_str, keep_conn: supports_reuse_connection, supports_reuse_connection};
 		}
 	}
 
 	private return_conn(server_addr_str: string, conn: FcgiConn, reuse_connection: boolean)
 	{	let conns = this.conns_pool.get(server_addr_str);
 		if (!conns)
-		{	// assume: return_conn() already called for this connection
+		{	// assume: return_conn() already called for this connection, or server_addr_str==='' (Deno.Conn object was given to `fetch()`)
 			return;
 		}
 		let i = conns.busy.indexOf(conn);

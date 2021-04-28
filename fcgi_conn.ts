@@ -5,6 +5,7 @@ import {SetCookies} from "./set_cookies.ts";
 import {writeAll} from 'https://deno.land/std/io/util.ts';
 
 const BUFFER_LEN = 8*1024;
+export const RECYCLE_REQUEST_ID_AFTER = 1024; // max: 0xFFFF. big number slows down unit testing
 
 const CR = '\r'.charCodeAt(0);
 const LF = '\n'.charCodeAt(0);
@@ -36,6 +37,7 @@ const FCGI_FILTER             =  3;
 const FCGI_KEEP_CONN          =  1;
 
 debug_assert(BUFFER_LEN >= 255); // record padding must fit
+debug_assert(RECYCLE_REQUEST_ID_AFTER>=1 && RECYCLE_REQUEST_ID_AFTER<=0xFFFF); // number must fit uint16_t
 
 export class FcgiConn
 {	public request_till = 0; // for connections pool - 0 means no ongoing request, >0 means is executing request with timeout till this time
@@ -54,7 +56,7 @@ export class FcgiConn
 	}
 
 	async write_request(params: Map<string, string>, body: ReadableStream<Uint8Array> | null, keep_conn: boolean)
-	{	if (this.request_id >= 0xFFFF)
+	{	if (this.request_id >= RECYCLE_REQUEST_ID_AFTER)
 		{	this.request_id = 0;
 		}
 		this.request_id++;
@@ -76,7 +78,6 @@ export class FcgiConn
 		{	if (line.length == 0)
 			{	headers_read = true;
 				headers_buffer = undefined;
-				debug_assert(headers_buffer_len == 0);
 			}
 			else
 			{	let pos = line.indexOf(COLON);
@@ -91,44 +92,29 @@ export class FcgiConn
 				else
 				{	if (headers)
 					{	let value = new TextDecoder().decode(line.subarray(pos)).trim();
-						headers.set(name, value);
+						try
+						{	headers.set(name, value);
+						}
+						catch
+						{	// assume: "is not a legal HTTP header value"
+						}
 					}
 				}
 			}
 		}
 		function cut_headers(data: Uint8Array)
-		{	if (!headers_read && data.length>0 && headers_buffer && headers_buffer_len>0 && headers_buffer[0]==CR && data[0]==LF)
+		{	if (!headers_read && data[0]===LF && headers_buffer && headers_buffer[headers_buffer_len-1]===CR)
 			{	add_header(headers_buffer.subarray(0, headers_buffer_len-1));
 				data = data.subarray(1);
 				headers_buffer_len = 0;
 			}
+			let pos = 0;
 			while (!headers_read && data.length>0)
-			{	let pos = data.indexOf(CR);
-				if (pos!=-1 && pos!=data.length-1)
-				{	if (data[pos+1] == LF)
-					{	let subj = data;
-						if (headers_buffer && headers_buffer_len>0)
-						{	if (headers_buffer_len+pos > headers_buffer.length)
-							{	// realloc
-								let tmp = new Uint8Array(Math.max(headers_buffer.length*2, headers_buffer_len+pos));
-								tmp.set(headers_buffer.subarray(0, headers_buffer_len));
-								headers_buffer = tmp;
-							}
-							headers_buffer.set(data.subarray(0, pos), headers_buffer_len);
-							subj = headers_buffer;
-						}
-						add_header(subj.subarray(0, headers_buffer_len+pos));
-						headers_buffer_len = 0;
-						data = data.subarray(pos+2); // after \r\n
-					}
-					else
-					{	pos++;
-					}
-				}
-				else
+			{	pos = data.indexOf(CR, pos);
+				if (pos==-1 || pos==data.length-1)
 				{	if (!headers_buffer || headers_buffer_len+data.length > headers_buffer.length)
 					{	// realloc
-						let tmp = new Uint8Array(Math.max((headers_buffer?.length || 0)*2, headers_buffer_len+data.length));
+						let tmp = new Uint8Array(Math.max(128, (headers_buffer?.length || 0)*2, headers_buffer_len+data.length));
 						if (headers_buffer)
 						{	tmp.set(headers_buffer.subarray(0, headers_buffer_len));
 						}
@@ -137,6 +123,26 @@ export class FcgiConn
 					headers_buffer.set(data, headers_buffer_len);
 					headers_buffer_len += data.length;
 					break;
+				}
+				if (data[pos+1] == LF)
+				{	let subj = data;
+					if (headers_buffer_len>0 && headers_buffer)
+					{	if (headers_buffer_len+pos > headers_buffer.length)
+						{	// realloc
+							let tmp = new Uint8Array(Math.max(headers_buffer.length*2, headers_buffer_len+pos));
+							tmp.set(headers_buffer.subarray(0, headers_buffer_len));
+							headers_buffer = tmp;
+						}
+						headers_buffer.set(data.subarray(0, pos), headers_buffer_len);
+						subj = headers_buffer;
+					}
+					add_header(subj.subarray(0, headers_buffer_len+pos));
+					headers_buffer_len = 0;
+					data = data.subarray(pos+2); // after \r\n
+					pos = 0;
+				}
+				else
+				{	pos++;
 				}
 			}
 			return data;
@@ -155,7 +161,8 @@ export class FcgiConn
 						let data = this.buffer.subarray(0, Math.min(n, content_length));
 						if (record_type == FCGI_STDOUT)
 						{	data = cut_headers(data);
-							if (data.length > 0)
+							debug_assert(!headers_read || headers_buffer_len==0);
+							if (headers_read && data.length>0)
 							{	yield data;
 							}
 						}

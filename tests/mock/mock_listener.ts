@@ -12,7 +12,7 @@ export class MockListener implements Deno.Listener
 	{
 	}
 
-	pend_accept(chunk_size: number, force_padding=-1, split_stream_records=false)
+	pend_accept(chunk_size: number, force_padding=-1, split_stream_records: 'no'|'yes'|'full'='no')
 	{	let conn = new MockFcgiConn(chunk_size, force_padding, split_stream_records, this.addr);
 		let satisfy = this.satisfy.shift();
 		if (satisfy)

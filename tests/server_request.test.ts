@@ -7,10 +7,10 @@ import {exists} from "https://deno.land/std/fs/mod.ts";
 import {sleep} from "https://deno.land/x/sleep/mod.ts";
 import {writeAll, readAll} from 'https://deno.land/std/io/util.ts';
 
-function *test_connections(only_chunk_sizes?: number[]): Generator<MockFcgiConn>
+function *test_connections(only_chunk_sizes?: number[], full_split_stream_records=false): Generator<MockFcgiConn>
 {	for (let chunk_size of only_chunk_sizes || TEST_CHUNK_SIZES)
 	{	for (let i=0; i<4; i++)
-		{	yield new MockFcgiConn(chunk_size, i%2==0 ? chunk_size%9 : -1, i>=2);
+		{	yield new MockFcgiConn(chunk_size, i%2==0 ? chunk_size%9 : -1, i<2 ? 'no' : full_split_stream_records ? 'full' : 'yes');
 		}
 	}
 }
@@ -349,7 +349,7 @@ Deno.test
 Deno.test
 (	'Accept',
 	async () =>
-	{	let conn = new MockFcgiConn(1024, -1, true);
+	{	let conn = new MockFcgiConn(1024, -1, 'full');
 		let listener = new MockListener([conn]);
 		let server = new Server(listener);
 		let server_error;
@@ -616,7 +616,7 @@ Deno.test
 Deno.test
 (	'Broken connection',
 	async () =>
-	{	let conn = new MockFcgiConn(21, 0, false);
+	{	let conn = new MockFcgiConn(21, 0, 'no');
 		let listener = new MockListener([conn]);
 		let server = new Server(listener);
 		// write
@@ -646,7 +646,7 @@ Deno.test
 Deno.test
 (	'Broken connection 2',
 	async () =>
-	{	let conn = new MockFcgiConn(999, 0, false);
+	{	let conn = new MockFcgiConn(999, 0, 'no');
 		let listener = new MockListener([conn]);
 		let server = new Server(listener);
 		// write
@@ -676,7 +676,7 @@ Deno.test
 Deno.test
 (	'Broken connection 3',
 	async () =>
-	{	let conn = new MockFcgiConn(999, 0, false);
+	{	let conn = new MockFcgiConn(999, 0, 'no');
 		let listener = new MockListener([conn]);
 		let server = new Server(listener);
 		// write (no stdin)
@@ -704,7 +704,7 @@ Deno.test
 Deno.test
 (	'Close server',
 	async () =>
-	{	let conn = new MockFcgiConn(999, 0, false);
+	{	let conn = new MockFcgiConn(999, 0, 'no');
 		let listener = new MockListener([conn]);
 		let server = new Server(listener);
 		// write
@@ -741,7 +741,7 @@ Deno.test
 Deno.test
 (	'Close server before yielding a request',
 	async () =>
-	{	let conn = new MockFcgiConn(999, 0, false);
+	{	let conn = new MockFcgiConn(999, 0, 'no');
 		let listener = new MockListener([conn]);
 		let server = new Server(listener);
 		// write
@@ -836,8 +836,8 @@ Deno.test
 Deno.test
 (	'Protocol error',
 	async () =>
-	{	let conn_1 = new MockFcgiConn(999, 0, false);
-		let conn_2 = new MockFcgiConn(999, 0, false);
+	{	let conn_1 = new MockFcgiConn(999, 0, 'no');
+		let conn_2 = new MockFcgiConn(999, 0, 'no');
 		let listener = new MockListener([conn_1, conn_2]);
 		let server = new Server(listener);
 		let server_error: Error | undefined;
@@ -872,8 +872,8 @@ Deno.test
 Deno.test
 (	'Protocol error + onerror throws Error',
 	async () =>
-	{	let conn_1 = new MockFcgiConn(999, 0, false);
-		let conn_2 = new MockFcgiConn(999, 0, false);
+	{	let conn_1 = new MockFcgiConn(999, 0, 'no');
+		let conn_2 = new MockFcgiConn(999, 0, 'no');
 		let listener = new MockListener([conn_1, conn_2]);
 		let server = new Server(listener);
 		let server_error: Error | undefined;
@@ -1023,7 +1023,7 @@ Deno.test
 	async () =>
 	{	let len = 8*1024+1;
 		for (let padding of [-1, 1])
-		{	let conn = new MockFcgiConn(999, padding, false);
+		{	let conn = new MockFcgiConn(999, padding, 'no');
 			let str_response = get_random_string(len);
 			let listener = new MockListener([conn]);
 			let server = new Server(listener);
@@ -1120,7 +1120,7 @@ Deno.test
 Deno.test
 (	'Roles',
 	async () =>
-	{	let conn = new MockFcgiConn(999, 0, false);
+	{	let conn = new MockFcgiConn(999, 0, 'no');
 		let listener = new MockListener([conn]);
 		let server = new Server(listener);
 		// write
@@ -1151,7 +1151,7 @@ Deno.test
 Deno.test
 (	'Try mux, abort unexisting and unknown type',
 	async () =>
-	{	let conn = new MockFcgiConn(999, 0, false);
+	{	let conn = new MockFcgiConn(999, 0, 'no');
 		let listener = new MockListener([conn]);
 		let server = new Server(listener);
 		// write
@@ -1199,7 +1199,7 @@ Deno.test
 			}
 			let {listener, conns} = listeners[l];
 			for (let i=0; i<maxConns*multiplier; i++)
-			{	let conn = listener.pend_accept(1024, -1, true);
+			{	let conn = listener.pend_accept(1024, -1, 'full');
 				conns[i] = conn;
 				for (let j=0; j<multiplier_2; j++)
 				{	let req_id = 1 + j*maxConns*multiplier + i;
