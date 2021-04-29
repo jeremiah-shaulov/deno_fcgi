@@ -62,6 +62,22 @@ export class Server implements Deno.Listener
 		return {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize};
 	}
 
+	/**	`on('error', callback)` - catch general connection errors. Only one handler is active. Second `on()` overrides the previous handler.
+		`on('error')` - removes the event handler.
+	 **/
+	on(event_name: string, callback?: (error: Error) => void)
+	{	if (event_name == 'error')
+		{	this.onerror = !callback ? () => {} : error =>
+			{	try
+				{	callback(error);
+				}
+				catch (e)
+				{	console.error(e);
+				}
+			};
+		}
+	}
+
 	async *[Symbol.asyncIterator](): AsyncGenerator<ServerRequest>
 	{	while (true)
 		{	try
@@ -318,22 +334,6 @@ export class Server implements Deno.Listener
 				removed_listeners[i--] = removed_listeners[removed_listeners.length - 1];
 				removed_listeners.length--;
 			}
-		}
-	}
-
-	/**	`on('error', callback)` - catch general connection errors. Only one handler is active. Second `on()` overrides the previous handler.
-		`on('error')` - removes the event handler.
-	 **/
-	on(event_name: string, callback?: (error: Error) => void)
-	{	if (event_name == 'error')
-		{	this.onerror = !callback ? () => {} : error =>
-			{	try
-				{	callback(error);
-				}
-				catch (e)
-				{	console.error(e);
-				}
-			};
 		}
 	}
 

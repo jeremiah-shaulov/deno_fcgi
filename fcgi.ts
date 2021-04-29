@@ -9,6 +9,8 @@ import {EventPromises} from './event_promises.ts';
 
 const DEFAULT_404_PAGE = 'Resource not found';
 
+/**	If the default instance of this class (`fcgi`) is not enough, you can create another `Fcgi` instance with it's own connections pool and maybe with different configuration.
+ **/
 export class Fcgi
 {	private server = new Server;
 	private is_serving = false;
@@ -19,6 +21,7 @@ export class Fcgi
 
 	constructor()
 	{	this.server.on('error', e => {this.onerror.trigger(e)});
+		this.client.on('error', e => {this.onerror.trigger(e)});
 	}
 
 	/**	Register a FastCGI `Server` on specified network address.
@@ -142,7 +145,17 @@ export class Fcgi
 		return {...server_options, ...client_options};
 	}
 
-	fetch(server_options: RequestOptions, input: Request|URL|string, init?: RequestInit): Promise<ResponseWithCookies>
+	/**	Send request to a FastCGI service, like PHP, just like Apache and Nginx do.
+		First argument (`server_options`) specifies how to connect to the service, and what parameters to send to it.
+		2 most important parameters are `server_options.addr` (service socket address), and `server_options.scriptFilename` (path to script file that the service must execute).
+		Second (`input`) and 3rd (`init`) arguments are the same as in built-in `fetch()` function, except that `init` allows to read request body from an `AsyncIterable<Uint8Array>` (`init.bodyIter`).
+		Returned response object extends built-in `Response` (that regular `fetch()` returns) by adding `cookies` property, that contains all `Set-Cookie` headers.
+		Also `response.body` object extends regular `ReadableStream<Uint8Array>` by adding `Deno.Reader` implementation.
+		The response body must be explicitly read, before specified `server_options.timeout` period elapses. After this period, the connection will be forced to close.
+		Each not closed connection counts towards `ClientOptions.maxConns`. After `response.body` read to the end, the connection returns to pool, and can be reused.
+		Idle connections will be closed after `server_options.keepAliveTimeout` microseconds, and after `server_options.keepAliveMax` times used.
+	 **/
+	fetch(server_options: RequestOptions, input: Request|URL|string, init?: RequestInit & {bodyIter?: AsyncIterable<Uint8Array>}): Promise<ResponseWithCookies>
 	{	return this.client.fetch(server_options, input, init);
 	}
 
@@ -154,12 +167,11 @@ export class Fcgi
 		`canFetch()` checks whether there are free slots, and returns true if so.
 		It's recommended not to call `fetch()` untill `canFetch()` grants a green light.
 		Example:
-		```
+
 		while (!fcgi.canFetch())
 		{	await fcgi.pollCanFetch();
 		}
 		await fcgi.fetch(...);
-		```
 	 **/
 	canFetch(): boolean
 	{	return this.client.canFetch();
@@ -170,4 +182,75 @@ export class Fcgi
 	}
 }
 
+/**	`Fcgi` class provides top-level API, above `Server` and `Client`, and `fcgi` is default instance of `Fcgi`.
+
+	// Create FastCGI backend server (another HTTP server will send requests to us)
+
+	fcgi.listen
+	(	8989,
+		'/page-1.html',
+		async req =>
+		{	await req.respond({body: 'Hello world'});
+		}
+	);
+
+
+	// Create FastCGI client for PHP
+
+	import {serve} from "https://deno.land/std@0.92.0/http/server.ts";
+	import {iter} from 'https://deno.land/std@0.95.0/io/util.ts';
+
+	const PHP_POOL_CONFIG_FILE = '/etc/php/7.4/fpm/pool.d/www.conf';
+	const DOCUMENT_ROOT = '/var/www/deno-server-root';
+
+	// Read PHP service address from it's configuration file
+	const CONF = Deno.readTextFileSync(PHP_POOL_CONFIG_FILE);
+	const PHP_LISTEN = CONF.match(/(?:^|\r|\n)\s*listen\s*=\s*(\S+)/)?.[1];
+
+	if (PHP_LISTEN)
+	{	for await (let request of serve({hostname: "0.0.0.0", port: 8000}))
+		{	queueMicrotask
+			(	async () =>
+				{	let url = new URL('http://' + request.headers.get('host') + request.url);
+					if (url.pathname.endsWith('.php'))
+					{	try
+						{	// Fetch from PHP
+							let response = await fcgi.fetch
+							(	{	addr: PHP_LISTEN,
+									params: new Map
+									(	Object.entries
+										(	{	DOCUMENT_ROOT,
+												SCRIPT_FILENAME: DOCUMENT_ROOT+url.pathname, // response will be successful if such file exists
+											}
+										)
+									),
+								},
+								url, // URL of the request that PHP will see
+								{	method: request.method,
+									bodyIter: iter(request.body), // request body as Uint8Array iterator
+								}
+							);
+							console.log(response);
+
+							// Pass the response to deno server
+							await request.respond
+							(	{	status: response.status,
+									headers: response.headers,
+									body: response.body ?? undefined, // response body as Deno.Reader
+								}
+							);
+						}
+						catch (e)
+						{	console.error(e);
+							await request.respond({status: 500, body: ''});
+						}
+					}
+					else
+					{	await request.respond({status: 404, body: 'Resource not found'});
+					}
+				}
+			);
+		}
+	}
+ **/
 export const fcgi = new Fcgi;

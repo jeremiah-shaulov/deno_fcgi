@@ -149,7 +149,7 @@ Deno.test
 			async req =>
 			{	req.logError(`Message ${n_request}.a`);
 				req.logError(`Message ${n_request}.b`);
-				await req.respond();
+				await req.respond({body: 'Response body'});
 				if (++n_request >= N_REQUESTS)
 				{	fcgi.unlisten(listener.addr);
 				}
@@ -168,7 +168,7 @@ Deno.test
 				`https://example.com/page.html`
 			);
 			assertEquals(response.status, 200);
-			assertEquals(await response.text(), '');
+			assertEquals(await response.text(), 'Response body');
 			assertEquals(messages, [`Message ${i}.a`, `Message ${i}.b`]);
 		}
 		assert(!server_error);
@@ -292,7 +292,7 @@ Deno.test
 						}
 					);
 					assertEquals(response.status, 200);
-					assertEquals(await response.text(), `Response body ${i}`);
+					assertEquals(!response.body ? '' : new TextDecoder().decode(await readAll(response.body)), `Response body ${i}`);
 				}
 			);
 		}

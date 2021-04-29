@@ -5,6 +5,7 @@ import {FcgiConn} from "./fcgi_conn.ts";
 import {SetCookies} from "./set_cookies.ts";
 import {TooManyConnsError} from './error.ts';
 
+const BUFFER_LEN = 8*1024;
 export const SERVER_SOFTWARE = 'DenoFcgi/0.0';
 const DEFAULT_MAX_CONNS = 128;
 const DEFAULT_TIMEOUT = 10000;
@@ -13,12 +14,16 @@ const DEFAULT_KEEP_ALIVE_MAX = Number.MAX_SAFE_INTEGER;
 const KEEPALIVE_CHECK_EACH = 1000;
 const FORGET_CONNECTION_STATE_AFTER = 10*60*60*1000;
 
+const CONN_TYPE_INTERNAL_NO_REUSE = 0;
+const CONN_TYPE_INTERNAL_REUSE = 1;
+const CONN_TYPE_EXTERNAL = 2;
+
 export interface ClientOptions
 {	maxConns?: number,
 	timeout?: number,
 	keepAliveTimeout?: number,
 	keepAliveMax?: number,
-	/** Handler for errors logged from the requested service. */
+	/** Handler for errors logged from the requested service (messages printed to stderr). */
 	onLogError?: (error: string) => void,
 }
 
@@ -29,16 +34,80 @@ export interface RequestOptions
 	scriptFilename?: string,
 	/** Additional parameters to send to FastCGI server. If sending to PHP, they will be found in $_SERVER. If `params` object is given, it will be modified - `scriptFilename` and parameters inferred from request URL will be added to it. */
 	params?: Map<string, string>,
+	/** Microseconds. Connection will be forced to close after this timeout elapses. */
 	timeout?: number,
+	/** Microseconds. Idle connection will be closed if not used for this period of time. */
 	keepAliveTimeout?: number,
+	/** How many times to reuse this connection. */
 	keepAliveMax?: number,
-	/** Handler for errors logged from the requested service. */
+	/** Handler for errors logged from the requested service (messages printed to stderr). */
 	onLogError?: (error: string) => void,
 }
 
 export class ResponseWithCookies extends Response
-{	constructor(body?: BodyInit|null|undefined, init?: ResponseInit|undefined, public cookies = new SetCookies)
+{	constructor(public body: ReadableReadableStream | null, init?: ResponseInit|undefined, public cookies = new SetCookies)
 	{	super(body, init);
+	}
+}
+
+class ReadableReadableStream extends ReadableStream<Uint8Array> implements Deno.Reader
+{	private is_reading = false;
+
+	constructor(private body_first_part: Uint8Array|undefined, private body_it: AsyncGenerator<number, void, Uint8Array>, private ondone: () => void)
+	{	super
+		(	{	pull: async (controller) =>
+				{	try
+					{	if (!this.is_reading)
+						{	// initially enqueue 1 empty chunk, befire user decides does he want to read this object through `ReadableStream`, or through `Deno.Reader`
+							this.is_reading = true;
+							controller.enqueue(new Uint8Array);
+						}
+						else if (this.body_first_part)
+						{	controller.enqueue(this.body_first_part); // "enqueue()" consumes the buffer by setting "value.buffer.byteLength" to "0"
+							this.body_first_part = undefined;
+						}
+						else
+						{	let buffer = new Uint8Array(BUFFER_LEN);
+							let {value: n_read, done} = await this.body_it.next(buffer);
+							if (!done)
+							{	controller.enqueue(buffer.subarray(0, n_read as number)); // "enqueue()" consumes the buffer by setting "value.buffer.byteLength" to "0"
+							}
+							else
+							{	this.ondone();
+								controller.close();
+							}
+						}
+					}
+					catch (e)
+					{	controller.error(e);
+						controller.close();
+					}
+				}
+			}
+		);
+	}
+
+	async read(buffer: Uint8Array): Promise<number | null>
+	{	if (this.body_first_part)
+		{	let len = this.body_first_part.length;
+			if (buffer.length >= len)
+			{	buffer.set(this.body_first_part);
+				this.body_first_part = undefined;
+				return len;
+			}
+			else
+			{	buffer.set(this.body_first_part.subarray(0, buffer.length));
+				this.body_first_part = this.body_first_part.subarray(buffer.length);
+				return buffer.length;
+			}
+		}
+		let {value: n_read, done} = await this.body_it.next(buffer);
+		if (!done)
+		{	debug_assert(n_read > 0);
+			return n_read as number;
+		}
+		this.ondone();
+		return null;
 	}
 }
 
@@ -55,6 +124,7 @@ export class Client
 	private n_busy_all = 0;
 	private h_timer: number | undefined;
 	private can_fetch_callbacks: (() => void)[] = [];
+	private onerror: (error: Error) => void = () => {};
 
 	private maxConns: number;
 	private timeout: number;
@@ -82,7 +152,23 @@ export class Client
 		return {maxConns, timeout, keepAliveTimeout, keepAliveMax, onLogError};
 	}
 
-	async fetch(request_options: RequestOptions, input: Request|URL|string, init?: RequestInit): Promise<ResponseWithCookies>
+	/**	`on('error', callback)` - catch general connection errors. Only one handler is active. Second `on()` overrides the previous handler.
+		`on('error')` - removes the event handler.
+	 **/
+	on(event_name: string, callback?: (error: Error) => void)
+	{	if (event_name == 'error')
+		{	this.onerror = !callback ? () => {} : error =>
+			{	try
+				{	callback(error);
+				}
+				catch (e)
+				{	console.error(e);
+				}
+			};
+		}
+	}
+
+	async fetch(request_options: RequestOptions, input: Request|URL|string, init?: RequestInit & {bodyIter?: AsyncIterable<Uint8Array>}): Promise<ResponseWithCookies>
 	{	let {addr, scriptFilename, params, timeout, keepAliveTimeout, keepAliveMax, onLogError} = request_options;
 		if (timeout == undefined)
 		{	timeout = this.timeout;
@@ -122,22 +208,21 @@ export class Client
 			{	params.set('HTTP_'+name.replaceAll('-', '_').toUpperCase(), value);
 			}
 		}
-		//
-		let headers = new Headers;
-		let cookies = new SetCookies;
 		// get_conn
-		var {conn, server_addr_str, keep_conn, supports_reuse_connection} = await this.get_conn(addr, timeout, keepAliveTimeout, keepAliveMax);
+		var {conn, server_addr_str, conn_type} = await this.get_conn(addr, timeout, keepAliveTimeout, keepAliveMax);
+		conn.on_log_error = onLogError;
 		// query
+		let buffer = new Uint8Array(BUFFER_LEN);
 		try
 		{	while (true)
 			{	try
-				{	await conn.write_request(params, input.body, keep_conn);
+				{	await conn.write_request(params, init?.bodyIter ?? input.body, conn_type!=CONN_TYPE_INTERNAL_NO_REUSE);
 				}
 				catch (e)
-				{	if (supports_reuse_connection && e.name=='BrokenPipe')
+				{	if (conn_type==CONN_TYPE_INTERNAL_REUSE && e.name=='BrokenPipe')
 					{	// unset "supports_reuse_connection" for this "server_addr_str"
-						supports_reuse_connection = false;
-						this.return_conn(server_addr_str, conn, false);
+						conn_type = CONN_TYPE_INTERNAL_NO_REUSE;
+						this.return_conn(server_addr_str, conn, conn_type);
 						this.get_conns(server_addr_str).supports_reuse_connection = false;
 						var {conn} = await this.get_conn(server_addr_str, timeout, keepAliveTimeout, keepAliveMax);
 						continue;
@@ -146,40 +231,34 @@ export class Client
 				}
 				break;
 			}
-			var it = conn.read_response(headers, cookies, onLogError);
-			var {value, done} = await it.next();
+			var it = conn.read_response(buffer);
+			let {value: n_read, done} = await it.next(buffer); // this reads all the headers before getting to the body
+			buffer = buffer.subarray(0, done ? 0 : n_read as number);
 		}
 		catch (e)
-		{	this.return_conn(server_addr_str, conn, false);
+		{	this.return_conn(server_addr_str, conn, CONN_TYPE_INTERNAL_NO_REUSE);
 			throw e;
 		}
 		// return
-		let status = headers.get('status');
+		let status = conn.headers.get('status');
 		if (status != null)
-		{	headers.delete('status');
+		{	conn.headers.delete('status');
 		}
 		let status_str = status || '';
 		let pos = status_str.indexOf(' ');
-		if (done)
-		{	this.return_conn(server_addr_str, conn, supports_reuse_connection);
+		let headers = conn.headers;
+		let cookies = conn.cookies;
+		conn.headers = new Headers;
+		conn.cookies = new SetCookies;
+		if (buffer.length == 0)
+		{	this.return_conn(server_addr_str, conn, conn_type);
 		}
-		let that = this;
 		return new ResponseWithCookies
-		(	done ? value : new ReadableStream
-			(	{	type: 'bytes',
-					start(controller)
-					{	controller.enqueue(value.slice()); // "enqueue()" consumes the buffer by setting "value.buffer.byteLength" to "0", so slice() is needed
-					},
-					async pull(controller)
-					{	let {value, done} = await it.next();
-						if (done)
-						{	that.return_conn(server_addr_str, conn, supports_reuse_connection);
-							controller.close();
-						}
-						else
-						{	controller.enqueue(value.slice()); // "enqueue()" consumes the buffer by setting "value.buffer.byteLength" to "0", so slice() is needed
-						}
-					}
+		(	buffer.length==0 ? null : new ReadableReadableStream
+			(	buffer,
+				it,
+				() =>
+				{	this.return_conn(server_addr_str, conn, conn_type);
 				}
 			),
 			{	status: parseInt(status_str) || 200,
@@ -195,7 +274,7 @@ export class Client
 		await conn.write_record_get_values(new Map(Object.entries({FCGI_MAX_CONNS: '', FCGI_MAX_REQS: '', FCGI_MPXS_CONNS: ''})));
 		let header = await conn.read_record_header();
 		let map = await conn.read_record_get_values_result(header.content_length, header.padding_length);
-		this.return_conn(server_addr_str, conn, false);
+		this.return_conn(server_addr_str, conn, CONN_TYPE_INTERNAL_NO_REUSE);
 		let fcgi_max_conns = map.get('FCGI_MAX_CONNS');
 		let fcgi_max_reqs = map.get('FCGI_MAX_REQS');
 		let fcgi_mpxs_conns = map.get('FCGI_MPXS_CONNS');
@@ -244,31 +323,49 @@ export class Client
 		return conns;
 	}
 
-	private async get_conn(addr: FcgiAddr | Deno.Conn, timeout: number, keepAliveTimeout: number, keepAliveMax: number): Promise<{conn: FcgiConn, server_addr_str: string, keep_conn: boolean, supports_reuse_connection: boolean}>
-	{	if (typeof(addr)=='object' && 'remoteAddr' in addr)
-		{	return {conn: new FcgiConn(addr), server_addr_str: '', keep_conn: true, supports_reuse_connection: false};
-		}
-		debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
+	private async get_conn(addr: FcgiAddr | Deno.Conn, timeout: number, keepAliveTimeout: number, keepAliveMax: number): Promise<{conn: FcgiConn, server_addr_str: string, conn_type: number}>
+	{	debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
 		if (this.n_busy_all >= this.maxConns)
 		{	throw new TooManyConnsError('Too many connections');
 		}
-		let server_addr = faddr_to_addr(addr);
+		let server_addr;
+		let external_conn;
+		if (typeof(addr)=='object' && 'remoteAddr' in addr)
+		{	server_addr = addr.remoteAddr;
+			external_conn = addr;
+		}
+		else
+		{	server_addr = faddr_to_addr(addr);
+		}
 		let server_addr_str = addr_to_string(server_addr);
 		let conns = this.get_conns(server_addr_str);
 		let {idle, busy, supports_reuse_connection} = conns;
+		let conn_type = supports_reuse_connection ? CONN_TYPE_INTERNAL_REUSE : CONN_TYPE_INTERNAL_NO_REUSE;
 		let now = Date.now();
 		while (true)
-		{	let conn = idle.pop();
-			if (!conn)
-			{	conn = new FcgiConn(await Deno.connect(server_addr as any));
-			}
-			else if (conn.use_till <= now)
-			{	this.n_idle_all--;
-				conn.close();
-				continue;
+		{	let conn;
+			if (external_conn)
+			{	conn = new FcgiConn(external_conn);
+				conn_type = CONN_TYPE_EXTERNAL;
 			}
 			else
-			{	this.n_idle_all--;
+			{	conn = idle.pop();
+				if (!conn)
+				{	conn = new FcgiConn(await Deno.connect(server_addr as any));
+				}
+				else if (conn.use_till <= now)
+				{	this.n_idle_all--;
+					try
+					{	conn.close();
+					}
+					catch (e)
+					{	this.onerror(e);
+					}
+					continue;
+				}
+				else
+				{	this.n_idle_all--;
+				}
 			}
 			debug_assert(conn.request_till == 0);
 			conn.request_till = now + timeout;
@@ -280,14 +377,16 @@ export class Client
 			busy.push(conn);
 			this.n_busy_all++;
 			this.close_exceeding_idle_conns(idle);
-			return {conn, server_addr_str, keep_conn: supports_reuse_connection, supports_reuse_connection};
+			return {conn, server_addr_str, conn_type};
 		}
 	}
 
-	private return_conn(server_addr_str: string, conn: FcgiConn, reuse_connection: boolean)
+	/**	Call with CONN_TYPE_INTERNAL_NO_REUSE to close the connection, even if it's external.
+	 **/
+	private return_conn(server_addr_str: string, conn: FcgiConn, conn_type: number)
 	{	let conns = this.conns_pool.get(server_addr_str);
 		if (!conns)
-		{	// assume: return_conn() already called for this connection, or server_addr_str==='' (Deno.Conn object was given to `fetch()`)
+		{	// assume: return_conn() already called for this connection
 			return;
 		}
 		let i = conns.busy.indexOf(conn);
@@ -300,13 +399,20 @@ export class Client
 		debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
 		conns.busy[i] = conns.busy[conns.busy.length - 1];
 		conns.busy.length--;
-		if (!reuse_connection || --conn.use_n_times<=0 || conn.use_till<=Date.now())
-		{	conn.close();
+		if (conn_type==CONN_TYPE_INTERNAL_NO_REUSE || --conn.use_n_times<=0 || conn.use_till<=Date.now())
+		{	try
+			{	conn.close();
+			}
+			catch (e)
+			{	this.onerror(e);
+			}
 		}
 		else
 		{	conn.request_till = 0;
-			conns.idle.push(conn);
-			this.n_idle_all++;
+			if (conn_type != CONN_TYPE_EXTERNAL)
+			{	conns.idle.push(conn);
+				this.n_idle_all++;
+			}
 		}
 		if (this.n_busy_all < this.maxConns)
 		{	let n = this.can_fetch_callbacks.length;
@@ -332,7 +438,7 @@ export class Client
 			{	let conn = busy[i];
 				debug_assert(conn.request_till > 0);
 				if (conn.request_till <= now)
-				{	this.return_conn(server_addr_str, conn, false);
+				{	this.return_conn(server_addr_str, conn, CONN_TYPE_INTERNAL_NO_REUSE);
 				}
 			}
 			// Some idle connection is no longer needed?
@@ -342,7 +448,12 @@ export class Client
 				if (conn.use_till <= now)
 				{	idle.splice(i, 1);
 					this.n_idle_all--;
-					conn.close();
+					try
+					{	conn.close();
+					}
+					catch (e)
+					{	this.onerror(e);
+					}
 				}
 			}
 			//
@@ -373,7 +484,12 @@ export class Client
 						}
 						n_close_idle--;
 						this.n_idle_all--;
-						conn.close();
+						try
+						{	conn.close();
+						}
+						catch (e)
+						{	this.onerror(e);
+						}
 						debug_assert(this.n_idle_all >= 0);
 						if (n_close_idle == 0)
 						{	return;
@@ -384,7 +500,12 @@ export class Client
 			}
 			n_close_idle--;
 			this.n_idle_all--;
-			conn.close();
+			try
+			{	conn.close();
+			}
+			catch (e)
+			{	this.onerror(e);
+			}
 			debug_assert(this.n_idle_all >= 0);
 		}
 	}
