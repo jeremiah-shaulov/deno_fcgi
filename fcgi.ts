@@ -9,7 +9,7 @@ import {EventPromises} from './event_promises.ts';
 
 const DEFAULT_404_PAGE = 'Resource not found';
 
-/**	If the default instance of this class (`fcgi`) is not enough, you can create another `Fcgi` instance with it's own connections pool and maybe with different configuration.
+/**	If the default instance of this class (`fcgi`) is not enough, you can create another `Fcgi` instance with it's own connection pool and maybe with different configuration.
  **/
 export class Fcgi
 {	private server = new Server;
@@ -25,7 +25,45 @@ export class Fcgi
 	}
 
 	/**	Register a FastCGI `Server` on specified network address.
+		The address can be given as:
+		a port number (`8000`),
+		a hostname (`localhost:8000`, `0.0.0.0:8000`, `[::1]:8000`, `::1`),
+		a unix-domain socket file name (`/run/deno-fcgi-server.sock`),
+		a `Deno.Addr` (`{transport: 'tcp', hostname: '127.0.0.1', port: 8000}`),
+		or a ready `Deno.Listener` object can also be given.
 		This function can be called multiple times with the same or different addresses.
+		Second argument allows to filter requests arriving to the specified address.
+		It uses `x/path_to_regexp` library, just like `x/oak` does.
+		Third argument is callback function with signature `((request: ServerRequest, params: any) => Promise<unknown>)` that will be called for each incoming request, matching the path filter.
+		`params` contains regexp groups from the path filter.
+		This callback can decide not to handle this request, and return without awaiting for anything, so other matching handlers will take chance to handle the request.
+		If none of handlers took the request, default 404 response will be sent to client.
+		If the callback decides to handle the request, it can take time doing what's needed, and eventually it should call `req.respond()`.
+		Example:
+
+		fcgi.listen
+		(	8989,
+			'/page-1.html',
+			async req =>
+			{	await req.respond({body: 'Hello world'});
+			}
+		);
+
+		fcgi.listen
+		(	8989,
+			'/catalog/:item',
+			async (req, params) =>
+			{	await req.respond({body: `Item ${params.item}`});
+			}
+		);
+
+		fcgi.listen
+		(	8989,
+			'', // match all paths
+			async req =>
+			{	await req.respond({body: 'Something else'});
+			}
+		);
 	 **/
 	listen(addr_or_listener: FcgiAddr | Deno.Listener, path_pattern: PathPattern, callback: Callback)
 	{	let {server} = this;
@@ -100,7 +138,8 @@ export class Fcgi
 		return listener;
 	}
 
-	/**	Stop serving requests on specified network address, or on all addresses.
+	/**	Stop serving requests on specified network address, or on all addresses (if the `addr` is `undefined`).
+		Removing all listeners will trigger `end` event.
 	 **/
 	unlisten(addr?: FcgiAddr)
 	{	if (addr == undefined)
@@ -136,8 +175,13 @@ export class Fcgi
 		}
 	}
 
-	/**	Set and/or get FastCGI `Server` and/or `Client` options. You can call it at any time, but new options can take effect later, on new connections.
-		It returns current options.
+	/**	Allows to modify `Server` and/or `Client` options. Not specified options will retain their previous values.
+		This function can be called at any time, even after server started running, and new option values will take effect when possible.
+		This function returns all the options after modification.
+
+		console.log(`maxConns=${fcgi.options().maxConns}`);
+		fcgi.options({maxConns: 123});
+		console.log(`Now maxConns=${fcgi.options().maxConns}`);
 	 **/
 	options(options?: ServerOptions & ClientOptions): ServerOptions & ClientOptions
 	{	let server_options = this.server.options(options);
@@ -146,19 +190,22 @@ export class Fcgi
 	}
 
 	/**	Send request to a FastCGI service, like PHP, just like Apache and Nginx do.
-		First argument (`server_options`) specifies how to connect to the service, and what parameters to send to it.
-		2 most important parameters are `server_options.addr` (service socket address), and `server_options.scriptFilename` (path to script file that the service must execute).
+		First argument (`request_options`) specifies how to connect to the service, and what parameters to send to it.
+		2 most important parameters are `request_options.addr` (service socket address), and `request_options.scriptFilename` (path to script file that the service must execute).
 		Second (`input`) and 3rd (`init`) arguments are the same as in built-in `fetch()` function, except that `init` allows to read request body from an `AsyncIterable<Uint8Array>` (`init.bodyIter`).
 		Returned response object extends built-in `Response` (that regular `fetch()` returns) by adding `cookies` property, that contains all `Set-Cookie` headers.
 		Also `response.body` object extends regular `ReadableStream<Uint8Array>` by adding `Deno.Reader` implementation.
-		The response body must be explicitly read, before specified `server_options.timeout` period elapses. After this period, the connection will be forced to close.
-		Each not closed connection counts towards `ClientOptions.maxConns`. After `response.body` read to the end, the connection returns to pool, and can be reused.
-		Idle connections will be closed after `server_options.keepAliveTimeout` microseconds, and after `server_options.keepAliveMax` times used.
+		The response body must be explicitly read, before specified `request_options.timeout` period elapses. After this period, the connection will be forced to close.
+		Each not closed connection counts towards `ClientOptions.maxConns`. After `response.body` read to the end, the connection returns to pool, and can be reused
+		(except the case where existing `Deno.Conn` was given to `request_options.addr` - in this case the creator of this object decides what to do with this object then).
+		Idle connections will be closed after `request_options.keepAliveTimeout` microseconds, and after `request_options.keepAliveMax` times used.
 	 **/
-	fetch(server_options: RequestOptions, input: Request|URL|string, init?: RequestInit & {bodyIter?: AsyncIterable<Uint8Array>}): Promise<ResponseWithCookies>
-	{	return this.client.fetch(server_options, input, init);
+	fetch(request_options: RequestOptions, input: Request|URL|string, init?: RequestInit & {bodyIter?: AsyncIterable<Uint8Array>}): Promise<ResponseWithCookies>
+	{	return this.client.fetch(request_options, input, init);
 	}
 
+	/**	Ask a FastCGI service (like PHP) for it's protocol capabilities. This is not so useful information. Only for those who curious. As i know, Apache and Nginx don't even ask for this during protocol usage.
+	 **/
 	fetchCapabilities(addr: FcgiAddr | Deno.Conn): Promise<{FCGI_MAX_CONNS?: number, FCGI_MAX_REQS?: number, FCGI_MPXS_CONNS?: number}>
 	{	return this.client.fetchCapabilities(addr);
 	}
@@ -182,7 +229,7 @@ export class Fcgi
 	}
 }
 
-/**	`Fcgi` class provides top-level API, above `Server` and `Client`, and `fcgi` is default instance of `Fcgi`.
+/**	`Fcgi` class provides top-level API, above `Server` and `Client`, and `fcgi` is the default instance of `Fcgi` to be used most of the time.
 
 	// Create FastCGI backend server (another HTTP server will send requests to us)
 
@@ -205,7 +252,7 @@ export class Fcgi
 
 	// Read PHP service address from it's configuration file
 	const CONF = Deno.readTextFileSync(PHP_POOL_CONFIG_FILE);
-	const PHP_LISTEN = CONF.match(/(?:^|\r|\n)\s*listen\s*=\s*(\S+)/)?.[1];
+	const PHP_LISTEN = CONF.match(/(?:^|\r|\n)\s{0,}listen\s{0,}=\s{0,}(\S+)/)?.[1];
 
 	if (PHP_LISTEN)
 	{	for await (let request of serve({hostname: "0.0.0.0", port: 8000}))

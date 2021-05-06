@@ -55,7 +55,7 @@ Deno.test
 Deno.test
 (	'Cookies: Max-Age',
 	() =>
-	{	let cookies = new Cookies('');
+	{	let cookies = new Cookies;
 		assertEquals(cookies.size, 0);
 		let now = Date.now();
 		cookies.set('coo', 'val', {maxAge: 30});
@@ -72,7 +72,7 @@ Deno.test
 Deno.test
 (	'Cookies: Expires',
 	() =>
-	{	let cookies = new Cookies('');
+	{	let cookies = new Cookies;
 		assertEquals(cookies.size, 0);
 		let expires = new Date(Date.now() + 30_000);
 		cookies.set('coo', 'val', {expires});
@@ -89,7 +89,7 @@ Deno.test
 Deno.test
 (	'Cookies: empty value',
 	() =>
-	{	let cookies = new Cookies('');
+	{	let cookies = new Cookies;
 		assertEquals(cookies.size, 0);
 		cookies.set('coo', '', {maxAge: 30});
 		assertEquals(cookies.size, 0);
@@ -101,7 +101,7 @@ Deno.test
 Deno.test
 (	'Cookies: invalid',
 	() =>
-	{	let cookies = new Cookies('');
+	{	let cookies = new Cookies;
 		// invalid Domain
 		let error;
 		try
@@ -129,6 +129,10 @@ Deno.test
 		{	error = e;
 		}
 		assert(error instanceof CookieError);
+		// no '='
+		cookies = new Cookies('coo-1=val <1>; coo-2');
+		assertEquals(cookies.size, 1);
+		assertEquals(cookies.get('coo-1'), 'val <1>');
 	}
 );
 

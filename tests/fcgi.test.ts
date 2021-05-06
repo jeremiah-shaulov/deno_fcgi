@@ -176,6 +176,53 @@ Deno.test
 );
 
 Deno.test
+(	'Cookies',
+	async () =>
+	{	let server_error;
+		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
+		// accept
+		let cookies_date = 0;
+		let listener = fcgi.listen
+		(	0,
+			'',
+			async req =>
+			{	assertEquals(req.headers.get('cookie'), 'coo-1= val <1> ; coo-2=val <2>.');
+				assertEquals(req.cookies.size, 2);
+				assertEquals(req.cookies.get('coo-1'), ' val <1> ');
+				assertEquals(req.cookies.get('coo-2'), 'val <2>.');
+				cookies_date = Date.now();
+				req.cookies.set('coo-2', 'Hello 2', {path: '/'});
+				req.cookies.set('coo-3', 'Hello 3', {expires: new Date(cookies_date+10*1000)});
+				req.cookies.set('coo-4', 'Hello 4');
+				await req.respond({body: 'Response body'});
+				fcgi.unlisten(listener.addr);
+			}
+		);
+		// query
+		let response = await fcgi.fetch
+		(	{	addr: listener.addr,
+				keepAliveMax: 1
+			},
+			`https://example.com/page.html`,
+			{	headers:
+				{	cookie: 'coo-1= val <1> ; coo-2=val <2>.'
+				}
+			}
+		);
+		// check
+		assertEquals(response.status, 200);
+		assertEquals(await response.text(), 'Response body');
+		assertEquals(response.cookies.size, 3);
+		assertEquals(response.cookies.get('coo-2'), {value: 'Hello 2', options: {path: '/'}});
+		assertEquals(response.cookies.get('coo-3')?.value, 'Hello 3');
+		assertEquals(response.cookies.get('coo-3')?.options.expires, new Date(cookies_date - cookies_date%1000 + 10*1000));
+		assert(response.cookies.get('coo-3')?.options.maxAge==10 || response.cookies.get('coo-3')?.options.maxAge==9);
+		assertEquals(response.cookies.get('coo-4'), {value: 'Hello 4', options: {}});
+		assert(!server_error);
+	}
+);
+
+Deno.test
 (	'Protocol error',
 	async () =>
 	{	let listener_1 = new MockListener;

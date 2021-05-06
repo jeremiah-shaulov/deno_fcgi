@@ -4,6 +4,18 @@ import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts
 import {exists} from "https://deno.land/std/fs/mod.ts";
 import {readAll} from 'https://deno.land/std/io/util.ts';
 
+function get_random_bytes(length: number)
+{	let buffer = new Uint8Array(length);
+	for (let i=0; i<buffer.length; i++)
+	{	buffer[i] = 32 + Math.floor(Math.random()*90);
+	}
+	return buffer;
+}
+
+function get_random_string(length: number)
+{	return new TextDecoder().decode(get_random_bytes(length));
+}
+
 Deno.test
 (	'Urlencoded',
 	async () =>
@@ -108,6 +120,10 @@ Deno.test
 				f.close();
 				assertEquals(contents, file_contents);
 				assertEquals(uploaded_file, {error: 0, name: '/tmp/current_file', size: file_contents.length, tmpName: uploaded_file!.tmpName, type: 'application/octet-stream'});
+				if (i == 1)
+				{	await Deno.remove(tmpName); // delete before closing "post"
+					assert(!await exists(tmpName));
+				}
 				await post.close();
 				assert(!await exists(tmpName));
 			}
@@ -116,7 +132,7 @@ Deno.test
 );
 
 Deno.test
-(	'Form-data long name',
+(	'Form-data too long name',
 	async () =>
 	{	let data =
 		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
@@ -144,7 +160,7 @@ Deno.test
 );
 
 Deno.test
-(	'Form-data long value',
+(	'Form-data too long value',
 	async () =>
 	{	let data =
 		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
@@ -208,7 +224,7 @@ Deno.test
 );
 
 Deno.test
-(	'Form-data long file',
+(	'Form-data too long file',
 	async () =>
 	{	let file_contents = 'ABC\r\nDEF\nGHI';
 		let data =
@@ -252,6 +268,56 @@ Deno.test
 );
 
 Deno.test
+(	'Form-data long file',
+	async () =>
+	{	let file_contents = [get_random_string(8*1024 - 300), get_random_string(8*1024 - 300), get_random_string(100)];
+		let data =
+		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+			'Content-Disposition: form-data; name="name"\r\n'+
+			'\r\n'+
+			'Orange\r\n'+
+			'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+			'Content-Disposition: form-data; name="file 0"; filename="/tmp/file_0"\r\n'+
+			'Content-Type: application/octet-stream\r\n'+
+			'\r\n'+
+			file_contents[0]+'\r\n'+
+			'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+			'Content-Disposition: form-data; name="file 1"; filename="/tmp/file_1"\r\n'+
+			'Content-Type: application/octet-stream\r\n'+
+			'\r\n'+
+			file_contents[1]+'\r\n'+
+			'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+			'Content-Disposition: form-data; name="field 2"\r\n'+
+			'\r\n'+
+			file_contents[2]+'\r\n'+
+			'------WebKitFormBoundaryAmvtsvCs9WGC03jH--\r\n'
+		);
+		let post = new Post(new MockConn(data, 10000), () => {}, 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, file_contents[2].length, Math.max(...file_contents.map(v => v.length)));
+		await post.parse();
+		assertEquals(map_to_obj(post), {name: 'Orange', 'field 2': file_contents[2]});
+		assertEquals(post.files.size, 2);
+		let tmp_names = [];
+		for (let i=0; i<2; i++)
+		{	let uploaded_file = post.files.get('file '+i);
+			let tmpName = uploaded_file?.tmpName;
+			assert(tmpName);
+			tmp_names[i] = tmpName;
+			assert(await exists(tmpName));
+			let f = await Deno.open(tmpName, {read: true});
+			let contents = new TextDecoder().decode(await readAll(f));
+			f.close();
+			assertEquals(contents, file_contents[i]);
+			uploaded_file!.tmpName = '';
+			assertEquals(uploaded_file, {error: 0, name: '/tmp/file_'+i, size: file_contents[i].length, tmpName: '', type: 'application/octet-stream'});
+		}
+		await post.close();
+		for (let i=0; i<2; i++)
+		{	assert(!await exists(tmp_names[i]));
+		}
+	}
+);
+
+Deno.test
 (	'Invalid',
 	async () =>
 	{	for (let chunk_size of TEST_CHUNK_SIZES)
@@ -260,5 +326,14 @@ Deno.test
 			assertEquals(map_to_obj(post), {a: '1', b: {KEY: '2'}, c: '3'});
 			assertEquals(post.files.size, 0);
 		}
+		// no boundary
+		let data = 'Hello';
+		let post = new Post(new MockConn(data), () => {}, 'multipart/form-data', '', data.length);
+		await post.parse();
+		assertEquals(post.size, 0);
+		// no fields after first boundary
+		post = new Post(new MockConn(data), () => {}, 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length);
+		await post.parse();
+		assertEquals(post.size, 0);
 	}
 );
