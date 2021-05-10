@@ -4,7 +4,7 @@ import {exists} from "https://deno.land/std/fs/mod.ts";
 import {writeAll} from 'https://deno.land/std/io/util.ts';
 
 const BUFFER_LEN = 8*1024;
-const REALLOC_THRESHOLD = 256; // max length for header line like `Content-Disposition: form-data; name="image"; filename="/tmp/current_file"` is BUFFER_LEN-REALLOC_THRESHOLD
+export const REALLOC_THRESHOLD = 512; // max length for header line like `Content-Disposition: form-data; name="image"; filename="/tmp/current_file"` is BUFFER_LEN-REALLOC_THRESHOLD
 const MAX_BOUNDARY_LEN = 100;
 const MAX_BOUNDARY_PAD_CHARS = 16; // boundary '--Bnd' can be padded with more dashes, like '----Bnd'
 
@@ -35,7 +35,7 @@ export class Post extends StructuredMap
 	/// Uploaded files are stored to temporary files that will be deleted at the end of request. You can read them, or move to a different location (from where they will not be deleted).
 	public files = new Map<string, UploadedFile>();
 
-	private is_parse_error = false;
+	private is_parse_success = false;
 	private uploaded_files: string[] = [];
 
 	constructor
@@ -72,23 +72,21 @@ export class Post extends StructuredMap
 
 	/**	Reads POST body, and tries to parse it according to `contentType`.
 		The following content types are supported: `application/x-www-form-urlencoded`, `multipart/form-data`.
-
 		The object is empty before this method called. It can be called many times (next calls do nothing).
 		`isParsed` is set regardless of errors.
-
-		Returns true if parsed successfully, and false if invalid format. On I/O errors throws exception.
+		Returns true if parsed successfully, and false if invalid format, or some name/value was too long. On I/O errors throws exception.
 	 **/
 	async parse()
 	{	if (!this.isParsed)
 		{	this.isParsed = true;
 			if (this.contentType == 'application/x-www-form-urlencoded')
-			{	this.is_parse_error = await this.parse_urlencoded();
+			{	this.is_parse_success = await this.parse_urlencoded();
 			}
 			else if (this.contentType == 'multipart/form-data')
-			{	this.is_parse_error = await this.parse_mulpipart_form_data();
+			{	this.is_parse_success = await this.parse_mulpipart_form_data();
 			}
 		}
-		return this.is_parse_error;
+		return this.is_parse_success;
 	}
 
 	private async parse_urlencoded(): Promise<boolean>
@@ -157,7 +155,7 @@ L:		while (true)
 			}
 
 			// 2. Read param name (if S_NAME) or value (if S_VALUE)
-			let str = decoder.decode(buffer.subarray(buffer_start, i));
+			let str = decodeURIComponent(decoder.decode(buffer.subarray(buffer_start, i)));
 			buffer_start = i + 1; // after '=' or '&'
 			if (buffer[i] == EQ)
 			{	debug_assert(state == S_NAME); // i didn't look for EQ in S_VALUE state
@@ -168,13 +166,20 @@ L:		while (true)
 			{	if (state == S_NAME)
 				{	// case: name (without '=')
 					if (str.length <= maxNameLength)
-					{	this.setStructured(str, '');
+					{	if (!this.setStructured(str, ''))
+						{	ignored_some_param = true;
+						}
 					}
 				}
 				else
 				{	// case: name=value
 					if (name.length<=maxNameLength && str.length<=maxValueLength)
-					{	this.setStructured(name, str);
+					{	if (!this.setStructured(name, str))
+						{	ignored_some_param = true;
+						}
+					}
+					else
+					{	ignored_some_param = true;
 					}
 					state = S_NAME;
 				}
@@ -266,6 +271,7 @@ L:		while (true)
 					{	return false; // incomplete header
 					}
 					buffer_end += n_read;
+					read_content_length += n_read;
 				}
 			}
 
@@ -320,6 +326,7 @@ L:		while (true)
 						}
 						buffer_start = 0;
 						buffer_end = n_read;
+						read_content_length += n_read;
 						i = 0;
 					}
 					if (buffer[i] != LF)
@@ -349,7 +356,16 @@ L:		while (true)
 								if (i != -1)
 								{	i2 = buffer.subarray(buffer_start, i).lastIndexOf(CR); // actually value terminates "\r\n"+boundary
 									if (i2 == -1)
-									{	return false; // no "\r\n" after value and before boundary
+									{	if (fh)
+										{	try
+											{	fh.close();
+												await Deno.remove(tmp_name);
+											}
+											catch (e)
+											{	this.onerror(e);
+											}
+										}
+										return false; // no "\r\n" after value and before boundary
 									}
 									i2 += buffer_start;
 								}
@@ -402,14 +418,16 @@ L:		while (true)
 							}
 						}
 						// value complete (at boundary or at EOF)
+						debug_assert(!fh == !tmp_name);
 						if (fh)
-						{	fh.close();
+						{	debug_assert(name);
+							fh.close();
+							uploaded_files.push(tmp_name);
 						}
 						if (name)
-						{	uploaded_files.push(tmp_name);
-							files.set
+						{	files.set
 							(	name,
-								new UploadedFile(filename, content_type ?? 'text/plain', size, tmp_name, fh ? UPLOAD_ERR_OK : UPLOAD_ERR_CANT_WRITE)
+								new UploadedFile(filename, content_type || 'application/octet-stream', size, tmp_name, fh ? UPLOAD_ERR_OK : UPLOAD_ERR_CANT_WRITE)
 							);
 						}
 					}
@@ -465,7 +483,9 @@ L:		while (true)
 							{	return false; // no "\r\n" after value and before boundary
 							}
 							if (i2 <= maxValueLength)
-							{	this.setStructured(name, decoder.decode(buffer.subarray(buffer_start, buffer_start+i2)));
+							{	if (!this.setStructured(name, decoder.decode(buffer.subarray(buffer_start, buffer_start+i2))))
+								{	ignored_some_param = true;
+								}
 							}
 						}
 					}

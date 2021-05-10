@@ -6,18 +6,23 @@ export class StructuredMap extends Map<string, PathNode>
 	{	super();
 	}
 
-	/// If key is like "items[]=a&items[]=b" or "items[a][b]=c", follows the path, creating additional `Map<string, PathNode>` objects. The algorithm is similar to how PHP parses GET parameters.
-	setStructured(name: string, value: string)
+	/**	If key is like "items[]=a&items[]=b" or "items[a][b]=c", follows the path, creating additional `Map<string, PathNode>` objects.
+		The algorithm is similar to how PHP parses GET parameters.
+	 **/
+	setStructured(name: string, value: string): boolean
 	{	let pos = !this.structuredParams ? -1 : name.indexOf('[');
 		if (pos == -1)
-		{	return this.set(name, value);
+		{	this.set(name, value);
+			return true;
 		}
 		let map: Map<string, PathNode> = this;
 		let sub = name.slice(0, pos);
+		let ok = true;
 		while (true)
 		{	let pos_2 = name.indexOf(']', ++pos);
 			if (pos_2 == -1)
-			{	break;
+			{	ok = false;
+				break;
 			}
 			let next_map = map.get(sub);
 			if (typeof(next_map) != 'object')
@@ -37,6 +42,6 @@ export class StructuredMap extends Map<string, PathNode>
 			pos = pos_2;
 		}
 		map.set(sub, value);
-		return this;
+		return ok;
 	}
 }

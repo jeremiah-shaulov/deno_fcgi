@@ -276,7 +276,7 @@ Deno.test
 	{	const FILTERS = ['', '/page-1.html', '', '/page-3.html'];
 		let server_error;
 		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
-		fcgi.options({keepAliveMax: 1, maxConns: FILTERS.length});
+		fcgi.options({keepAliveMax: 0, maxConns: FILTERS.length});
 		// accept
 		let listeners: Deno.Listener[] = [];
 		for (let i=0; i<FILTERS.length; i++)
@@ -296,9 +296,6 @@ Deno.test
 					assertEquals(map_to_obj(req.headers), i==1 ? {'host': 'example.com', 'x-hello': 'All'} : i==2 ? {'host': 'example.com', 'cookie': 'coo-1= val <1> ; coo-2=val <2>.'} : {'host': 'example.com'});
 					if (i == 2)
 					{	assertEquals(map_to_obj(req.cookies), {'coo-1': ' val <1> ', 'coo-2': 'val <2>.'});
-					}
-					if (i != FILTERS.length-1)
-					{	await sleep(1); // i want all the requests to accumulate, and test `fcgi.canFetch()`
 					}
 					await req.respond({body: `Response body ${i}`});
 					fcgi.unlisten(listeners[i].addr);
@@ -326,7 +323,10 @@ Deno.test
 						i!=1 ? undefined : {headers: new Headers(Object.entries({'X-Hello': 'All'}))}
 					).then
 					(	async response =>
-						{	if (i == FILTERS.length-1)
+						{	if (i != FILTERS.length-1)
+							{	await sleep(1); // i want all the requests to accumulate, and test `fcgi.canFetch()`
+							}
+							else
 							{	assert(!fcgi.canFetch());
 								for (let i=0; i<1000 && !fcgi.canFetch(); i++)
 								{	await fcgi.pollCanFetch();
