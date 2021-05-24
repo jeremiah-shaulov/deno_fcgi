@@ -59,7 +59,8 @@ Deno.test
 (	'Form-data',
 	async () =>
 	{	let data =
-		(	'IGNORE'+
+		(	'------------------------------------IGNORE Line 1\r\n'+
+			'------------------------------------IGNORE Line 2\r\n'+
 			'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 			'Content-Disposition: form-data; name="name"\r\n'+
 			'\r\n'+
@@ -421,19 +422,47 @@ Deno.test
 Deno.test
 (	'No CRLF after value and before boundary',
 	async () =>
-	{	let data =
-		(	'IGNORE'+
-			'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
-			'Content-Disposition: form-data; name="name"; filename="/tmp/current_file"\r\n'+
-			'\r\n'+
-			'Orange'+ // no \r\n
-			'------WebKitFormBoundaryAmvtsvCs9WGC03jH'
-		);
+	{	let data_set = [];
+		for (let i=0; i<2; i++)
+		{	data_set[i] =
+			(	'IGNORE'+
+				'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+				'Content-Disposition: form-data; name="name"'+(i==0 ? '' : '; filename="/tmp/current_file"')+'\r\n'+
+				'\r\n'+
+				'Orange'+ // no \r\n
+				'------WebKitFormBoundaryAmvtsvCs9WGC03jH'
+			);
+		}
 
 		for (let chunk_size of TEST_CHUNK_SIZES)
-		{	let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
-			assert(!await post.parse());
-			assertEquals(post.size, 0);
+		{	for (let data of data_set)
+			{	let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
+				assert(!await post.parse());
+				assertEquals(post.size, 0);
+				assertEquals(post.files.size, 0);
+				await post.close();
+			}
+		}
+	}
+);
+
+Deno.test
+(	'No semicolon in Content-Disposition',
+	async () =>
+	{	for (let i=0; i<2; i++)
+		{	let data =
+			(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+				'Content-Disposition: form-data; name="name"\r\n'+
+				'\r\n'+
+				'Orange\r\n'+
+				'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+				'Content-Disposition: form-data'+(i==0 ? ';' : '')+' name="weight"\r\n'+
+				'\r\n'+
+				'0.3\r\n'
+			);
+			let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100);
+			assert((await post.parse()) ? i==0 : i==1);
+			assertEquals(map_to_obj(post), i==0 ? {'name': 'Orange', 'weight': '0.3'} : {'name': 'Orange'});
 			assertEquals(post.files.size, 0);
 			await post.close();
 		}
@@ -441,18 +470,127 @@ Deno.test
 );
 
 Deno.test
-(	'Extremely long value',
+(	'No quotes in Content-Disposition',
+	async () =>
+	{	for (let i=0; i<2; i++)
+		{	let data =
+			(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+				'Content-Disposition: form-data; name="name"\r\n'+
+				'\r\n'+
+				'Orange\r\n'+
+				'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+				'Content-Disposition: form-data; name="weight"; filename='+(i==0 ? '"/tmp/current_file"' : '/tmp/current_file')+'\r\n'+
+				'\r\n'+
+				'0.3\r\n'
+			);
+			let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100);
+			assert(await post.parse());
+			assertEquals(map_to_obj(post), i==0 ? {'name': 'Orange'} : {'name': 'Orange', 'weight': '0.3'});
+			assertEquals(post.files.size, i==0 ? 1 : 0);
+			await post.close();
+		}
+	}
+);
+
+Deno.test
+(	'No backslash in Content-Disposition',
+	async () =>
+	{	let data =
+		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+			'Content-Disposition: form-data; name="name \\"qt\\""\r\n'+
+			'\r\n'+
+			'Orange\r\n'+
+			'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+			'Content-Disposition: form-data; name="weight \\"qt\\""; filename="C:\\\\tmp\\\\current_file"\r\n'+
+			'\r\n'+
+			'0.3\r\n'
+		);
+		let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100);
+		assert(await post.parse());
+		assertEquals(map_to_obj(post), {'name "qt"': 'Orange'});
+		assertEquals(post.files.size, 1);
+		assertEquals(post.files.get('weight "qt"')?.name, 'C:\\tmp\\current_file');
+		await post.close();
+	}
+);
+
+Deno.test
+(	'Invalid backslash in Content-Disposition',
 	async () =>
 	{	let data =
 		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 			'Content-Disposition: form-data; name="name"\r\n'+
 			'\r\n'+
-			get_random_string(10000)+'\r\n'
+			'Orange\r\n'+
+			'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+			'Content-Disposition: form-data; name="weight\\"\r\n'+
+			'\r\n'+
+			'0.3\r\n'
 		);
-		let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 1);
-		assert(!await post.parse());
-		assertEquals(post.size, 0);
+		let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100);
+		assert(await post.parse());
+		assertEquals(map_to_obj(post), {'name': 'Orange'});
 		assertEquals(post.files.size, 0);
 		await post.close();
+	}
+);
+
+Deno.test
+(	'Extremely long value',
+	async () =>
+	{	let LEN = 10000;
+		let data =
+		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+			'Content-Disposition: form-data; name="name"\r\n'+
+			'\r\n'+
+			get_random_string(LEN)+'\r\n'
+		);
+		for (let i=0; i<2; i++)
+		{	let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, i==0 ? 1 : LEN);
+			assert((await post.parse()) ? i==1 : i==0);
+			assertEquals(post.size, i);
+			assertEquals(post.files.size, 0);
+			await post.close();
+		}
+	}
+);
+
+Deno.test
+(	'Invalid structured path',
+	async () =>
+	{	let data =
+		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+			'Content-Disposition: form-data; name="name["\r\n'+
+			'\r\n'+
+			'Orange\r\n'+
+			'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+			'Content-Disposition: form-data; name="weight"\r\n'+
+			'\r\n'+
+			'0.3\r\n'
+		);
+		let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 1000);
+		assert(!await post.parse());
+		assertEquals(map_to_obj(post), {'name': 'Orange', 'weight': '0.3'});
+		assertEquals(post.files.size, 0);
+		await post.close();
+	}
+);
+
+Deno.test
+(	'Invalid Content-Length',
+	async () =>
+	{	let data =
+		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
+			'Content-Disposition: form-data; name="name"\r\n'+
+			'\r\n'+
+			'Hello\r\n'
+		);
+		for (let i=0; i<2; i++)
+		{	let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length+i, true, 100, 100);
+			assert((await post.parse()) ? i==0 : i==1);
+			assertEquals(map_to_obj(post), {'name': 'Hello'});
+			assertEquals(post.files.size, 0);
+			await post.close();
+		}
 	}
 );

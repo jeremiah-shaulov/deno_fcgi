@@ -569,19 +569,17 @@ L:	for (let i_end=haystack_end-needle_end; haystack_start<=i_end; haystack_start
 function buffer_index_of_nl(haystack: Uint8Array, haystack_len: number, needle: Uint8Array)
 {	// run through all bytes
 	let needle_end = needle.length;
-	if (haystack_len < needle_end+2)
-	{	return -1;
-	}
-L:	for (let i=0, i_end=haystack_len-needle_end; i<=i_end; i++)
-	{	if (haystack[i+needle_end]!=CR || haystack[i+needle_end+1]!=LF)
+L:	for (let i=needle_end, i_end=haystack_len-2; i<=i_end; i++)
+	{	if (haystack[i]!=CR || haystack[i+1]!=LF)
 		{	continue;
 		}
-		for (let j=i, k=0; k<needle_end; k++)
+		let at = i - needle_end;
+		for (let j=at, k=0; k<needle_end; k++)
 		{	if (haystack[j++] != needle[k])
 			{	continue L;
 			}
 		}
-		return i;
+		return at;
 	}
 	return -1;
 }
