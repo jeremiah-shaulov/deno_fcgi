@@ -1,20 +1,8 @@
 import {Post, REALLOC_THRESHOLD} from "../post.ts";
-import {TEST_CHUNK_SIZES, map_to_obj, MockConn} from './mock/mod.ts';
+import {TEST_CHUNK_SIZES, get_random_string, map_to_obj, MockConn} from './mock/mod.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
 import {exists} from "https://deno.land/std/fs/mod.ts";
 import {readAll} from 'https://deno.land/std/io/util.ts';
-
-function get_random_bytes(length: number)
-{	let buffer = new Uint8Array(length);
-	for (let i=0; i<buffer.length; i++)
-	{	buffer[i] = 32 + Math.floor(Math.random()*90);
-	}
-	return buffer;
-}
-
-function get_random_string(length: number)
-{	return new TextDecoder().decode(get_random_bytes(length));
-}
 
 Deno.test
 (	'Urlencoded',

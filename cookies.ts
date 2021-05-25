@@ -197,7 +197,7 @@ export class Cookies extends Map<string, string>
 function encode_cookie(value: string, mask: Uint8Array)
 {	for (let i=0, i_end=value.length; i<i_end; i++)
 	{	let c = value.charCodeAt(i);
-		if (c<=127 && mask[c]==1)
+		if (c<=127 && mask[c]===1)
 		{	// there's invalid char at "i"
 			let new_value = value.slice(0, i); // cannot return "value" as is, so create "new_value"
 			while (i < i_end)
@@ -205,7 +205,7 @@ function encode_cookie(value: string, mask: Uint8Array)
 				let from = i;
 				for (i++; i<i_end; i++)
 				{	c = value.charCodeAt(i);
-					if (c>127 || mask[c]!=1)
+					if (c>127 || mask[c]!==1)
 					{	break;
 					}
 				}
@@ -214,7 +214,7 @@ function encode_cookie(value: string, mask: Uint8Array)
 				from = i;
 				for (i++; i<i_end; i++)
 				{	c = value.charCodeAt(i);
-					if (c<=127 && mask[c]==1)
+					if (c<=127 && mask[c]===1)
 					{	break;
 					}
 				}

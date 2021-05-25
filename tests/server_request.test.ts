@@ -1,7 +1,7 @@
 import {PathNode} from "../structured_map.ts";
 import {Server} from '../server.ts';
 import {AbortedError, TerminatedError, ProtocolError} from '../error.ts';
-import {TEST_CHUNK_SIZES, map_to_obj, MockListener, MockFcgiConn, MockConn} from './mock/mod.ts';
+import {TEST_CHUNK_SIZES, get_random_bytes, get_random_string, map_to_obj, MockListener, MockFcgiConn, MockConn} from './mock/mod.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
 import {exists} from "https://deno.land/std/fs/mod.ts";
 import {sleep} from "https://deno.land/x/sleep/mod.ts";
@@ -13,18 +13,6 @@ function *test_connections(only_chunk_sizes?: number[], full_split_stream_record
 		{	yield new MockFcgiConn(chunk_size, i%2==0 ? chunk_size%9 : -1, i<2 ? 'no' : full_split_stream_records ? 'full' : 'yes');
 		}
 	}
-}
-
-function get_random_bytes(length: number)
-{	let buffer = new Uint8Array(length);
-	for (let i=0; i<buffer.length; i++)
-	{	buffer[i] = 32 + Math.floor(Math.random()*90);
-	}
-	return buffer;
-}
-
-function get_random_string(length: number)
-{	return new TextDecoder().decode(get_random_bytes(length));
 }
 
 Deno.test

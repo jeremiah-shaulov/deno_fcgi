@@ -157,7 +157,7 @@ L:		while (true)
 			// 2. Read param name (if S_NAME) or value (if S_VALUE)
 			let str = decodeURIComponent(decoder.decode(buffer.subarray(buffer_start, i)));
 			buffer_start = i + 1; // after '=' or '&'
-			if (buffer[i] == EQ)
+			if (buffer[i] === EQ)
 			{	debug_assert(state == S_NAME); // i didn't look for EQ in S_VALUE state
 				name = str;
 				state = S_VALUE;
@@ -305,7 +305,7 @@ L:		while (true)
 			if (state == S_HEADER)
 			{	if (i != buffer_start)
 				{	// header
-					if (buffer[i] != COLON)
+					if (buffer[i] !== COLON)
 					{	return false; // header name is too long, or no header name
 					}
 					header_name = decoder.decode(buffer.subarray(buffer_start, i)).trim().toLowerCase();
@@ -314,7 +314,7 @@ L:		while (true)
 				}
 				else
 				{	// empty line terminates headers
-					if (buffer[i] != CR)
+					if (buffer[i] !== CR)
 					{	return false; // line starts with ":" or "\n"
 					}
 					// at "\r" that hopefully is followed by "\n"
@@ -329,7 +329,7 @@ L:		while (true)
 						read_content_length += n_read;
 						i = 0;
 					}
-					if (buffer[i] != LF)
+					if (buffer[i] !== LF)
 					{	return false; // no "\n" follows "\r"
 					}
 					i++; // after "\r\n"
@@ -511,19 +511,19 @@ L:		while (true)
 					}
 					// assume: is at string like '; name="main image"; filename="/tmp/current_file"'
 					while (true)
-					{	while (buffer[++i2] == SPACE); // skip '; '
+					{	while (buffer[++i2] === SPACE); // skip '; '
 						let i3 = buffer.subarray(0, i).indexOf(EQ, i2);
 						if (i3 == -1)
 						{	break;
 						}
 						let field = decoder.decode(buffer.subarray(i2, i3));
 						i2 = i3 + 1; // after '='
-						if (buffer[i2] != QT)
+						if (buffer[i2] !== QT)
 						{	break;
 						}
 						i2++; // after opening '"'
 						i3 = buffer.subarray(0, i).indexOf(QT, i2);
-						while (buffer[i3-1] == BACKSLASH)
+						while (buffer[i3-1] === BACKSLASH)
 						{	i3 = buffer.subarray(0, i).indexOf(QT, i3+1);
 						}
 						if (i3 == -1)
@@ -557,7 +557,7 @@ function buffer_index_of(haystack: Uint8Array, haystack_start: number, haystack_
 	}
 L:	for (let i_end=haystack_end-needle_end; haystack_start<=i_end; haystack_start++)
 	{	for (let j=haystack_start, k=0; k<needle_end; k++)
-		{	if (haystack[j++] != needle[k])
+		{	if (haystack[j++] !== needle[k])
 			{	continue L;
 			}
 		}
@@ -570,12 +570,12 @@ function buffer_index_of_nl(haystack: Uint8Array, haystack_len: number, needle: 
 {	// run through all bytes
 	let needle_end = needle.length;
 L:	for (let i=needle_end, i_end=haystack_len-2; i<=i_end; i++)
-	{	if (haystack[i]!=CR || haystack[i+1]!=LF)
+	{	if (haystack[i]!==CR || haystack[i+1]!==LF)
 		{	continue;
 		}
 		let at = i - needle_end;
 		for (let j=at, k=0; k<needle_end; k++)
-		{	if (haystack[j++] != needle[k])
+		{	if (haystack[j++] !== needle[k])
 			{	continue L;
 			}
 		}
@@ -588,7 +588,7 @@ function buffer_index_of_one_of_2(buffer: Uint8Array, start: number, end: number
 {	// run through all bytes
 	while (start < end)
 	{	let c = buffer[start];
-		if (c==b0 || c==b1)
+		if (c===b0 || c===b1)
 		{	return start;
 		}
 		start++;
@@ -600,7 +600,7 @@ function buffer_index_of_one_of_3(buffer: Uint8Array, start: number, end: number
 {	// run through all bytes
 	while (start < end)
 	{	let c = buffer[start];
-		if (c==b0 || c==b1 || c==b2)
+		if (c===b0 || c===b1 || c===b2)
 		{	return start;
 		}
 		start++;

@@ -19,7 +19,7 @@ export class SetCookies extends Map<string, {value: string, options: CookieOptio
 		pos++;
 		// 2. Read value
 		let value;
-		if (set_cookie[pos] == QUOTE)
+		if (set_cookie[pos] === QUOTE)
 		{	pos++;
 			let qt = set_cookie.indexOf(QUOTE, pos);
 			if (qt == -1)
@@ -27,7 +27,7 @@ export class SetCookies extends Map<string, {value: string, options: CookieOptio
 			}
 			value = decodeURIComponent(decoder.decode(set_cookie.subarray(pos, qt)));
 			pos = qt + 1;
-			if (set_cookie[pos] == SEMICOLON)
+			if (set_cookie[pos] === SEMICOLON)
 			{	pos++;
 			}
 		}
@@ -43,7 +43,7 @@ export class SetCookies extends Map<string, {value: string, options: CookieOptio
 		let options: CookieOptions = {};
 		while (pos < set_cookie.length)
 		{	// skip space after ';'
-			while (set_cookie[pos]==SPACE || set_cookie[pos]==TAB)
+			while (set_cookie[pos]===SPACE || set_cookie[pos]===TAB)
 			{	pos++;
 			}
 			// find next ';'
@@ -56,7 +56,7 @@ export class SetCookies extends Map<string, {value: string, options: CookieOptio
 			{	case 'e'.charCodeAt(0):
 				case 'E'.charCodeAt(0):
 				{	let eq = pos + 'expires'.length;
-					if (set_cookie[eq] == EQ && decoder.decode(set_cookie.subarray(pos, eq)).toLowerCase() == 'expires')
+					if (set_cookie[eq] === EQ && decoder.decode(set_cookie.subarray(pos, eq)).toLowerCase() == 'expires')
 					{	options.expires = new Date(Date.parse(decoder.decode(set_cookie.subarray(eq+1, semicolon))));
 					}
 					break;
@@ -64,7 +64,7 @@ export class SetCookies extends Map<string, {value: string, options: CookieOptio
 				case 'm'.charCodeAt(0):
 				case 'M'.charCodeAt(0):
 				{	let eq = pos + 'max-age'.length;
-					if (set_cookie[eq] == EQ && decoder.decode(set_cookie.subarray(pos, eq)).toLowerCase() == 'max-age')
+					if (set_cookie[eq] === EQ && decoder.decode(set_cookie.subarray(pos, eq)).toLowerCase() == 'max-age')
 					{	options.maxAge = Number(decoder.decode(set_cookie.subarray(eq+1, semicolon)));
 					}
 					break;
@@ -72,7 +72,7 @@ export class SetCookies extends Map<string, {value: string, options: CookieOptio
 				case 'd'.charCodeAt(0):
 				case 'D'.charCodeAt(0):
 				{	let eq = pos + 'domain'.length;
-					if (set_cookie[eq] == EQ && decoder.decode(set_cookie.subarray(pos, eq)).toLowerCase() == 'domain')
+					if (set_cookie[eq] === EQ && decoder.decode(set_cookie.subarray(pos, eq)).toLowerCase() == 'domain')
 					{	options.domain = decoder.decode(set_cookie.subarray(eq+1, semicolon));
 					}
 					break;
@@ -80,7 +80,7 @@ export class SetCookies extends Map<string, {value: string, options: CookieOptio
 				case 'p'.charCodeAt(0):
 				case 'P'.charCodeAt(0):
 				{	let eq = pos + 'path'.length;
-					if (set_cookie[eq] == EQ && decoder.decode(set_cookie.subarray(pos, eq)).toLowerCase() == 'path')
+					if (set_cookie[eq] === EQ && decoder.decode(set_cookie.subarray(pos, eq)).toLowerCase() == 'path')
 					{	options.path = decoder.decode(set_cookie.subarray(eq+1, semicolon));
 					}
 					break;
@@ -101,7 +101,7 @@ export class SetCookies extends Map<string, {value: string, options: CookieOptio
 					}
 					else
 					{	let eq = pos + 'samesite'.length;
-						if (set_cookie[eq] == EQ && decoder.decode(set_cookie.subarray(pos, eq)).toLowerCase() == 'samesite')
+						if (set_cookie[eq] === EQ && decoder.decode(set_cookie.subarray(pos, eq)).toLowerCase() == 'samesite')
 						{	options.sameSite = decoder.decode(set_cookie.subarray(eq+1, semicolon));
 						}
 					}

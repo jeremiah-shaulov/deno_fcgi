@@ -1,6 +1,6 @@
 import {fcgi} from "../fcgi.ts";
 import {ProtocolError} from '../error.ts';
-import {map_to_obj, MockListener, MockFcgiConn} from './mock/mod.ts';
+import {map_to_obj, MockListener, MockFcgiConn, get_random_string} from './mock/mod.ts';
 import {SERVER_SOFTWARE, RequestOptions} from '../client.ts';
 import {RECYCLE_REQUEST_ID_AFTER} from '../fcgi_conn.ts';
 import {SetCookies} from '../set_cookies.ts';
@@ -11,7 +11,8 @@ import {sleep} from "https://deno.land/x/sleep/mod.ts";
 Deno.test
 (	'Basic',
 	async () =>
-	{	let listener = new MockListener;
+	{	const BODY = get_random_string(20*1024);
+		let listener = new MockListener;
 		let conn = listener.pend_accept(1024, -1, 'no');
 		let server_error: Error | undefined;
 		fcgi.on('error', (e: Error) => {server_error = e});
@@ -25,13 +26,13 @@ Deno.test
 			'',
 			async req =>
 			{	await req.post.parse();
-				await req.respond({body: 'Response body'});
+				await req.respond({body: BODY});
 				fcgi.unlisten();
 			}
 		);
 		await fcgi.on('end');
 		// read
-		assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\nResponse body');
+		assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n'+BODY);
 		assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
 		assertEquals(conn.take_written_fcgi(), undefined);
 		// check

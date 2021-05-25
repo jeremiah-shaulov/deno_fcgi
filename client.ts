@@ -50,7 +50,7 @@ export class ResponseWithCookies extends Response
 	}
 }
 
-class ReadableReadableStream extends ReadableStream<Uint8Array> implements Deno.Reader
+export class ReadableReadableStream extends ReadableStream<Uint8Array> implements Deno.Reader
 {	private is_reading = false;
 
 	constructor(private body_first_part: Uint8Array|undefined, private body_it: AsyncGenerator<number, void, Uint8Array>, private ondone: () => void)
@@ -103,8 +103,7 @@ class ReadableReadableStream extends ReadableStream<Uint8Array> implements Deno.
 		}
 		let {value: n_read, done} = await this.body_it.next(buffer);
 		if (!done)
-		{	debug_assert(n_read > 0);
-			return n_read as number;
+		{	return n_read as number;
 		}
 		this.ondone();
 		return null;
