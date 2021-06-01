@@ -198,7 +198,7 @@ export class Fcgi
 		The response body must be explicitly read, before specified `request_options.timeout` period elapses. After this period, the connection will be forced to close.
 		Each not closed connection counts towards `ClientOptions.maxConns`. After `response.body` read to the end, the connection returns to pool, and can be reused
 		(except the case where existing `Deno.Conn` was given to `request_options.addr` - in this case the creator of this object decides what to do with this object then).
-		Idle connections will be closed after `request_options.keepAliveTimeout` microseconds, and after `request_options.keepAliveMax` times used.
+		Idle connections will be closed after `request_options.keepAliveTimeout` milliseconds, and after `request_options.keepAliveMax` times used.
 	 **/
 	fetch(request_options: RequestOptions, input: Request|URL|string, init?: RequestInit & {bodyIter?: AsyncIterable<Uint8Array>}): Promise<ResponseWithCookies>
 	{	return this.client.fetch(request_options, input, init);

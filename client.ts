@@ -34,9 +34,9 @@ export interface RequestOptions
 	scriptFilename?: string,
 	/** Additional parameters to send to FastCGI server. If sending to PHP, they will be found in $_SERVER. If `params` object is given, it will be modified - `scriptFilename` and parameters inferred from request URL will be added to it. */
 	params?: Map<string, string>,
-	/** Microseconds. Connection will be forced to close after this timeout elapses. */
+	/** Milliseconds. Connection will be forced to close after this timeout elapses. */
 	timeout?: number,
-	/** Microseconds. Idle connection will be closed if not used for this period of time. */
+	/** Milliseconds. Idle connection will be closed if not used for this period of time. */
 	keepAliveTimeout?: number,
 	/** How many times to reuse this connection. */
 	keepAliveMax?: number,
