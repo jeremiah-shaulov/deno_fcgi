@@ -167,6 +167,11 @@ export class Client
 		}
 	}
 
+	closeIdle()
+	{	this.close_kept_alive_timed_out(true);
+		debug_assert(this.n_idle_all == 0);
+	}
+
 	async fetch(request_options: RequestOptions, input: Request|URL|string, init?: RequestInit & {bodyIter?: AsyncIterable<Uint8Array>}): Promise<ResponseWithCookies>
 	{	let {addr, scriptFilename, params, timeout, keepAliveTimeout, keepAliveMax, onLogError} = request_options;
 		if (timeout == undefined)
@@ -427,10 +432,9 @@ export class Client
 		}
 	}
 
-	private close_kept_alive_timed_out()
+	private close_kept_alive_timed_out(close_all_idle=false)
 	{	let {conns_pool} = this;
 		let now = Date.now();
-		let want_stop = true;
 		for (let [server_addr_str, {idle, busy, last_use_time}] of conns_pool)
 		{	// Some request timed out?
 			for (let i=busy.length-1; i>=0; i--)
@@ -444,7 +448,7 @@ export class Client
 			for (let i=idle.length-1; i>=0; i--)
 			{	let conn = idle[i];
 				debug_assert(conn.request_till == 0);
-				if (conn.use_till <= now)
+				if (conn.use_till<=now || close_all_idle)
 				{	idle.splice(i, 1);
 					this.n_idle_all--;
 					try
@@ -456,14 +460,11 @@ export class Client
 				}
 			}
 			//
-			if (busy.length!=0 || idle.length!=0)
-			{	want_stop = false;
-			}
-			else if (last_use_time+FORGET_CONNECTION_STATE_AFTER < now)
+			if (busy.length+idle.length == 0 && last_use_time+FORGET_CONNECTION_STATE_AFTER < now)
 			{	conns_pool.delete(server_addr_str);
 			}
 		}
-		if (want_stop)
+		if (this.n_busy_all+this.n_idle_all == 0)
 		{	clearInterval(this.h_timer);
 			this.h_timer = undefined;
 		}

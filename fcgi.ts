@@ -227,6 +227,10 @@ export class Fcgi
 	pollCanFetch(): Promise<void>
 	{	return this.client.pollCanFetch();
 	}
+
+	closeIdle()
+	{	this.client.closeIdle();
+	}
 }
 
 /**	`Fcgi` class provides top-level API, above `Server` and `Client`, and `fcgi` is the default instance of `Fcgi` to be used most of the time.
@@ -244,8 +248,8 @@ export class Fcgi
 
 	// Create FastCGI client for PHP
 
-	import {serve} from "https://deno.land/std@0.92.0/http/server.ts";
-	import {iter} from 'https://deno.land/std@0.95.0/io/util.ts';
+	import {serve} from "https://deno.land/std@0.97.0/http/server.ts";
+	import {iter} from 'https://deno.land/std@0.97.0/io/util.ts';
 
 	const PHP_POOL_CONFIG_FILE = '/etc/php/7.4/fpm/pool.d/www.conf';
 	const DOCUMENT_ROOT = '/var/www/deno-server-root';

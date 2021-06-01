@@ -4,9 +4,9 @@ import {map_to_obj, MockListener, MockFcgiConn, get_random_string} from './mock/
 import {SERVER_SOFTWARE, RequestOptions} from '../client.ts';
 import {RECYCLE_REQUEST_ID_AFTER} from '../fcgi_conn.ts';
 import {SetCookies} from '../set_cookies.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
-import {writeAll, readAll} from 'https://deno.land/std/io/util.ts';
-import {sleep} from "https://deno.land/x/sleep/mod.ts";
+import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
+import {writeAll, readAll} from 'https://deno.land/std@0.97.0/io/util.ts';
+import {sleep} from "https://deno.land/x/sleep@v1.2.0/mod.ts";
 
 Deno.test
 (	'Basic',
@@ -88,10 +88,10 @@ Deno.test
 			let conn = new MockFcgiConn(chunk_size, -1, 'full');
 			conn.pend_read_fcgi_stdout(1, `Status: 403\r\nContent-Type: text/junk\r\nX-Hello: "a\rb\nc"\r\nX-Long: ${LONG_STR}\r\n\r\nResponse body`);
 			conn.pend_read_fcgi_end_request(1, 'request_complete');
-			let response = await fcgi.fetch({addr: conn}, `http://example.com/`, {body: 'Request body'});
+			let response = await fcgi.fetch({addr: conn}, `http://example.com/`, {method: 'post', headers: {'Content-Type': 'text/plain'}, body: 'Request body'});
 			// check request
 			assertEquals(conn.take_written_fcgi_begin_request(1), {role: 'responder', keep_conn: true});
-			assertEquals(map_to_obj(await conn.take_written_fcgi_params(1)), {HTTP_HOST: 'example.com', QUERY_STRING: '', REQUEST_METHOD: 'GET', REQUEST_SCHEME: 'http', REQUEST_URI: '/', SERVER_SOFTWARE});
+			assertEquals(map_to_obj(await conn.take_written_fcgi_params(1)), {HTTP_HOST: 'example.com', QUERY_STRING: '', REQUEST_METHOD: 'POST', CONTENT_TYPE: 'text/plain', REQUEST_SCHEME: 'http', REQUEST_URI: '/', SERVER_SOFTWARE});
 			assertEquals(conn.take_written_fcgi_stdin(1), 'Request body');
 			assertEquals(conn.take_written_fcgi(), undefined);
 			// check response
@@ -602,5 +602,42 @@ Deno.test
 		assertEquals(res.maxNameLength, 11);
 		assertEquals(res.maxValueLength, 12);
 		assertEquals(res.maxFileSize, 13);
+	}
+);
+
+Deno.test
+(	'Pool',
+	async () =>
+	{	let server_error;
+		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
+		// accept
+		let listener = fcgi.listen
+		(	0,
+			'',
+			async req =>
+			{	await req.respond({body: `Response to ${req.params.get('REQUEST_URI')}`});
+			}
+		);
+		let port = (listener.addr as Deno.NetAddr).port;
+		// query
+		let promises = [];
+		for (let i=0; i<10; i++)
+		{	promises[i] = fcgi.fetch
+			(	{	addr: port,
+					scriptFilename: `/var/www/example.com/page.html`,
+				},
+				`https://example.com/page-${i}.html`
+			);
+		}
+		let i = 0;
+		for (let response of await Promise.all(promises))
+		{	assertEquals(response.status, 200);
+			assertEquals(await response.text(), `Response to /page-${i}.html`);
+			i++;
+		}
+		fcgi.unlisten(port);
+		fcgi.closeIdle();
+		await fcgi.on('end');
+		assert(!server_error);
 	}
 );

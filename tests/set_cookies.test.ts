@@ -1,5 +1,5 @@
 import {SetCookies} from "../set_cookies.ts";
-import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
+import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
 
 Deno.test
 (	'Set-Cookies 1',

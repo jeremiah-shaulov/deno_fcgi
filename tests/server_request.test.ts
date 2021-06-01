@@ -2,10 +2,9 @@ import {PathNode} from "../structured_map.ts";
 import {Server} from '../server.ts';
 import {AbortedError, TerminatedError, ProtocolError} from '../error.ts';
 import {TEST_CHUNK_SIZES, get_random_bytes, get_random_string, map_to_obj, MockListener, MockFcgiConn, MockConn} from './mock/mod.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.87.0/testing/asserts.ts";
-import {exists} from "https://deno.land/std/fs/mod.ts";
-import {sleep} from "https://deno.land/x/sleep/mod.ts";
-import {writeAll, readAll} from 'https://deno.land/std/io/util.ts';
+import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
+import {sleep} from "https://deno.land/x/sleep@v1.2.0/mod.ts";
+import {writeAll, readAll} from 'https://deno.land/std@0.97.0/io/util.ts';
 
 function *test_connections(only_chunk_sizes?: number[], full_split_stream_records=false): Generator<MockFcgiConn>
 {	for (let chunk_size of only_chunk_sizes || TEST_CHUNK_SIZES)
