@@ -4,8 +4,8 @@ import {is_default_route} from './addr.ts';
 
 const DEFAULT_MAX_CONNS = 128;
 const DEFAULT_MAX_NAME_LENGTH = 256;
-const DEFAULT_MAX_VALUE_LENGTH = 256;
-const DEFAULT_MAX_FILE_SIZE = 256;
+const DEFAULT_MAX_VALUE_LENGTH = 4*1024; // "HTTP_COOKIE" param can have this length
+const DEFAULT_MAX_FILE_SIZE = 1*1024*1024;
 
 export interface ServerOptions
 {	structuredParams?: boolean,

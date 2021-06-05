@@ -41,7 +41,7 @@ export class ServerRequest implements Deno.Conn
 {	public readonly localAddr: Deno.Addr;
 	public readonly remoteAddr: Deno.Addr;
 	public readonly rid: number;
-	/// The SCRIPT_URL of the request, like '/path/index.html'
+	/// The REQUEST_URI of the request, like '/path/index.html?a=1'
 	public url = '';
 	/// Request method, like 'GET'
 	public method = '';
@@ -198,16 +198,21 @@ export class ServerRequest implements Deno.Conn
 		try
 		{	if (!this.is_terminated && !this.is_aborted)
 			{	if (response)
-				{	var {status, headers, body} = response;
+				{	var {status, headers, setCookies, body} = response;
 				}
 				if (!this.headersSent)
-				{	if (headers)
+				{	if (status)
+					{	this.responseStatus = status;
+					}
+					if (headers)
 					{	for (let [k, v] of headers)
 						{	this.responseHeaders.set(k, v);
 						}
 					}
-					if (status)
-					{	this.responseStatus = status;
+					if (setCookies)
+					{	for (let [k, v] of setCookies)
+						{	this.cookies.set(k, v.value, v.options);
+						}
 					}
 				}
 				if (body)
