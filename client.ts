@@ -197,7 +197,7 @@ export class Client
 		if (scriptFilename != undefined)
 		{	params.set('SCRIPT_FILENAME', scriptFilename);
 		}
-		let url_obj = new URL(input.url, 'https://deno.land/x/fcgi/');
+		let url_obj = new URL(input.url, 'http://localhost/');
 		params.set('REQUEST_METHOD', input.method);
 		params.set('REQUEST_SCHEME', url_obj.protocol.slice(0, -1));
 		params.set('HTTP_HOST', url_obj.hostname);
