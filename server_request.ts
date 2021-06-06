@@ -395,14 +395,14 @@ export class ServerRequest implements Deno.Conn
 		return true;
 	}
 
-	/**	Parses sequence of FCGI_PARAMS records to "map" and "http_headers" (if given).
+	/**	Parses sequence of FCGI_PARAMS records to "map" and "headers_and_cookies" (if given).
 		"len" - length of the record.
 		Start by calling "read_nvp()" with length of first such record, and saving the generator result to "this.cur_nvp_read_state".
-		It will read everything non-partial from the record, and put to the "map" (and "http_headers").
+		It will read everything non-partial from the record, and put to the "map" (and "headers_and_cookies").
 		And it will remember intermediate parsing state.
 		When next such record arrives, call "this.cur_nvp_read_state.next(len)" with the length of the new record.
 	 **/
-	private async *read_nvp(len: number, map: Map<string, string>, http_headers?: Headers): AsyncGenerator<undefined, void, number>
+	private async *read_nvp(len: number, map: Map<string, string>, headers_and_cookies?: {headers: Headers, cookies: Cookies}): AsyncGenerator<undefined, void, number>
 	{	let {buffer, maxNameLength, maxValueLength} = this;
 
 		debug_assert(len > 0);
@@ -519,8 +519,16 @@ export class ServerRequest implements Deno.Conn
 					}
 					else
 					{	map.set(name, str);
-						if (http_headers && name.startsWith('HTTP_'))
-						{	http_headers.set(name.slice(5).replaceAll('_', '-'), str);
+						if (headers_and_cookies && name.startsWith('HTTP_'))
+						{	try
+							{	headers_and_cookies.headers.set(name.slice(5).replaceAll('_', '-'), str);
+							}
+							catch (e)
+							{	this.onerror(e);
+							}
+							if (name == 'HTTP_COOKIE')
+							{	headers_and_cookies.cookies.setHeader(str);
+							}
 						}
 						break;
 					}
@@ -804,7 +812,6 @@ export class ServerRequest implements Deno.Conn
 								this.protoMajor = parseInt(this.proto.slice(pos+1, pos_2==-1 ? this.proto.length : pos_2)) || 0;
 								this.protoMinor = pos_2==-1 ? 0 : parseInt(this.proto.slice(pos_2+1)) || 0;
 								let query_string = this.params.get('QUERY_STRING');
-								let cookie_header = this.params.get('HTTP_COOKIE');
 								let contentType = this.params.get('CONTENT_TYPE') ?? '';
 								let boundary = '';
 								pos = contentType.indexOf(';');
@@ -823,9 +830,6 @@ export class ServerRequest implements Deno.Conn
 								{	this.get.setQueryString(query_string);
 									this.get.structuredParams = this.structuredParams;
 								}
-								if (cookie_header)
-								{	this.cookies.setHeader(cookie_header);
-								}
 								if (contentType)
 								{	this.post.contentType = contentType.toLocaleLowerCase();
 									this.post.formDataBoundary = boundary;
@@ -840,7 +844,7 @@ export class ServerRequest implements Deno.Conn
 								return this;
 							}
 							if (!this.cur_nvp_read_state)
-							{	this.cur_nvp_read_state = this.read_nvp(content_length, this.params, this.headers);
+							{	this.cur_nvp_read_state = this.read_nvp(content_length, this.params, this);
 							}
 							if ((await this.cur_nvp_read_state.next(content_length))?.done)
 							{	this.cur_nvp_read_state = undefined;
