@@ -41,7 +41,7 @@ export class ServerRequest implements Deno.Conn
 {	public readonly localAddr: Deno.Addr;
 	public readonly remoteAddr: Deno.Addr;
 	public readonly rid: number;
-	/// The REQUEST_URI of the request, like '/path/index.html?a=1'
+	/// REQUEST_URI of the request, like '/path/index.html?a=1'
 	public url = '';
 	/// Request method, like 'GET'
 	public method = '';
@@ -49,7 +49,7 @@ export class ServerRequest implements Deno.Conn
 	public proto = '';
 	public protoMinor = 0;
 	public protoMajor = 0;
-	/// Environment params sent from FascCGI worker. This usually includes 'REQUEST_URI', 'SCRIPT_URI', 'SCRIPT_FILENAME', 'DOCUMENT_ROOT', can contain 'CONTEXT_DOCUMENT_ROOT' (if using apache MultiViews), etc.
+	/// Environment params sent from FastCGI frontend. This usually includes 'REQUEST_URI', 'SCRIPT_URI', 'SCRIPT_FILENAME', 'DOCUMENT_ROOT', can contain 'CONTEXT_DOCUMENT_ROOT' (if using Apache MultiViews), etc.
 	public params = new Map<string, string>();
 	/// Request HTTP headers
 	public headers = new Headers;

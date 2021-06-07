@@ -24,21 +24,22 @@ export class Fcgi
 		this.client.on('error', e => {this.onerror.trigger(e)});
 	}
 
-	/**	Register a FastCGI `Server` on specified network address.
+	/**	Registers a FastCGI server on specified network address.
 		The address can be given as:
 		a port number (`8000`),
-		a hostname (`localhost:8000`, `0.0.0.0:8000`, `[::1]:8000`, `::1`),
+		a hostname with optional port (`localhost:8000`, `0.0.0.0:8000`, `[::1]:8000`, `::1`),
 		a unix-domain socket file name (`/run/deno-fcgi-server.sock`),
 		a `Deno.Addr` (`{transport: 'tcp', hostname: '127.0.0.1', port: 8000}`),
 		or a ready `Deno.Listener` object can also be given.
 		This function can be called multiple times with the same or different addresses.
-		Second argument allows to filter requests arriving to the specified address.
-		It uses `x/path_to_regexp` library, just like `x/oak` does.
-		Third argument is callback function with signature `((request: ServerRequest, params: any) => Promise<unknown>)` that will be called for each incoming request, matching the path filter.
+		Calling with the same address adds another handler callback that will be tried to handle matching requests.
+		Calling with different address creates another FastCGI server.
+		Second argument allows to filter arriving requests.
+		It uses [x/path_to_regexp](https://deno.land/x/path_to_regexp) library, just like [x/oak](https://deno.land/x/oak) does.
+		Third argument is callback function with signature `(request: ServerRequest, params: any) => Promise<unknown>` that will be called for incoming requests that match filters.
 		`params` contains regexp groups from the path filter.
-		This callback can decide not to handle this request, and return without awaiting for anything, so other matching handlers will take chance to handle the request.
-		If none of handlers took the request, default 404 response will be sent to client.
-		If the callback decides to handle the request, it can take time doing what's needed, and eventually it should call `req.respond()`.
+		"callback" can handle the request and call it's `req.respond()` method (not returning from the callback till this happens), or it can decide not to handle this request,
+		and return without awaiting, so other handlers (registered with `listen()`) will take chance to handle this request. If none handled, 404 response will be returned.
 		Example:
 
 		fcgi.listen
@@ -138,7 +139,7 @@ export class Fcgi
 		return listener;
 	}
 
-	/**	Stop serving requests on specified network address, or on all addresses (if the `addr` is `undefined`).
+	/**	Stop serving requests on specified address, or on all addresses (if the `addr` parameter was `undefined`).
 		Removing all listeners will trigger `end` event.
 	 **/
 	unlisten(addr?: FcgiAddr)
@@ -154,8 +155,8 @@ export class Fcgi
 
 	/**	Multiple event handlers can be added to each event type.
 
-		`on('error', callback)` - catch FastCGI `Server` errors.
-		`on('end', callback)` or `await on('end')` - catch that moment when FastCGI `Server` stops accepting connections (when all listeners removed, and ongoing requests completed).
+		`on('error', callback)` - catch FastCGI server errors.
+		`on('end', callback)` or `await on('end')` - catch the moment when FastCGI server stops accepting connections (when all listeners removed, and ongoing requests completed).
 	 **/
 	on(event_name: string, callback?: any)
 	{	let q = event_name=='error' ? this.onerror : event_name=='end' ? this.onend : undefined;
@@ -189,7 +190,7 @@ export class Fcgi
 		return {...server_options, ...client_options};
 	}
 
-	/**	Send request to a FastCGI service, like PHP, just like Apache and Nginx do.
+	/**	Send request to a FastCGI service, such as PHP, just like Apache and Nginx do.
 		First argument (`request_options`) specifies how to connect to the service, and what parameters to send to it.
 		2 most important parameters are `request_options.addr` (service socket address), and `request_options.scriptFilename` (path to script file that the service must execute).
 		Second (`input`) and 3rd (`init`) arguments are the same as in built-in `fetch()` function, except that `init` allows to read request body from an `AsyncIterable<Uint8Array>` (`init.bodyIter`).
@@ -215,8 +216,8 @@ export class Fcgi
 		It's recommended not to call `fetch()` untill `canFetch()` grants a green light.
 		Example:
 
-		while (!fcgi.canFetch())
-		{	await fcgi.pollCanFetch();
+		if (!fcgi.canFetch())
+		{	await fcgi.waitCanFetch();
 		}
 		await fcgi.fetch(...);
 	 **/
@@ -224,10 +225,13 @@ export class Fcgi
 	{	return this.client.canFetch();
 	}
 
-	pollCanFetch(): Promise<void>
-	{	return this.client.pollCanFetch();
+	waitCanFetch(): Promise<void>
+	{	return this.client.waitCanFetch();
 	}
 
+	/**	If `keepAliveTimeout` option was > 0, `fcgi.fetch()` will reuse connections. After each fetch, connection will wait for specified number of milliseconds for next fetch. Idle connections don't let Deno application from exiting naturally.
+		You can call `fcgi.closeIdle()` to close all idle connections.
+	 **/
 	closeIdle()
 	{	this.client.closeIdle();
 	}

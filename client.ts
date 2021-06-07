@@ -167,6 +167,9 @@ export class Client
 		}
 	}
 
+	/**	If `keepAliveTimeout` option was > 0, `fcgi.fetch()` will reuse connections. After each fetch, connection will wait for specified number of milliseconds for next fetch. Idle connections don't let Deno application from exiting naturally.
+		You can call `fcgi.closeIdle()` to close all idle connections.
+	 **/
 	closeIdle()
 	{	this.close_kept_alive_timed_out(true);
 		debug_assert(this.n_idle_all == 0);
@@ -300,8 +303,8 @@ export class Client
 		It's recommended not to call `fetch()` untill `canFetch()` grants a green light.
 		Example:
 		```
-		while (!fcgi.canFetch())
-		{	await fcgi.pollCanFetch();
+		if (!fcgi.canFetch())
+		{	await fcgi.waitCanFetch();
 		}
 		await fcgi.fetch(...);
 		```
@@ -310,12 +313,10 @@ export class Client
 	{	return this.n_busy_all < this.maxConns;
 	}
 
-	pollCanFetch(): Promise<void>
-	{	if (this.n_busy_all < this.maxConns)
-		{	return Promise.resolve();
+	async waitCanFetch(): Promise<void>
+	{	while (this.n_busy_all >= this.maxConns)
+		{	await new Promise<void>(y => {this.can_fetch_callbacks.push(y)});
 		}
-		let promise = new Promise<void>(y => {this.can_fetch_callbacks.push(y)});
-		return promise;
 	}
 
 	private get_conns(server_addr_str: string)

@@ -329,11 +329,9 @@ Deno.test
 							}
 							else
 							{	assert(!fcgi.canFetch());
-								for (let i=0; i<1000 && !fcgi.canFetch(); i++)
-								{	await fcgi.pollCanFetch();
-								}
+								await fcgi.waitCanFetch();
 								assert(fcgi.canFetch());
-								await fcgi.pollCanFetch();
+								await fcgi.waitCanFetch();
 								assert(fcgi.canFetch());
 							}
 							return response;

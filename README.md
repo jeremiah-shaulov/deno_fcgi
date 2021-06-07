@@ -1,47 +1,39 @@
 # deno_fcgi
 FastCGI implementation for Deno.
 
-## Example
+This library allows the following:
+
+1. To create Deno backend application behind FastCGI-capable web server (like Apache or Nginx).
+2. To make queries to a FastCGI service, like PHP.
+3. To create 2 applications, and communicate between them through FastCGI protocol.
+
+FastCGI is simple protocol designed to forward HTTP requests.
+Usually it's used to forward different HTTP requests to different applications from HTTP server that listens on single host/port.
+Having master HTTP server is convenient. It allows to have confuguration in single place, that controls all the WWW actions.
+
+## Backend application example
 
 ```ts
-import {fcgi} from 'https://deno.land/x/fcgi/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v0.0.21/mod.ts';
 
-console.log(`Started on 8080`);
+console.log(`Started on [::1]:8989`);
 fcgi.listen
-(	8080,
+(	'[::1]:8989',
 	'',
 	async req =>
-	{	await req.post.parse();
-		console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${[...req.post.entries()]}`);
+	{	console.log(req.url);
 		req.responseHeaders.set('Content-Type', 'text/html');
-		await req.respond({body: 'Hello'});
+		await req.respond({body: 'Your cookies: '+JSON.stringify([...req.cookies.entries()])});
 	}
 );
 ```
 
-## Example of low-level usage
+## Apache backend configuration
 
-```ts
-import {Server} from 'https://deno.land/x/fcgi/mod.ts';
+For Deno backend behind Apache, need to enable FastCGI module, and configure Apache to forward requests.
+There're many approaches. I'll show one of them.
 
-const listener = Deno.listen({hostname: "0.0.0.0", port: 8080});
-const server = new Server(listener);
-console.log(`Started on ${(listener.addr as Deno.NetAddr).port}`);
-
-for await (let req of server)
-{	req.post.parse().then
-	(	async () =>
-		{	console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${[...req.post.entries()]}`);
-			req.responseHeaders.set('Content-Type', 'text/html');
-			await req.respond({body: 'Hello'});
-		}
-	);
-}
-```
-
-## Usage
-
-First need to proxy HTTP requests from a FastCGI-capable web server, like Apache or Nginx. I'll show a simplest setup example for Apache, to be used as starting point.
+1. Use "SetHandler" directive to forward requests. You can wrap "SetHandler" in "Location" ("LocationMatch") or "Files" ("FilesMatch") to forward only certain requests.
 
 ```apache
 <VirtualHost *:80>
@@ -49,173 +41,291 @@ First need to proxy HTTP requests from a FastCGI-capable web server, like Apache
 	DocumentRoot /var/www/deno-server-root
     DirectoryIndex index.html
 
-	SetHandler "proxy:fcgi://localhost:8080"
+	<LocationMatch "\.ts$">
+		SetHandler "proxy:fcgi://[::1]:8989"
+	</LocationMatch>
 </VirtualHost>
 ```
-For FastCGI to work, enable apache module called "proxy_fcgi" (`sudo a2enmod proxy_fcgi`).
 
-DocumentRoot directory must exist.
+If "DocumentRoot" directive is present, the specified directory must exist.
 
-To use fake domain name `deno-server.loc` from localhost, add it to `/etc/hosts`:
+2. Enable module called "proxy_fcgi":
+
+```bash
+sudo a2enmod proxy_fcgi`
+sudo systemctl reload apache2
+```
+
+3. To use fake domain name `deno-server.loc` from localhost, add it to `/etc/hosts`:
 
 ```
 127.0.0.1	deno-server.loc
 ```
 
-Run Deno application like this:
+4. Run Deno application like this:
 
 ```bash
 deno run --unstable --allow-net main.ts
 ```
+
 Now requests to `http://deno-server.loc/` will be forwarded to our Deno application.
 
-### Using unix-domain socket
-```ts
-import {fcgi} from 'https://deno.land/x/fcgi/mod.ts';
+If we want to listen on unix-domain socket, we can use such "SetHandler" directive:
 
-console.log(`Started on /run/deno-server/main.sock`);
+```apache
+	SetHandler "proxy:unix:/run/deno-server/main.sock|fcgi://localhost"
+```
+
+And use socket node path in `fcgi.listen()`.
+
+```ts
+// ...
 fcgi.listen
 (	'/run/deno-server/main.sock',
 	'',
 	async req =>
-	{	await req.post.parse();
-		console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${[...req.post.entries()]}`);
-		req.responseHeaders.set('Content-Type', 'text/html');
-		await req.respond({body: 'Hello'});
+	{	// ...
 	}
 );
 ```
-```apache
-<VirtualHost *:80>
-	ServerName deno-server.loc
-	DocumentRoot /var/www/deno-server-root
-	DirectoryIndex index.html
 
-	SetHandler "proxy:unix:/run/deno-server/main.sock|fcgi://localhost"
-</VirtualHost>
-```
-We want to use a socket file, and both Apache and our application must have access permission to it.
-
-```bash
-sudo mkdir /run/deno-server
-sudo chown "$USER:" /run/deno-server
-```
-In this directory our application will create socket file `main.sock`, so it must have write permission to the directory. It will create the file with aplication's owner, so Apache will have no write access to it. Therefore it's necessary to change file owner after creating it (after our application executed `Deno.listen()`). We could do so in the application itself, but for this to be possible we need to give to our application root privileges. Instead i suggest to use a starter script that will first start our application, and then will change the ownership of the created file.
+But there will be 1 problem. Deno script creates socket node and sets it's owner and group to the user from which you run Deno.
+And Apache user will not be able to connect.
+Changing socket group after starting Deno application can solve the problem.
+You can use this script to start deno application:
 
 ```bash
 APACHE_USER=www-data
-deno run --unstable --allow-read --allow-write main.ts & sleep 3 && sudo chown "$APACHE_USER:$USER" /run/deno-server/main.sock; fg
+
+sudo mkdir /run/deno-server
+sudo chown "$USER:" /run/deno-server
+deno run --unstable --allow-read --allow-write main.ts & sleep 3 && sudo chown "$USER:$APACHE_USER" /run/deno-server/main.sock; fg
+```
+
+## Nginx backend configuration
+
+Example configuration:
+
+```nginx
+server
+{	listen 127.0.0.1:8000;
+	listen [::1]:8000;
+
+	server_name deno-server.loc;
+
+	root /var/www/deno-server-root;
+	index index.html;
+
+	location /
+	{	try_files $uri $uri/ =404;
+	}
+
+	location ~ \.ts$
+	{	fastcgi_split_path_info ^(.+?\.ts)(/.*)$;
+		set $path_info $fastcgi_path_info;
+		fastcgi_param PATH_INFO $path_info;
+		fastcgi_index index.ts;
+		include fastcgi.conf;
+
+		fastcgi_pass [::1]:8989;
+	}
+}
 ```
 
 ## Using the API
 
-Let's take a look again to the simplest example.
+This library provides first-class object through which you can do all the supported FastCGI operations: starting FastCGI server, and making queries to FastCGI services.
+
+This object is called [fcgi](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#Fcgi).
 
 ```ts
-import {fcgi} from 'https://deno.land/x/fcgi/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v0.0.21/mod.ts';
+```
 
-console.log(`Started on 8080`);
+Methods:
+
+1. `fcgi.listen(addr_or_listener: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#FcgiAddr)` | `[Deno.Listener](https://doc.deno.land/builtin/stable#Deno.Listener)`, path_pattern: PathPattern, callback: Callback)`
+
+Registers a FastCGI server on specified network address. The address can be given as:
+* a port number (`8000`),
+* a hostname with optional port (`localhost:8000`, `0.0.0.0:8000`, `[::1]:8000`, `::1`),
+* a unix-domain socket file name (`/run/deno-fcgi-server.sock`),
+* a `Deno.Addr` (`{transport: 'tcp', hostname: '127.0.0.1', port: 8000}`),
+* or a ready `Deno.Listener` object can also be given.
+
+This function can be called multiple times with the same or different addresses.
+Calling with the same address adds another handler callback that will be tried to handle matching requests.
+Calling with different address creates another FastCGI server.
+
+Second argument allows to filter arriving requests.
+It uses [x/path_to_regexp](https://deno.land/x/path_to_regexp) library, just like [x/oak](https://deno.land/x/oak) does.
+
+Third argument is callback function with signature `(request: ServerRequest, params: any) => Promise<unknown>` that will be called for incoming requests that match filters.
+`params` contains regexp groups from the path filter.
+
+"callback" can handle the request and call it's `req.respond()` method (not returning from the callback till this happens), or it can decide not to handle this request,
+and return without awaiting, so other handlers (registered with `fcgi.listen()`) will take chance to handle this request. If none handled, 404 response will be returned.
+
+Example:
+
+```ts
 fcgi.listen
-(	8080,
-	'',
+(	8989,
+	'/page-1.html',
 	async req =>
-	{	await req.post.parse();
-		console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${[...req.post.entries()]}`);
-		req.responseHeaders.set('Content-Type', 'text/html');
-		await req.respond({body: 'Hello'});
+	{	await req.respond({body: 'Hello world'});
+	}
+);
+
+fcgi.listen
+(	8989,
+	'/catalog/:item',
+	async (req, params) =>
+	{	await req.respond({body: `Item ${params.item}`});
+	}
+);
+
+fcgi.listen
+(	8989,
+	'', // match all paths
+	async req =>
+	{	await req.respond({body: 'Something else'});
 	}
 );
 ```
 
-The main interface is the `fcgi` object. It has the following methods:
+2. `fcgi.unlisten(addr?: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#FcgiAddr)`)`
 
-  - `listen(addr, pathPattern, callback)` - creates FastCGI listener on specified network address. It can be called multiple times with the same or different addresses. Requests that arrive can be optionally handled by calling `req.respond()` and awaiting for the result. If the handler function doesn't want to handle such request, it can return without actions taken, and other added handlers will take their chance to handle this request. If no handler took care of the request, a 404 response will be sent.
-  - `unlisten()` - stop listening to specified address, or to all addresses.
-  - `on()` - allows to register event handlers for errors (`on('error', callback)`) and for server termination (`on('end', callback)`). The server will be terminated after you remove all listeners.
+Stop serving requests on specified address, or on all addresses (if the addr parameter was undefined). Removing all listeners will trigger "end" event.
 
-Arguments of `listen(addr, pathPattern, callback)` are:
-  - Network address for the listener. It can be a port number, a string that represents unix-domain socket node, a string like `hostname:8080` or `[::1]:8080`, a `Deno.Addr` object, or a `Deno.Listener`.
-  - Request path filter. It uses [path-to-regexp](https://github.com/pillarjs/path-to-regexp) library, like `x/oak`.
-  - Callback that gets 2 arguments: the request, and parameters extracted from path according to `pathPattern`.
+3. `fcgi.on(event_name: string, callback?: any)`
 
-## Using the low-level API
+`fcgi.on('error', callback)` - catch FastCGI server errors.
+`fcgi.on('end', callback)` or `await on('end')` - catch the moment when FastCGI server stops accepting connections (when all listeners removed, and ongoing requests completed).
 
-Low-level API is similar to `std/http`. First thing to do is to create a `Server` object.
+4. `fcgi.off(event_name: string, callback?: any)`
+
+`fcgi.off('error' | 'end', callback)` - remove this callback from specified event handler.
+`fcgi.off('error' | 'end')` - remove all callbacks from specified event handler.
+
+5. `options(options?: `[ServerOptions](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#ServerOptions)` & `[ClientOptions](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#ClientOptions)`): ServerOptions & ClientOptions`
+
+Allows to modify `Server` and/or `Client` options. Not specified options will retain their previous values.
+This function can be called at any time, even after server started running, and new option values will take effect when possible.
+This function returns all the options after modification.
 
 ```ts
-const listener = Deno.listen({hostname: "0.0.0.0", port: 8080});
-const options =
-{	maxConns: 128,
-	structuredParams: true,
-};
-const server = new Server(listener, options);
+console.log(`maxConns=${fcgi.options().maxConns}`);
+fcgi.options({maxConns: 123});
+console.log(`Now maxConns=${fcgi.options().maxConns}`);
 ```
-`listener` can be any `Deno.Listener` object.
 
-There are the following options that modify server behavior:
-- `maxConns` - Maximum number of simultaneous connections to accept (default is 128).
-- `structuredParams` - Parse GET and POST parameters like PHP does. Query strings like `items[]=a&items[]=b` or `items[a][b]=c` will be parsed to `Map` objects, so `req.get.get('item')` will be of type `Map<string, ...>`.
+6. `fcgi.fetch(request_options: `[RequestOptions](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#RequestOptions)`, input: `[Request](https://doc.deno.land/builtin/stable#Request)` | `[URL](https://doc.deno.land/builtin/stable#URL)` | string, init?: RequestInit & { bodyIter: AsyncIterable<Uint8Array> }): Promise<`[ResponseWithCookies](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#ResponseWithCookies)`>`
 
-## The `ServerRequest` object
+Send request to a FastCGI service, such as PHP, just like Apache and Nginx do.
 
-Asynchronous iteration over `Server` object yields incoming HTTP requests. Each request is a `ServerRequest` object, that contains the request information sent from FastCGI server.
+First argument (`request_options`) specifies how to connect to the service, and what parameters to send to it.
+2 most important parameters are `request_options.addr` (service socket address), and `request_options.scriptFilename` (path to script file that the service must execute).
 
-  - `url` (string) - Like `/index.html`.
-  - `method` (string) - Like `GET`.
-  - `proto` (string) - Like `HTTP/1.1` or `HTTP/2`.
-  - `protoMinor` (number)
-  - `protoMajor` (number)
-  - `params` (Headers) - Environment parameters that usually include `DOCUMENT_ROOT`, and can include `CONTEXT_DOCUMENT_ROOT` if using apache MultiViews.
-  - `headers` (Headers) - Request HTTP headers.
-  - `get` (Map) - Lazy-parsed query string.
-  - `post` (Map) - Lazy-parsed POST body, that can contain uploaded files.
-  - `cookies` (Map) - Lazy-parsed request cookies. Adding and deleting them adds corresponding response HTTP headers.
-  - `body` (Deno.Reader) - Allows to read raw POST body before accessing `post`. The body can be also read from the `ServerRequest` object itself, as it implements `Deno.Reader` (`req.body == req`).
-  - `responseStatus` (number) - Set this to HTTP status code before calling `respond()`. However status given to `respond()` (if given) overrides this one.
-  - `responseHeaders` (Headers) - Set response HTTP headers here, before calling `respond()`, or pass them to `respond()` (the latter have precedence).
-  - `headersSent` (boolean) - Indicates that response headers are already sent. They will be sent by `respond()` or earlier if you write data to the `ServerRequest` object (it implements `Deno.Writer`).
+Second (`input`) and 3rd (`init`) arguments are the same as in built-in `fetch()` function, except that `init` allows to read request body from an `AsyncIterable<Uint8Array>` (`init.bodyIter`).
 
-It's your responsibility to call `respond()` when you're finished with this request. `respond()` sends all the pending data to the FastCGI server, and terminates the request, freeing all the resources, and deleting all the uploaded files (you need to move them to different location to keep them). The object will be not usable after calling `respond()`.
+Returned response object extends built-in `Response` (that regular `fetch()` returns) by adding `cookies` property, that contains all `Set-Cookie` headers.
+Also `response.body` object extends regular `ReadableStream<Uint8Array>` by adding `Deno.Reader` implementation.
+
+The response body must be explicitly read, before specified `request_options.timeout` period elapses. After this period, the connection will be forced to close.
+Each not closed connection counts towards `ClientOptions.maxConns`. After `response.body` read to the end, the connection returns to pool, and can be reused
+(except the case where existing `Deno.Conn` was given to `request_options.addr` - in this case the creator of this object decides what to do with this object then).
+
+Idle connections will be closed after `request_options.keepAliveTimeout` milliseconds, and after `request_options.keepAliveMax` times used.
+
+7. `fcgi.fetchCapabilities(addr: FcgiAddr | Deno.Conn): Promise<{ FCGI_MAX_CONNS: number, FCGI_MAX_REQS: number, FCGI_MPXS_CONNS: number }>`
+
+Ask a FastCGI service (like PHP) for it's protocol capabilities. This is not so useful information. Only for those who curious. As i know, Apache and Nginx don't even ask for this during protocol usage.
+
+8. `fcgi.canFetch(): boolean`
+
+`fetch()` and `fetchCapabilities()` throw Error if number of ongoing requests is more than the configured value (`maxConns`).
+`canFetch()` checks whether there are free slots, and returns true if so.
+It's recommended not to call `fetch()` untill `canFetch()` grants a green light.
+Example:
+
+```ts
+if (!fcgi.canFetch())
+{	await fcgi.waitCanFetch();
+}
+await fcgi.fetch(...);
+```
+
+9. `fcgi.waitCanFetch(): Promise<void>`
+
+10. `fcgi.closeIdle()`
+
+If `keepAliveTimeout` option was > 0, `fcgi.fetch()` will reuse connections. After each fetch, connection will wait for specified number of milliseconds for next fetch. Idle connections don't let Deno application from exiting naturally.
+You can call `fcgi.closeIdle()` to close all idle connections.
+
+## Using low-level API
+
+The mentioned `fcgi` object is just a wrapper around low-level functions and classes. It's possible to use them directly.
+
+```ts
+import {Server} from 'https://deno.land/x/fcgi@v0.0.21/mod.ts';
+
+const listener = Deno.listen({hostname: "::1", port: 8989});
+const server = new Server(listener);
+console.log(`Started on ${(listener.addr as Deno.NetAddr).port}`);
+
+for await (let req of server)
+{	console.log(req.url);
+	req.responseHeaders.set('Content-Type', 'text/html');
+	await req.respond({body: 'Your cookies: '+JSON.stringify([...req.cookies.entries()])});
+}
+```
+
+## `ServerRequest` object
+
+Callback given to `fcgi.listen()` receives incoming request as `ServerRequest` object. Also asynchronous iteration over `Server` yields such objects. `ServerRequest` contains information sent from FastCGI server.
+
+- `url` (string) - REQUEST_URI of the request, like '/path/index.html?a=1'
+- `method` (string) - Like `GET`.
+- `proto` (string) - Like `HTTP/1.1` or `HTTP/2`.
+- `protoMinor` (number)
+- `protoMajor` (number)
+- `params` (Headers) - Environment params sent from FastCGI frontend. This usually includes 'REQUEST_URI', 'SCRIPT_URI', 'SCRIPT_FILENAME', 'DOCUMENT_ROOT', can contain 'CONTEXT_DOCUMENT_ROOT' (if using Apache MultiViews), etc.
+- `headers` (Headers) - Request HTTP headers.
+- `get` (Map) - Query string parameters.
+- `post` (Map) - POST parameters, that can contain uploaded files. To initialize this property, call `await req.post.parse()`.
+- `cookies` (Map) - Request cookies. Adding and deleting them adds corresponding response HTTP headers.
+- `body` (Deno.Reader) - Allows to read raw POST body if `req.post.parse()` was not called. The body can be also read from `ServerRequest` object itself, as it implements `Deno.Reader` (`req.body == req`).
+- `responseStatus` (number) - Set this to HTTP status code before calling `respond()`. However status given to `respond()` (if given) overrides this one.
+- `responseHeaders` (Headers) - Set response HTTP headers here, before calling `respond()`, and/or pass them to `respond()` (the latter have precedence).
+- `headersSent` (boolean) - Indicates that response headers are already sent. They will be sent by `respond()` or earlier if you write data to the `ServerRequest` object (it implements `Deno.Writer`).
+
+To respond to the request, you need to call `req.respond()` method, that sends all pending data to FastCGI server, and terminates the request, freeing all the resources, and deleting all the uploaded files (you need to move them to different location to keep them). The object will be not usable after calling `respond()`.
+
+If using `Server` object, it's your responsibility to call `respond()` when you're finished with this request. `fcgi.listen()` API will call `respond()` automatically with 404 status, if you don't call it in any of registered request handlers.
 
 Response headers and data can be set before calling `respond()`, or they can be given to the `response()`.
+Response body can be given to `respond()`, or it can be written to `ServerRequest` object.
 
 ```ts
-import {Server} from 'https://deno.land/x/fcgi/mod.ts';
-import {readAll} from 'https://deno.land/std@0.97.0/io/util.ts';
+// test like this: curl --data 'INPUT DATA' http://deno-server.loc/test.ts
 
-const listener = Deno.listen({hostname: "0.0.0.0", port: 8080});
-const server = new Server(listener);
-console.log(`Started on ${(listener.addr as Deno.NetAddr).port}`);
+import {fcgi} from 'https://deno.land/x/fcgi@v0.0.21/mod.ts';
+import {readAll, writeAll} from 'https://deno.land/std@0.97.0/io/util.ts';
 
-for await (let req of server)
-{	readAll(req.body).then
-	(	async postData =>
-		{	let postStr = new TextDecoder().decode(postData);
-			console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${postStr}`);
-			await req.respond({body: 'Hello', headers: new Headers([['Content-Type', 'text/html']])});
-		}
-	);
-}
-```
-Or:
-
-```ts
-import {Server} from 'https://deno.land/x/fcgi/mod.ts';
-import {writeAll, readAll} from 'https://deno.land/std@0.97.0/io/util.ts';
-
-const listener = Deno.listen({hostname: "0.0.0.0", port: 8080});
-const server = new Server(listener);
-console.log(`Started on ${(listener.addr as Deno.NetAddr).port}`);
-
-for await (let req of server)
-{	readAll(req.body).then
-	(	async postData =>
-		{	let postStr = new TextDecoder().decode(postData);
-			console.log(`URL=${req.url}  GET=${[...req.get.entries()]}  POST=${postStr}`);
-			req.responseHeaders.set('Content-Type', 'text/html');
-			await writeAll(req, new TextEncoder().encode('Hello'));
-			await req.respond();
-		}
-	);
-}
+console.log(`Started on [::1]:8989`);
+fcgi.listen
+(	'[::1]:8989',
+	'',
+	async req =>
+	{	console.log(req.url);
+		// read raw POST input
+		let raw_input = await readAll(req.body);
+		// write response
+		req.responseHeaders.set('Content-Type', 'text/plain');
+		await writeAll(req, new TextEncoder().encode('The POST input was:\n'));
+		await writeAll(req, raw_input);
+		await req.respond();
+	}
+);
 ```
