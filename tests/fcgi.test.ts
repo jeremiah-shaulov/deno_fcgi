@@ -15,7 +15,7 @@ Deno.test
 		let listener = new MockListener;
 		let conn = listener.pend_accept(1024, -1, 'no');
 		let server_error: Error | undefined;
-		fcgi.on('error', (e: Error) => {server_error = e});
+		fcgi.onError(e => {server_error = e});
 		// write
 		conn.pend_read_fcgi_begin_request(1, 'responder', false);
 		conn.pend_read_fcgi_params(1, {a: '1'});
@@ -30,7 +30,7 @@ Deno.test
 				fcgi.unlisten();
 			}
 		);
-		await fcgi.on('end');
+		await fcgi.onEnd();
 		// read
 		assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\n'+BODY);
 		assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
@@ -46,7 +46,7 @@ Deno.test
 	{	let listener = new MockListener;
 		let conn = listener.pend_accept(1024, -1, 'no');
 		let server_error: Error | undefined;
-		fcgi.on('error', (e: Error) => {server_error = e});
+		fcgi.onError(e => {server_error = e});
 		let n_requests = 0;
 		// write request 1
 		conn.pend_read_fcgi_begin_request(1, 'responder', true);
@@ -67,7 +67,7 @@ Deno.test
 				fcgi.unlisten();
 			}
 		);
-		await fcgi.on('end');
+		await fcgi.onEnd();
 		// read
 		assertEquals(conn.take_written_fcgi_stdout(1), 'status: 404\r\n\r\nResource not found');
 		assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
@@ -107,7 +107,7 @@ Deno.test
 	async () =>
 	{	const N_REQUESTS = RECYCLE_REQUEST_ID_AFTER + 1;
 		let server_error;
-		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
+		fcgi.onError(e => {console.error(e); server_error = e});
 		// accept
 		let n_request = 0;
 		let listener = fcgi.listen
@@ -141,7 +141,7 @@ Deno.test
 	async () =>
 	{	const N_REQUESTS = 2;
 		let server_error;
-		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
+		fcgi.onError(e => {console.error(e); server_error = e});
 		// accept
 		let n_request = 0;
 		let listener = fcgi.listen
@@ -180,7 +180,7 @@ Deno.test
 (	'Cookies',
 	async () =>
 	{	let server_error;
-		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
+		fcgi.onError(e => {console.error(e); server_error = e});
 		// accept
 		let cookies_date = 0;
 		let listener = fcgi.listen
@@ -233,7 +233,7 @@ Deno.test
 		let was_request = false;
 		let n_errors = 0;
 		let server_error: Error | undefined;
-		fcgi.on('error', (e: Error) => {server_error = e; n_errors++});
+		fcgi.onError(e => {server_error = e; n_errors++});
 		// write request 1 (protocol error)
 		conn_1.pend_read_fcgi_begin_request(1, 'responder', true);
 		conn_1.currupt_last_bytes(1);
@@ -259,7 +259,7 @@ Deno.test
 				fcgi.unlisten();
 			}
 		);
-		await fcgi.on('end');
+		await fcgi.onEnd();
 		// read
 		assertEquals(conn_2.take_written_fcgi_stdout(1), 'status: 200\r\n\r\nHello');
 		assertEquals(conn_2.take_written_fcgi_end_request(1), 'request_complete');
@@ -276,7 +276,7 @@ Deno.test
 	async () =>
 	{	const FILTERS = ['', '/page-1.html', '', '/page-3.html'];
 		let server_error;
-		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
+		fcgi.onError(e => {console.error(e); server_error = e});
 		fcgi.options({keepAliveMax: 0, maxConns: FILTERS.length});
 		// accept
 		let listeners: Deno.Listener[] = [];
@@ -343,11 +343,11 @@ Deno.test
 			);
 		}
 		let was_end = false;
-		await fcgi.on('end', () => {was_end = true});
+		await fcgi.onEnd(() => {was_end = true});
 		await Promise.all(promises);
 		assert(was_end);
 		assert(!server_error);
-		fcgi.off('error');
+		fcgi.offError();
 	}
 );
 
@@ -358,7 +358,7 @@ Deno.test
 		const SET_COOKIE_OPTIONS = {domain: 'example.com', path: '/', httpOnly: true, secure: true, sameSite: 'None'};
 		let server_error;
 		let onerror = (e: any) => {console.error(e); server_error = e};
-		fcgi.on('error', onerror);
+		fcgi.onError(onerror);
 		// accept
 		let n_accepted = 0;
 		let listener = fcgi.listen
@@ -403,7 +403,7 @@ Deno.test
 			assertEquals(await response.text(), `Response body ${i}`);
 		}
 		assert(!server_error);
-		fcgi.off('error', onerror);
+		fcgi.offError(onerror);
 	}
 );
 
@@ -412,7 +412,7 @@ Deno.test
 	async () =>
 	{	let N_REQUESTS = 3;
 		let server_error: Error | undefined;
-		fcgi.on('error', (e: any) => {server_error = e});
+		fcgi.onError(e => {server_error = e});
 		// accept
 		let n_accepted = 0;
 		let listener;
@@ -472,9 +472,9 @@ Deno.test
 			}
 		}
 		fcgi.unlisten(listener.addr);
-		await fcgi.on('end');
+		await fcgi.onEnd();
 		assertEquals(server_error?.message, 'i is 1!');
-		fcgi.off('error');
+		fcgi.offError();
 	}
 );
 
@@ -489,7 +489,7 @@ Deno.test
 		{
 		}
 		let server_error;
-		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
+		fcgi.onError(e => {console.error(e); server_error = e});
 		// UDP
 		let error;
 		try
@@ -531,7 +531,7 @@ Deno.test
 			catch
 			{
 			}
-			fcgi.off('error');
+			fcgi.offError();
 		}
 	}
 );
@@ -541,7 +541,7 @@ Deno.test
 	async () =>
 	{	let MAX_REQS = [1, 10, Number.MAX_SAFE_INTEGER];
 		let server_error;
-		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
+		fcgi.onError(e => {console.error(e); server_error = e});
 		let was_request = false;
 		for (let i=0; i<MAX_REQS.length; i++)
 		{	fcgi.options({maxConns: MAX_REQS[i]});
@@ -559,11 +559,11 @@ Deno.test
 			assertEquals(result.FCGI_MAX_REQS, MAX_REQS[i]);
 			assertEquals(result.FCGI_MPXS_CONNS, 0);
 			fcgi.unlisten();
-			await fcgi.on('end');
+			await fcgi.onEnd();
 		}
 		assert(!was_request);
 		assert(!server_error);
-		fcgi.off('error');
+		fcgi.offError();
 	}
 );
 
@@ -588,7 +588,7 @@ Deno.test
 		assertEquals(res.maxValueLength, 8);
 		assertEquals(res.maxFileSize, 9);
 		fcgi.unlisten();
-		await fcgi.on('end');
+		await fcgi.onEnd();
 		assertEquals(res.maxConns, 6);
 		assert(!res.structuredParams);
 		assertEquals(res.maxNameLength, 7);
@@ -607,7 +607,7 @@ Deno.test
 (	'Pool',
 	async () =>
 	{	let server_error;
-		fcgi.on('error', (e: any) => {console.error(e); server_error = e});
+		fcgi.onError(e => {console.error(e); server_error = e});
 		// accept
 		let listener = fcgi.listen
 		(	0,
@@ -635,7 +635,7 @@ Deno.test
 		}
 		fcgi.unlisten(port);
 		fcgi.closeIdle();
-		await fcgi.on('end');
+		await fcgi.onEnd();
 		assert(!server_error);
 	}
 );

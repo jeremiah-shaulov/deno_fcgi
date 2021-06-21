@@ -39,8 +39,8 @@ debug_assert(RECYCLE_REQUEST_ID_AFTER>=1 && RECYCLE_REQUEST_ID_AFTER<=0xFFFF); /
 
 export class FcgiConn
 {	public request_till = 0; // for connections pool - 0 means no ongoing request, >0 means is executing request with timeout till this time
-	public use_till = Infinity; // if keepAliveTimeout specified
-	public use_n_times = Infinity; // if keepAliveMax specified
+	public use_till = Number.MAX_SAFE_INTEGER; // if keepAliveTimeout specified
+	public use_n_times = Number.MAX_SAFE_INTEGER; // if keepAliveMax specified
 
 	public headers = new Headers;
 	public cookies = new SetCookies;
@@ -72,7 +72,7 @@ export class FcgiConn
 		await this.write_record_stdin(this.request_id, this.buffer_8.subarray(0, 0), true);
 	}
 
-	async *read_response(buffer: Uint8Array): AsyncGenerator<number, void, Uint8Array>
+	async *read_response(buffer: Uint8Array): AsyncGenerator<number, number, Uint8Array>
 	{	let headers_read = false;
 		let headers_buffer: Uint8Array | undefined;
 		let headers_buffer_len = 0;
@@ -196,7 +196,9 @@ export class FcgiConn
 				}
 				else if (record_type == FCGI_END_REQUEST)
 				{	await this.read_exact(this.buffer_8);
-					let protocol_status = this.buffer_8[4]; // TODO: ...
+					let data = new DataView(this.buffer_8.buffer);
+					let app_status = data.getInt32(0);
+					let protocol_status = data.getUint8(4);
 					while (padding_length > 0)
 					{	let n = await this.conn.read(buffer.subarray(0, Math.min(padding_length, buffer.length)));
 						if (n == null)
@@ -204,7 +206,16 @@ export class FcgiConn
 						}
 						padding_length -= n;
 					}
-					break;
+					if (protocol_status == FCGI_CANT_MPX_CONN)
+					{	throw new Error('This service cannot multiplex connections');
+					}
+					if (protocol_status == FCGI_OVERLOADED)
+					{	throw new Error('Service overloaded');
+					}
+					if (protocol_status == FCGI_UNKNOWN_ROLE)
+					{	throw new Error("Service doesn't support responder role");
+					}
+					return app_status;
 				}
 			}
 			let n_skip = content_length + padding_length; // negative "content_length" means that part of padding is already consumed

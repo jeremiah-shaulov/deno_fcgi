@@ -20,8 +20,8 @@ export class Fcgi
 	private client = new Client;
 
 	constructor()
-	{	this.server.on('error', e => {this.onerror.trigger(e)});
-		this.client.on('error', e => {this.onerror.trigger(e)});
+	{	this.server.onError(e => {this.onerror.trigger(e)});
+		this.client.onError(e => {this.onerror.trigger(e)});
 	}
 
 	/**	Registers a FastCGI server on specified network address.
@@ -153,26 +153,43 @@ export class Fcgi
 		}
 	}
 
-	/**	Multiple event handlers can be added to each event type.
-
-		`on('error', callback)` - catch FastCGI server errors.
-		`on('end', callback)` or `await on('end')` - catch the moment when FastCGI server stops accepting connections (when all listeners removed, and ongoing requests completed).
+	/**	Catch FastCGI server errors. Multiple event handlers can be added.
 	 **/
-	on(event_name: string, callback?: any)
-	{	let q = event_name=='error' ? this.onerror : event_name=='end' ? this.onend : undefined;
-		return q?.add(callback);
+	onError(callback?: (error: Error) => unknown)
+	{	return this.onerror.add(callback);
 	}
 
-	/**	`off('error' | 'end', callback)` - remove this callback from specified event handler.
-		`off('error' | 'end')` - remove all callbacks from specified event handler.
+	/**	Catch the moment when FastCGI server stops accepting connections (when all listeners removed, and ongoing requests completed).
+
+		fcgi.onEnd(callback);
+		// or
+		await fcgi.onEnd();
 	 **/
-	off(event_name: string, callback?: any)
-	{	let q = event_name=='error' ? this.onerror : event_name=='end' ? this.onend : undefined;
-		if (callback)
-		{	q?.remove(callback);
+	onEnd(callback?: () => unknown)
+	{	return this.onend.add(callback);
+	}
+
+	/**	`offError(callback)` - remove this callback that was added through `onError(callback)`.
+		`offError()` - remove all callbacks.
+	 **/
+	offError(callback?: (error: Error) => unknown)
+	{	if (callback)
+		{	this.onerror.remove(callback);
 		}
 		else
-		{	q?.clear();
+		{	this.onerror.clear();
+		}
+	}
+
+	/**	`offEnd(callback)` - remove this callback that was added through `onEnd(callback)`.
+		`offEnd()` - remove all callbacks.
+	 **/
+	offEnd(callback?: () => unknown)
+	{	if (callback)
+		{	this.onend.remove(callback);
+		}
+		else
+		{	this.onend.clear();
 		}
 	}
 

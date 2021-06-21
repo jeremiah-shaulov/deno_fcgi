@@ -370,8 +370,8 @@ export class ServerRequest implements Deno.Conn
 			this.buffer_end -= this.buffer_start;
 			this.buffer_start = 0;
 		}
-		let till = this.buffer_start + n_bytes;
-		while (this.buffer_end < till)
+		let to = this.buffer_start + n_bytes;
+		while (this.buffer_end < to)
 		{	try
 			{	var n_read = await this.conn.read(this.buffer.subarray(this.buffer_end));
 			}

@@ -16,6 +16,7 @@ async function get_mock_response(body: string, first_part_len=1024, first_part_c
 			{	throw new Error('failed');
 			}
 		}
+		return 0;
 	}
 	let buffer = new Uint8Array(first_part_len);
 	let it = body_it(buffer);

@@ -3,7 +3,6 @@ import {faddr_to_addr, addr_to_string} from './addr.ts';
 import type {FcgiAddr} from './addr.ts';
 import {FcgiConn} from "./fcgi_conn.ts";
 import {SetCookies} from "./set_cookies.ts";
-import {TooManyConnsError} from './error.ts';
 
 const BUFFER_LEN = 8*1024;
 export const SERVER_SOFTWARE = 'DenoFcgi/0.0';
@@ -53,7 +52,7 @@ export class ResponseWithCookies extends Response
 export class ReadableReadableStream extends ReadableStream<Uint8Array> implements Deno.Reader
 {	private is_reading = false;
 
-	constructor(private body_first_part: Uint8Array|undefined, private body_it: AsyncGenerator<number, void, Uint8Array>, private ondone: () => void)
+	constructor(private body_first_part: Uint8Array|undefined, private body_it: AsyncGenerator<number, number, Uint8Array>, private ondone: () => void)
 	{	super
 		(	{	pull: async (controller) =>
 				{	try
@@ -113,8 +112,7 @@ export class ReadableReadableStream extends ReadableStream<Uint8Array> implement
 class FcgiConns
 {	public idle: FcgiConn[] = [];
 	public busy: FcgiConn[] = [];
-	public supports_reuse_connection = true; // set to false after first unsuccessful attempt
-	public last_use_time = Date.now();
+	public no_reuse_connection_since = 0; // 0 means reusing connection is supported. Set to Date.now() after first unsuccessful attempt.
 }
 
 export class Client
@@ -151,20 +149,18 @@ export class Client
 		return {maxConns, timeout, keepAliveTimeout, keepAliveMax, onLogError};
 	}
 
-	/**	`on('error', callback)` - catch general connection errors. Only one handler is active. Second `on()` overrides the previous handler.
-		`on('error')` - removes the event handler.
+	/**	`onError(callback)` - catch general connection errors. Only one handler is active. Second `onError(callback2)` overrides the previous handler.
+		`onError(undefined)` - removes the event handler.
 	 **/
-	on(event_name: string, callback?: (error: Error) => void)
-	{	if (event_name == 'error')
-		{	this.onerror = !callback ? () => {} : error =>
-			{	try
-				{	callback(error);
-				}
-				catch (e)
-				{	console.error(e);
-				}
-			};
-		}
+	onError(callback?: (error: Error) => unknown)
+	{	this.onerror = !callback ? () => {} : error =>
+		{	try
+			{	callback(error);
+			}
+			catch (e)
+			{	console.error(e);
+			}
+		};
 	}
 
 	/**	If `keepAliveTimeout` option was > 0, `fcgi.fetch()` will reuse connections. After each fetch, connection will wait for specified number of milliseconds for next fetch. Idle connections don't let Deno application from exiting naturally.
@@ -227,10 +223,11 @@ export class Client
 				}
 				catch (e)
 				{	if (conn_type==CONN_TYPE_INTERNAL_REUSE && e.name=='BrokenPipe')
-					{	// unset "supports_reuse_connection" for this "server_addr_str"
+					{	// unset "no_reuse_connection_since" for this "server_addr_str"
 						conn_type = CONN_TYPE_INTERNAL_NO_REUSE;
 						this.return_conn(server_addr_str, conn, conn_type);
-						this.get_conns(server_addr_str).supports_reuse_connection = false;
+						let conns = this.get_conns(server_addr_str);
+						conns.no_reuse_connection_since = Date.now();
 						var {conn} = await this.get_conn(server_addr_str, timeout, keepAliveTimeout, keepAliveMax);
 						continue;
 					}
@@ -298,7 +295,7 @@ export class Client
 		return result;
 	}
 
-	/**	`fetch()` and `fetchCapabilities()` throw Error if number of ongoing requests is more than the configured value (`maxConns`).
+	/**	When number of ongoing requests is more than the configured value (`maxConns`), `fetch()` and `fetchCapabilities()` will wait.
 		`canFetch()` checks whether there are free slots, and returns true if so.
 		It's recommended not to call `fetch()` untill `canFetch()` grants a green light.
 		Example:
@@ -330,8 +327,8 @@ export class Client
 
 	private async get_conn(addr: FcgiAddr | Deno.Conn, timeout: number, keepAliveTimeout: number, keepAliveMax: number): Promise<{conn: FcgiConn, server_addr_str: string, conn_type: number}>
 	{	debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
-		if (this.n_busy_all >= this.maxConns)
-		{	throw new TooManyConnsError('Too many connections');
+		while (this.n_busy_all >= this.maxConns)
+		{	await new Promise<void>(y => {this.can_fetch_callbacks.push(y)});
 		}
 		let server_addr;
 		let external_conn;
@@ -344,8 +341,8 @@ export class Client
 		}
 		let server_addr_str = addr_to_string(server_addr);
 		let conns = this.get_conns(server_addr_str);
-		let {idle, busy, supports_reuse_connection} = conns;
-		let conn_type = supports_reuse_connection ? CONN_TYPE_INTERNAL_REUSE : CONN_TYPE_INTERNAL_NO_REUSE;
+		let {idle, busy, no_reuse_connection_since} = conns;
+		let conn_type = no_reuse_connection_since==0 ? CONN_TYPE_INTERNAL_REUSE : CONN_TYPE_INTERNAL_NO_REUSE;
 		let now = Date.now();
 		while (true)
 		{	let conn;
@@ -436,8 +433,9 @@ export class Client
 	private close_kept_alive_timed_out(close_all_idle=false)
 	{	let {conns_pool} = this;
 		let now = Date.now();
-		for (let [server_addr_str, {idle, busy, last_use_time}] of conns_pool)
-		{	// Some request timed out?
+		for (let [server_addr_str, conns] of conns_pool)
+		{	let {idle, busy, no_reuse_connection_since} = conns;
+			// Some request timed out?
 			for (let i=busy.length-1; i>=0; i--)
 			{	let conn = busy[i];
 				debug_assert(conn.request_till > 0);
@@ -461,7 +459,11 @@ export class Client
 				}
 			}
 			//
-			if (busy.length+idle.length == 0 && last_use_time+FORGET_CONNECTION_STATE_AFTER < now)
+			if (no_reuse_connection_since && no_reuse_connection_since+FORGET_CONNECTION_STATE_AFTER < now)
+			{	no_reuse_connection_since = 0;
+				conns.no_reuse_connection_since = 0;
+			}
+			if (busy.length+idle.length==0 && !no_reuse_connection_since)
 			{	conns_pool.delete(server_addr_str);
 			}
 		}

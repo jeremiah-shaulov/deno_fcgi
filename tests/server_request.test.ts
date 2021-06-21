@@ -25,7 +25,7 @@ Deno.test
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
-			server.on('error', e => {console.error(e); server_error = e});
+			server.onError(e => {console.error(e); server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
 			conn.pend_read_fcgi_params(1, PARAMS);
@@ -72,7 +72,7 @@ Deno.test
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
-			server.on('error', e => {console.error(e); server_error = e});
+			server.onError(e => {console.error(e); server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', true);
 			conn.pend_read_fcgi_stdin(1, 'Body');
@@ -109,7 +109,7 @@ Deno.test
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
-			server.on('error', e => {console.error(e); server_error = e});
+			server.onError(e => {console.error(e); server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
 			conn.pend_read_fcgi_params(1, PARAMS);
@@ -160,7 +160,7 @@ Deno.test
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
-			server.on('error', e => {console.error(e); server_error = e});
+			server.onError(e => {console.error(e); server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
 			conn.pend_read_fcgi_params(1, PARAMS);
@@ -227,7 +227,7 @@ Deno.test
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
-			server.on('error', e => {console.error(e); server_error = e});
+			server.onError(e => {console.error(e); server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
 			conn.pend_read_fcgi_params(1, PARAMS);
@@ -261,7 +261,7 @@ Deno.test
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
-			server.on('error', e => {console.error(e); server_error = e});
+			server.onError(e => {console.error(e); server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
 			conn.pend_read_fcgi_params(1, {HTTP_COOKIE: 'coo-1= val <1> ; coo-2=val <2>.'});
@@ -297,7 +297,7 @@ Deno.test
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
-			server.on('error', e => {console.error(e); server_error = e});
+			server.onError(e => {console.error(e); server_error = e});
 			// write request 1
 			conn.pend_read_fcgi_begin_request(1, 'responder', true);
 			conn.pend_read_fcgi_params(1, {id: 'req 1'});
@@ -340,7 +340,7 @@ Deno.test
 		let listener = new MockListener([conn]);
 		let server = new Server(listener);
 		let server_error;
-		server.on('error', e => {console.error(e); server_error = e});
+		server.onError(e => {console.error(e); server_error = e});
 		// write request 1
 		conn.pend_read_fcgi_begin_request(1, 'responder', true);
 		conn.pend_read_fcgi_params(1, {id: 'req 1'});
@@ -408,7 +408,7 @@ Deno.test
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
-			server.on('error', e => {console.error(e); server_error = e});
+			server.onError(e => {console.error(e); server_error = e});
 			// write request 1
 			conn.pend_read_fcgi_begin_request(1, 'responder', true);
 			conn.pend_read_fcgi_params(1, {id: 'req 1'});
@@ -468,7 +468,7 @@ Deno.test
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
-			server.on('error', e => {console.error(e); server_error = e});
+			server.onError(e => {console.error(e); server_error = e});
 			// write request 1 (abort after PARAMS)
 			conn.pend_read_fcgi_begin_request(1, 'responder', true);
 			conn.pend_read_fcgi_params(1, {id: 'req 1'});
@@ -759,7 +759,7 @@ Deno.test
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
-			server.on('error', e => {console.error(e); server_error = e});
+			server.onError(e => {console.error(e); server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(2, 'responder', false);
 			conn.pend_read_fcgi_params(2, {});
@@ -792,7 +792,7 @@ Deno.test
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
-			server.on('error', e => {console.error(e); server_error = e});
+			server.onError(e => {console.error(e); server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(3, 'responder', false);
 			conn.pend_read_fcgi_params(3, {a: '1'});
@@ -828,7 +828,7 @@ Deno.test
 		let listener = new MockListener([conn_1, conn_2]);
 		let server = new Server(listener);
 		let server_error: Error | undefined;
-		server.on('error', e => {server_error = e});
+		server.onError(e => {server_error = e});
 		// write request 1 (protocol error)
 		conn_1.pend_read_fcgi_begin_request(1, 'responder', true);
 		conn_1.currupt_last_bytes(1);
@@ -864,7 +864,7 @@ Deno.test
 		let listener = new MockListener([conn_1, conn_2]);
 		let server = new Server(listener);
 		let server_error: Error | undefined;
-		server.on('error', e => {server_error = e});
+		server.onError(e => {server_error = e});
 		// write request 1 (protocol error)
 		conn_1.pend_read_fcgi_begin_request(1, 'responder', true);
 		conn_1.currupt_last_bytes(1);
@@ -900,7 +900,7 @@ Deno.test
 				let listener = new MockListener([conn]);
 				let server = new Server(listener, {maxNameLength});
 				let server_error;
-				server.on('error', e => {console.error(e); server_error = e});
+				server.onError(e => {console.error(e); server_error = e});
 				// write
 				conn.pend_read_fcgi_begin_request(1, 'responder', true);
 				conn.pend_read_fcgi_params(1, {[str_ok]: 'ok', [str_err]: 'err'});
@@ -936,7 +936,7 @@ Deno.test
 				let listener = new MockListener([conn]);
 				let server = new Server(listener, {maxValueLength});
 				let server_error;
-				server.on('error', e => {console.error(e); server_error = e});
+				server.onError(e => {console.error(e); server_error = e});
 				// write
 				conn.pend_read_fcgi_begin_request(1, 'responder', true);
 				conn.pend_read_fcgi_params(1, {'ok': str_ok, 'err': str_err});
@@ -972,7 +972,7 @@ Deno.test
 				let listener = new MockListener([conn]);
 				let server = new Server(listener);
 				let server_error;
-				server.on('error', e => {console.error(e); server_error = e});
+				server.onError(e => {console.error(e); server_error = e});
 				// write
 				conn.pend_read_fcgi_begin_request(1, 'responder', true);
 				conn.pend_read_fcgi_params(1, {});
@@ -1015,7 +1015,7 @@ Deno.test
 			let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
-			server.on('error', e => {console.error(e); server_error = e});
+			server.onError(e => {console.error(e); server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', true);
 			conn.pend_read_fcgi_params(1, {});
@@ -1045,7 +1045,7 @@ Deno.test
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener);
 			let server_error;
-			server.on('error', e => {console.error(e); server_error = e});
+			server.onError(e => {console.error(e); server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(2, 'responder', false);
 			conn.pend_read_fcgi_params(2, {});
@@ -1079,7 +1079,7 @@ Deno.test
 		{	let listener = new MockListener([conn]);
 			let server = new Server(listener, {maxConns});
 			let server_error;
-			server.on('error', e => {console.error(e); server_error = e});
+			server.onError(e => {console.error(e); server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', false);
 			conn.pend_read_fcgi_get_values({FCGI_MAX_CONNS: '', FCGI_MAX_REQS: '', FCGI_MPXS_CONNS: '', HELLO: ''});

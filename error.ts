@@ -13,7 +13,3 @@ export class ProtocolError extends Error
 export class CookieError extends Error
 {
 }
-
-export class TooManyConnsError extends Error
-{
-}

@@ -198,17 +198,19 @@ fcgi.listen
 
 Stop serving requests on specified address, or on all addresses (if the addr parameter was undefined). Removing all listeners will trigger "end" event.
 
-3. `fcgi.on(event_name: string, callback?: any)`
+3. `fcgi.onError(callback)` - catch FastCGI server errors. Multiple event handlers can be added.
 
-`fcgi.on('error', callback)` - catch FastCGI server errors.
-`fcgi.on('end', callback)` or `await on('end')` - catch the moment when FastCGI server stops accepting connections (when all listeners removed, and ongoing requests completed).
+4. `fcgi.onEnd(callback)` or `await onEnd()` - catch the moment when FastCGI server stops accepting connections (when all listeners removed, and ongoing requests completed).
 
-4. `fcgi.off(event_name: string, callback?: any)`
+5. `fcgi.offError(callback)` - remove this callback that was added through `onError(callback)`.
 
-`fcgi.off('error' | 'end', callback)` - remove this callback from specified event handler.
-`fcgi.off('error' | 'end')` - remove all callbacks from specified event handler.
+`fcgi.offError()` - remove all callbacks.
 
-5. `options(options?: `[ServerOptions](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#ServerOptions)` & `[ClientOptions](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#ClientOptions)`): ServerOptions & ClientOptions`
+6. `fcgi.offEnd(callback)` - remove this callback that was added through `onEnd(callback)`.
+
+`fcgi.offEnd()` - remove all callbacks.
+
+7. `options(options?: `[ServerOptions](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#ServerOptions)` & `[ClientOptions](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#ClientOptions)`): ServerOptions & ClientOptions`
 
 Allows to modify `Server` and/or `Client` options. Not specified options will retain their previous values.
 This function can be called at any time, even after server started running, and new option values will take effect when possible.
@@ -220,7 +222,7 @@ fcgi.options({maxConns: 123});
 console.log(`Now maxConns=${fcgi.options().maxConns}`);
 ```
 
-6. `fcgi.fetch(request_options: `[RequestOptions](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#RequestOptions)`, input: `[Request](https://doc.deno.land/builtin/stable#Request)` | `[URL](https://doc.deno.land/builtin/stable#URL)` | string, init?: RequestInit & { bodyIter: AsyncIterable<Uint8Array> }): Promise<`[ResponseWithCookies](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#ResponseWithCookies)`>`
+8. `fcgi.fetch(request_options: `[RequestOptions](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#RequestOptions)`, input: `[Request](https://doc.deno.land/builtin/stable#Request)` | `[URL](https://doc.deno.land/builtin/stable#URL)` | string, init?: RequestInit & { bodyIter: AsyncIterable<Uint8Array> }): Promise<`[ResponseWithCookies](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#ResponseWithCookies)`>`
 
 Send request to a FastCGI service, such as PHP, just like Apache and Nginx do.
 
@@ -238,13 +240,13 @@ Each not closed connection counts towards `ClientOptions.maxConns`. After `respo
 
 Idle connections will be closed after `request_options.keepAliveTimeout` milliseconds, and after `request_options.keepAliveMax` times used.
 
-7. `fcgi.fetchCapabilities(addr: FcgiAddr | Deno.Conn): Promise<{ FCGI_MAX_CONNS: number, FCGI_MAX_REQS: number, FCGI_MPXS_CONNS: number }>`
+9. `fcgi.fetchCapabilities(addr: FcgiAddr | Deno.Conn): Promise<{ FCGI_MAX_CONNS: number, FCGI_MAX_REQS: number, FCGI_MPXS_CONNS: number }>`
 
 Ask a FastCGI service (like PHP) for it's protocol capabilities. This is not so useful information. Only for those who curious. As i know, Apache and Nginx don't even ask for this during protocol usage.
 
-8. `fcgi.canFetch(): boolean`
+10. `fcgi.canFetch(): boolean`
 
-`fetch()` and `fetchCapabilities()` throw Error if number of ongoing requests is more than the configured value (`maxConns`).
+When number of ongoing requests is more than the configured value (`maxConns`), `fetch()` and `fetchCapabilities()` will wait.
 `canFetch()` checks whether there are free slots, and returns true if so.
 It's recommended not to call `fetch()` untill `canFetch()` grants a green light.
 Example:
@@ -256,9 +258,9 @@ if (!fcgi.canFetch())
 await fcgi.fetch(...);
 ```
 
-9. `fcgi.waitCanFetch(): Promise<void>`
+11. `fcgi.waitCanFetch(): Promise<void>`
 
-10. `fcgi.closeIdle()`
+12. `fcgi.closeIdle()`
 
 If `keepAliveTimeout` option was > 0, `fcgi.fetch()` will reuse connections. After each fetch, connection will wait for specified number of milliseconds for next fetch. Idle connections don't let Deno application from exiting naturally.
 You can call `fcgi.closeIdle()` to close all idle connections.
