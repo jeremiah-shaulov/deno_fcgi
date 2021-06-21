@@ -5,7 +5,7 @@ import {FcgiConn} from "./fcgi_conn.ts";
 import {SetCookies} from "./set_cookies.ts";
 
 const BUFFER_LEN = 8*1024;
-export const SERVER_SOFTWARE = 'DenoFcgi/0.0';
+export const SERVER_SOFTWARE = 'DenoFcgi/1.0';
 const DEFAULT_MAX_CONNS = 128;
 const DEFAULT_TIMEOUT = 10000;
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 10000;
