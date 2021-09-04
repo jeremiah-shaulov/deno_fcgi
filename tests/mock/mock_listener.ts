@@ -2,7 +2,7 @@ import {MockFcgiConn} from './mod.ts';
 
 export class MockListener implements Deno.Listener
 {	public addr = {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: Math.floor(Math.random()*0xFFFF)};
-	public rid = Math.floor(Math.random()*0x7FFFFFFF);
+	public rid = Math.floor(Math.random()*0x7FFF_FFFF);
 
 	public is_closed = false;
 

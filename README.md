@@ -313,7 +313,7 @@ Response body can be given to `respond()`, or it can be written to `ServerReques
 // test like this: curl --data 'INPUT DATA' http://deno-server.loc/test.ts
 
 import {fcgi} from 'https://deno.land/x/fcgi@v0.0.21/mod.ts';
-import {readAll, writeAll} from 'https://deno.land/std@0.97.0/io/util.ts';
+import {readAll, writeAll} from 'https://deno.land/std@0.106.0/io/util.ts';
 
 console.log(`Started on [::1]:8989`);
 fcgi.listen

@@ -2,7 +2,7 @@ import {debug_assert} from './debug_assert.ts';
 import {pack_nvp} from "./server_request.ts";
 import {Server} from "./server.ts";
 import {SetCookies} from "./set_cookies.ts";
-import {writeAll} from 'https://deno.land/std@0.97.0/io/util.ts';
+import {writeAll} from 'https://deno.land/std@0.106.0/io/util.ts';
 
 export const RECYCLE_REQUEST_ID_AFTER = 1024; // max: 0xFFFF. big number slows down unit testing
 
@@ -272,7 +272,7 @@ export class FcgiConn
 	}
 
 	async write_record_params(request_id: number, params: Map<string, string>, is_terminal: boolean)
-	{	let data = pack_nvp(FCGI_PARAMS, request_id, params, 0x7FFFFFFF, 0x7FFFFFFF);
+	{	let data = pack_nvp(FCGI_PARAMS, request_id, params, 0x7FFF_FFFF, 0x7FFF_FFFF);
 		if (data.length > 8)
 		{	await writeAll(this.conn, data);
 		}
@@ -282,7 +282,7 @@ export class FcgiConn
 	}
 
 	async write_record_get_values(params: Map<string, string>)
-	{	let data = pack_nvp(FCGI_GET_VALUES, 0, params, 0x7FFFFFFF, 0x7FFFFFFF);
+	{	let data = pack_nvp(FCGI_GET_VALUES, 0, params, 0x7FFF_FFFF, 0x7FFF_FFFF);
 		if (data.length > 8)
 		{	await writeAll(this.conn, data);
 		}

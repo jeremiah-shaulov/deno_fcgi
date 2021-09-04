@@ -1,8 +1,8 @@
 import {Post, REALLOC_THRESHOLD} from "../post.ts";
 import {TEST_CHUNK_SIZES, get_random_string, map_to_obj, MockConn} from './mock/mod.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
-import {exists} from "https://deno.land/std@0.97.0/fs/mod.ts";
-import {readAll} from 'https://deno.land/std@0.97.0/io/util.ts';
+import {assert, assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
+import {exists} from "https://deno.land/std@0.106.0/fs/mod.ts";
+import {readAll} from 'https://deno.land/std@0.106.0/io/util.ts';
 
 Deno.test
 (	'Urlencoded',
@@ -129,7 +129,7 @@ Deno.test
 				let contents = new TextDecoder().decode(await readAll(f));
 				f.close();
 				assertEquals(contents, file_contents);
-				assertEquals(uploaded_file, {error: 0, name: '/tmp/current_file', size: file_contents.length, tmpName: uploaded_file!.tmpName, type: i==0 ? 'text/plain' : 'application/octet-stream'});
+				assertEquals({...uploaded_file}, {error: 0, name: '/tmp/current_file', size: file_contents.length, tmpName: uploaded_file!.tmpName, type: i==0 ? 'text/plain' : 'application/octet-stream'});
 				if (i == 1)
 				{	await Deno.remove(tmpName); // delete before closing "post"
 					assert(!await exists(tmpName));
@@ -238,10 +238,10 @@ Deno.test
 					f.close();
 					assertEquals(contents, file_contents);
 					uploaded_file!.tmpName = '';
-					assertEquals(uploaded_file, {error: 0, name: '/tmp/current_file', size: file_contents.length, tmpName: '', type: 'application/octet-stream'});
+					assertEquals({...uploaded_file}, {error: 0, name: '/tmp/current_file', size: file_contents.length, tmpName: '', type: 'application/octet-stream'});
 				}
 				else
-				{	assertEquals(uploaded_file, {error: 7, name: '/tmp/current_file', size: file_contents.length, tmpName: '', type: 'application/octet-stream'});
+				{	assertEquals({...uploaded_file}, {error: 7, name: '/tmp/current_file', size: file_contents.length, tmpName: '', type: 'application/octet-stream'});
 				}
 				await post.close();
 				assert(!tmpName || !await exists(tmpName));
@@ -291,7 +291,7 @@ Deno.test
 			f.close();
 			assertEquals(contents, file_contents[i]);
 			uploaded_file!.tmpName = '';
-			assertEquals(uploaded_file, {error: 0, name: '/tmp/file_'+i, size: file_contents[i].length, tmpName: '', type: 'application/octet-stream'});
+			assertEquals({...uploaded_file}, {error: 0, name: '/tmp/file_'+i, size: file_contents[i].length, tmpName: '', type: 'application/octet-stream'});
 		}
 		await post.close();
 		for (let i=0; i<2; i++)

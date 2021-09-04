@@ -1,6 +1,6 @@
 import type {FcgiAddr} from "../addr.ts";
 import {faddr_to_addr, addr_to_string, is_default_route} from "../addr.ts";
-import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
+import {assert, assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
 
 Deno.test
 (	'faddr_to_addr()',

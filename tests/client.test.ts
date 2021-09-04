@@ -1,6 +1,6 @@
 import {Client, ReadableReadableStream, ResponseWithCookies} from "../client.ts";
 import {MockConn, get_random_string} from './mock/mod.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
+import {assert, assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
 
 async function get_mock_response(body: string, first_part_len=1024, first_part_chunk_size=100, chunk_size=10, fail=false)
 {	let conn = new MockConn(body, first_part_chunk_size);

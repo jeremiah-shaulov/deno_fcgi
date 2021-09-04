@@ -1,7 +1,7 @@
 import {MockConn, MockListener} from "./mod.ts";
 import {Server} from "../../server.ts";
 import {pack_nvp} from "../../server_request.ts";
-import {assertEquals} from "https://deno.land/std@0.97.0/testing/asserts.ts";
+import {assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
 
 const FCGI_BEGIN_REQUEST      =  1;
 const FCGI_ABORT_REQUEST      =  2;
@@ -82,7 +82,7 @@ export class MockFcgiConn extends MockConn
 
 	pend_read_fcgi_params(request_id: number, params: any, is_get_values=false)
 	{	let record_type = is_get_values ? FCGI_GET_VALUES : FCGI_PARAMS;
-		let data = pack_nvp(record_type, request_id, new Map(Object.entries(params)), 0x7FFFFFFF, 0x7FFFFFFF);
+		let data = pack_nvp(record_type, request_id, new Map(Object.entries(params)), 0x7FFF_FFFF, 0x7FFF_FFFF);
 		if (data.length > 8)
 		{	let break_at = Math.min(this.chunk_size % 10, data.length-9); // choose break boundary depending on "chunk_size" (so will test many possibilities)
 			if (this.split_stream_records=='no' || break_at<=0 || record_type==FCGI_GET_VALUES)

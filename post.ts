@@ -1,7 +1,7 @@
 import {debug_assert} from "./debug_assert.ts";
 import {StructuredMap} from "./structured_map.ts";
-import {exists} from "https://deno.land/std@0.97.0/fs/mod.ts";
-import {writeAll} from 'https://deno.land/std@0.97.0/io/util.ts';
+import {exists} from "https://deno.land/std@0.106.0/fs/mod.ts";
+import {writeAll} from 'https://deno.land/std@0.106.0/io/util.ts';
 
 const BUFFER_LEN = 8*1024;
 export const REALLOC_THRESHOLD = 512; // max length for header line like `Content-Disposition: form-data; name="image"; filename="/tmp/current_file"` is BUFFER_LEN-REALLOC_THRESHOLD

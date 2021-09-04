@@ -269,8 +269,8 @@ export class Fcgi
 
 	// Create FastCGI client for PHP
 
-	import {serve} from "https://deno.land/std@0.97.0/http/server.ts";
-	import {iter} from 'https://deno.land/std@0.97.0/io/util.ts';
+	import {serve} from "https://deno.land/std@0.106.0/http/server.ts";
+	import {iter} from 'https://deno.land/std@0.106.0/io/util.ts';
 
 	const PHP_POOL_CONFIG_FILE = '/etc/php/7.4/fpm/pool.d/www.conf';
 	const DOCUMENT_ROOT = '/var/www/deno-server-root';
