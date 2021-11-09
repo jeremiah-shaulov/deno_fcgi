@@ -1,4 +1,4 @@
-import {MockFcgiConn} from './mod.ts';
+import {MockFcgiConn} from './mock_fcgi_conn.ts';
 
 export class MockListener implements Deno.Listener
 {	public addr = {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: Math.floor(Math.random()*0xFFFF)};

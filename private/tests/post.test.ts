@@ -1,8 +1,7 @@
 import {Post, REALLOC_THRESHOLD} from "../post.ts";
 import {TEST_CHUNK_SIZES, get_random_string, map_to_obj, MockConn} from './mock/mod.ts';
+import {exists, readAll} from '../deps.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
-import {exists} from "https://deno.land/std@0.106.0/fs/mod.ts";
-import {readAll} from 'https://deno.land/std@0.106.0/io/util.ts';
 
 Deno.test
 (	'Urlencoded',

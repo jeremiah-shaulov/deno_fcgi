@@ -4,8 +4,8 @@ import {map_to_obj, MockListener, MockFcgiConn, get_random_string} from './mock/
 import {SERVER_SOFTWARE, RequestOptions} from '../client.ts';
 import {RECYCLE_REQUEST_ID_AFTER} from '../fcgi_conn.ts';
 import {SetCookies} from '../set_cookies.ts';
+import {writeAll, readAll} from '../deps.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
-import {writeAll, readAll} from 'https://deno.land/std@0.106.0/io/util.ts';
 import {sleep} from "https://deno.land/x/sleep@v1.2.0/mod.ts";
 
 Deno.test

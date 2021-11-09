@@ -1,5 +1,5 @@
 import {ServerRequest} from './server_request.ts';
-import {pathToRegexp} from "https://deno.land/x/path_to_regexp@v6.2.0/index.ts";
+import {pathToRegexp} from './deps.ts';
 
 export type Callback = (request: ServerRequest, params: any) => Promise<unknown>;
 export type PathPattern = string | string[] | RegExp;

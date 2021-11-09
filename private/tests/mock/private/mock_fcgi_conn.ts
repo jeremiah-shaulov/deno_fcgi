@@ -1,6 +1,7 @@
-import {MockConn, MockListener} from "./mod.ts";
-import {Server} from "../../server.ts";
-import {pack_nvp} from "../../server_request.ts";
+import {MockConn} from './mock_conn.ts';
+import {MockListener} from './mock_listener.ts';
+import {Server} from "../../../server.ts";
+import {pack_nvp} from "../../../server_request.ts";
 import {assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
 
 const FCGI_BEGIN_REQUEST      =  1;

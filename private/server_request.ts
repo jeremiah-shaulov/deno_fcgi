@@ -4,8 +4,7 @@ import {Post} from "./post.ts";
 import {Cookies} from "./cookies.ts";
 import {ServerResponse} from './server_response.ts';
 import {AbortedError, TerminatedError, ProtocolError} from './error.ts';
-import {writeAll} from 'https://deno.land/std@0.106.0/io/util.ts';
-import {copy} from 'https://deno.land/std@0.106.0/io/util.ts';
+import {writeAll, copy} from './deps.ts';
 
 export const is_processing = Symbol('is_processing');
 export const take_next_request = Symbol('take_next_request');
