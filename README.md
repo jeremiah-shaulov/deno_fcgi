@@ -14,7 +14,7 @@ Having master HTTP server is convenient. It allows to have confuguration in sing
 ## Backend application example
 
 ```ts
-import {fcgi} from 'https://deno.land/x/fcgi@v0.0.21/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v1.0.1/mod.ts';
 
 console.log(`Started on [::1]:8989`);
 fcgi.listen
@@ -136,15 +136,15 @@ server
 
 This library provides first-class object through which you can do all the supported FastCGI operations: starting FastCGI server, and making queries to FastCGI services.
 
-This object is called [fcgi](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#Fcgi).
+This object is called [fcgi](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.1/mod.ts#Fcgi).
 
 ```ts
-import {fcgi} from 'https://deno.land/x/fcgi@v0.0.21/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v1.0.1/mod.ts';
 ```
 
 Methods:
 
-1. `fcgi.listen(addr_or_listener: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#FcgiAddr)` | `[Deno.Listener](https://doc.deno.land/builtin/stable#Deno.Listener)`, path_pattern: PathPattern, callback: Callback)`
+1. `fcgi.listen(addr_or_listener: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.1/mod.ts#FcgiAddr)` | `[Deno.Listener](https://doc.deno.land/builtin/stable#Deno.Listener)`, path_pattern: PathPattern, callback: Callback)`
 
 Registers a FastCGI server on specified network address. The address can be given as:
 * a port number (`8000`),
@@ -194,7 +194,7 @@ fcgi.listen
 );
 ```
 
-2. `fcgi.unlisten(addr?: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#FcgiAddr)`)`
+2. `fcgi.unlisten(addr?: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.1/mod.ts#FcgiAddr)`)`
 
 Stop serving requests on specified address, or on all addresses (if the addr parameter was undefined). Removing all listeners will trigger "end" event.
 
@@ -210,7 +210,7 @@ Stop serving requests on specified address, or on all addresses (if the addr par
 
 `fcgi.offEnd()` - remove all callbacks.
 
-7. `options(options?: `[ServerOptions](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#ServerOptions)` & `[ClientOptions](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#ClientOptions)`): ServerOptions & ClientOptions`
+7. `options(options?: `[ServerOptions](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.1/mod.ts#ServerOptions)` & `[ClientOptions](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.1/mod.ts#ClientOptions)`): ServerOptions & ClientOptions`
 
 Allows to modify `Server` and/or `Client` options. Not specified options will retain their previous values.
 This function can be called at any time, even after server started running, and new option values will take effect when possible.
@@ -222,7 +222,7 @@ fcgi.options({maxConns: 123});
 console.log(`Now maxConns=${fcgi.options().maxConns}`);
 ```
 
-8. `fcgi.fetch(request_options: `[RequestOptions](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#RequestOptions)`, input: `[Request](https://doc.deno.land/builtin/stable#Request)` | `[URL](https://doc.deno.land/builtin/stable#URL)` | string, init?: RequestInit & { bodyIter: AsyncIterable<Uint8Array> }): Promise<`[ResponseWithCookies](https://doc.deno.land/https/deno.land/x/fcgi@v0.0.21/mod.ts#ResponseWithCookies)`>`
+8. `fcgi.fetch(request_options: `[RequestOptions](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.1/mod.ts#RequestOptions)`, input: `[Request](https://doc.deno.land/builtin/stable#Request)` | `[URL](https://doc.deno.land/builtin/stable#URL)` | string, init?: RequestInit & { bodyIter: AsyncIterable<Uint8Array> }): Promise<`[ResponseWithCookies](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.1/mod.ts#ResponseWithCookies)`>`
 
 Send request to a FastCGI service, such as PHP, just like Apache and Nginx do.
 
@@ -270,7 +270,7 @@ You can call `fcgi.closeIdle()` to close all idle connections.
 The mentioned `fcgi` object is just a wrapper around low-level functions and classes. It's possible to use them directly.
 
 ```ts
-import {Server} from 'https://deno.land/x/fcgi@v0.0.21/mod.ts';
+import {Server} from 'https://deno.land/x/fcgi@v1.0.1/mod.ts';
 
 const listener = Deno.listen({hostname: "::1", port: 8989});
 const server = new Server(listener);
@@ -312,7 +312,7 @@ Response body can be given to `respond()`, or it can be written to `ServerReques
 ```ts
 // test like this: curl --data 'INPUT DATA' http://deno-server.loc/test.ts
 
-import {fcgi} from 'https://deno.land/x/fcgi@v0.0.21/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v1.0.1/mod.ts';
 import {readAll, writeAll} from 'https://deno.land/std@0.113.0/streams/conversion.ts';
 
 console.log(`Started on [::1]:8989`);
