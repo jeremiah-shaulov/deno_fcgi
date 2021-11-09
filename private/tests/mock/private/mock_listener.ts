@@ -1,10 +1,10 @@
 import {MockFcgiConn} from './mock_fcgi_conn.ts';
 
 export class MockListener implements Deno.Listener
-{	public addr = {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: Math.floor(Math.random()*0xFFFF)};
-	public rid = Math.floor(Math.random()*0x7FFF_FFFF);
+{	addr = {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: Math.floor(Math.random()*0xFFFF)};
+	rid = Math.floor(Math.random()*0x7FFF_FFFF);
 
-	public is_closed = false;
+	is_closed = false;
 
 	private satisfy = [] as {y: (conn: Deno.Conn) => void, n: (error: Error) => void}[];
 

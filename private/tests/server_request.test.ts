@@ -3,7 +3,7 @@ import {Server} from '../server.ts';
 import {AbortedError, TerminatedError, ProtocolError} from '../error.ts';
 import {TEST_CHUNK_SIZES, get_random_bytes, get_random_string, map_to_obj, MockListener, MockFcgiConn, MockConn} from './mock/mod.ts';
 import {writeAll, readAll} from '../deps.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
+import {assert, assertEquals} from "https://deno.land/std@0.113.0/testing/asserts.ts";
 import {sleep} from "https://deno.land/x/sleep@v1.2.0/mod.ts";
 
 function *test_connections(only_chunk_sizes?: number[], full_split_stream_records=false): Generator<MockFcgiConn>

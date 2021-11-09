@@ -5,7 +5,7 @@ import {SERVER_SOFTWARE, RequestOptions} from '../client.ts';
 import {RECYCLE_REQUEST_ID_AFTER} from '../fcgi_conn.ts';
 import {SetCookies} from '../set_cookies.ts';
 import {writeAll, readAll} from '../deps.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.106.0/testing/asserts.ts";
+import {assert, assertEquals} from "https://deno.land/std@0.113.0/testing/asserts.ts";
 import {sleep} from "https://deno.land/x/sleep@v1.2.0/mod.ts";
 
 Deno.test

@@ -22,8 +22,8 @@ class AcceptError
 }
 
 export class Server implements Deno.Listener
-{	public readonly addr: Deno.Addr;
-	public readonly rid: number;
+{	readonly addr: Deno.Addr;
+	readonly rid: number;
 
 	private listeners: Deno.Listener[];
 	private active_listeners: Deno.Listener[] = [];

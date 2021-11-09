@@ -110,9 +110,9 @@ export class ReadableReadableStream extends ReadableStream<Uint8Array> implement
 }
 
 class FcgiConns
-{	public idle: FcgiConn[] = [];
-	public busy: FcgiConn[] = [];
-	public no_reuse_connection_since = 0; // 0 means reusing connection is supported. Set to Date.now() after first unsuccessful attempt.
+{	idle: FcgiConn[] = [];
+	busy: FcgiConn[] = [];
+	no_reuse_connection_since = 0; // 0 means reusing connection is supported. Set to Date.now() after first unsuccessful attempt.
 }
 
 export class Client

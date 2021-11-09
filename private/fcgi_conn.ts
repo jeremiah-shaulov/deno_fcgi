@@ -38,13 +38,13 @@ const FCGI_KEEP_CONN          =  1;
 debug_assert(RECYCLE_REQUEST_ID_AFTER>=1 && RECYCLE_REQUEST_ID_AFTER<=0xFFFF); // number must fit uint16_t
 
 export class FcgiConn
-{	public request_till = 0; // for connections pool - 0 means no ongoing request, >0 means is executing request with timeout till this time
-	public use_till = Number.MAX_SAFE_INTEGER; // if keepAliveTimeout specified
-	public use_n_times = Number.MAX_SAFE_INTEGER; // if keepAliveMax specified
+{	request_till = 0; // for connections pool - 0 means no ongoing request, >0 means is executing request with timeout till this time
+	use_till = Number.MAX_SAFE_INTEGER; // if keepAliveTimeout specified
+	use_n_times = Number.MAX_SAFE_INTEGER; // if keepAliveMax specified
 
-	public headers = new Headers;
-	public cookies = new SetCookies;
-	public on_log_error: ((error: string) => void) | undefined;
+	headers = new Headers;
+	cookies = new SetCookies;
+	on_log_error: ((error: string) => void) | undefined;
 
 	private request_id = 0;
 	private buffer_8 = new Uint8Array(8);

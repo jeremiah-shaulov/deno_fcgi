@@ -4,9 +4,9 @@
 	`get_written()` returns what is written through `Deno.Writer`.
  **/
 export class MockConn implements Deno.Conn
-{	public localAddr: Deno.Addr;
-	public remoteAddr: Deno.Addr;
-	public rid = 999999999;
+{	localAddr: Deno.Addr;
+	remoteAddr: Deno.Addr;
+	rid = 999999999;
 
 	protected is_closed = false;
 	protected is_closed_write = false;

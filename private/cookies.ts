@@ -53,7 +53,7 @@ export interface CookieOptions
 }
 
 export class Cookies extends Map<string, string>
-{	public headers = new Map<string, string>();
+{	headers = new Map<string, string>();
 
 	private is_inited = false;
 

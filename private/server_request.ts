@@ -38,37 +38,37 @@ const FCGI_KEEP_CONN          =  1;
 debug_assert(BUFFER_LEN >= 256+16);
 
 export class ServerRequest implements Deno.Conn
-{	public readonly localAddr: Deno.Addr;
-	public readonly remoteAddr: Deno.Addr;
-	public readonly rid: number;
+{	readonly localAddr: Deno.Addr;
+	readonly remoteAddr: Deno.Addr;
+	readonly rid: number;
 	/// REQUEST_URI of the request, like '/path/index.html?a=1'
-	public url = '';
+	url = '';
 	/// Request method, like 'GET'
-	public method = '';
+	method = '';
 	/// Request protocol, like 'HTTP/1.1' or 'HTTP/2'
-	public proto = '';
-	public protoMinor = 0;
-	public protoMajor = 0;
+	proto = '';
+	protoMinor = 0;
+	protoMajor = 0;
 	/// Environment params sent from FastCGI frontend. This usually includes 'REQUEST_URI', 'SCRIPT_URI', 'SCRIPT_FILENAME', 'DOCUMENT_ROOT', can contain 'CONTEXT_DOCUMENT_ROOT' (if using Apache MultiViews), etc.
-	public params = new Map<string, string>();
+	params = new Map<string, string>();
 	/// Request HTTP headers
-	public headers = new Headers;
+	headers = new Headers;
 	/// Access POST body and uploaded files from here.
-	public get = new Get;
+	get = new Get;
 	/// Access POST body and uploaded files from here.
-	public post: Post;
+	post: Post;
 	/// Request cookies can be read from here, and modified. Setting or deleting a cookie sets corresponding HTTP headers.
-	public cookies = new Cookies;
+	cookies = new Cookies;
 	/// Post body can be read from here. Also it can be read from "this" directly (`request.body` and `request` are the same `Deno.Reader` implementors).
-	public body: Deno.Reader = this;
+	body: Deno.Reader = this;
 
 	/// Set this at any time before calling respond() to be default response HTTP status code (like 200 or 404). However status provided to respond() overrides this. Leave 0 for default 200 status.
-	public responseStatus = 0;
+	responseStatus = 0;
 	/// You can set response HTTP headers before calling respond(). Headers provided to respond() will override them. Header called "status" acts as default HTTP status code, if responseStatus is not set.
-	public responseHeaders = new Headers;
+	responseHeaders = new Headers;
 
 	/// True if headers have been sent to client. They will be sent if you write some response data to this request object (it implements `Deno.Writer`).
-	public headersSent = false;
+	headersSent = false;
 
 	/// Id that FastCGI server assigned to this request
 	private request_id = 0;

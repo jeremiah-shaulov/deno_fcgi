@@ -1,6 +1,6 @@
 import {debug_assert} from "./debug_assert.ts";
 import {StructuredMap} from "./structured_map.ts";
-import {writeAll, exists} from './deps.ts';
+import {writeAll} from './deps.ts';
 
 const BUFFER_LEN = 8*1024;
 export const REALLOC_THRESHOLD = 512; // max length for header line like `Content-Disposition: form-data; name="image"; filename="/tmp/current_file"` is BUFFER_LEN-REALLOC_THRESHOLD
@@ -30,9 +30,9 @@ export class UploadedFile
 
 export class Post extends StructuredMap
 {	/// Was parse() called?
-	public isParsed = false;
+	isParsed = false;
 	/// Uploaded files are stored to temporary files that will be deleted at the end of request. You can read them, or move to a different location (from where they will not be deleted).
-	public files = new Map<string, UploadedFile>();
+	files = new Map<string, UploadedFile>();
 
 	private is_parse_success = false;
 	private uploaded_files: string[] = [];
@@ -63,7 +63,13 @@ export class Post extends StructuredMap
 	close()
 	{	let promises = [];
 		for (let f of this.uploaded_files)
-		{	promises[promises.length] = exists(f).then(yes => yes ? Deno.remove(f) : null).catch(e => this.onerror(e));
+		{	promises[promises.length] = Deno.remove(f).catch
+			(	e =>
+				{	if (e.name != 'NotFound')
+					{	this.onerror(e);
+					}
+				}
+			);
 		}
 		this.uploaded_files.length = 0;
 		return Promise.all(promises);
