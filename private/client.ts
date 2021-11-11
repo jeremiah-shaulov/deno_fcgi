@@ -353,7 +353,7 @@ export class Client
 			else
 			{	conn = idle.pop();
 				if (!conn)
-				{	conn = new FcgiConn(await Deno.connect(server_addr as any));
+				{	conn = new FcgiConn(await connect(server_addr as any, timeout));
 				}
 				else if (conn.use_till <= now)
 				{	this.n_idle_all--;
@@ -512,4 +512,18 @@ export class Client
 			debug_assert(this.n_idle_all >= 0);
 		}
 	}
+}
+
+async function connect(options: Deno.ConnectOptions, timeout: number)
+{	let want_conn = Deno.connect(options);
+	let timer_resolve;
+	let timer_promise = new Promise<undefined>(y => {timer_resolve = y});
+	let timer = setTimeout(timer_resolve as any, timeout);
+	let maybe_conn = await Promise.race([want_conn, timer_promise]);
+	if (!maybe_conn)
+	{	want_conn.then(conn => conn.close()).catch(() => {});
+		throw new Error(`Connection timed out to ${JSON.stringify(options)}`);
+	}
+	clearTimeout(timer);
+	return maybe_conn;
 }
