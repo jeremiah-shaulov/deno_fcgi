@@ -7,6 +7,7 @@ import {SetCookies} from "./set_cookies.ts";
 const BUFFER_LEN = 8*1024;
 export const SERVER_SOFTWARE = 'DenoFcgi/1.0';
 const DEFAULT_MAX_CONNS = 128;
+const DEFAULT_CONNECT_TIMEOUT = 4000;
 const DEFAULT_TIMEOUT = 10000;
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 10000;
 const DEFAULT_KEEP_ALIVE_MAX = Number.MAX_SAFE_INTEGER;
@@ -19,6 +20,7 @@ const CONN_TYPE_EXTERNAL = 2;
 
 export interface ClientOptions
 {	maxConns?: number,
+	connectTimeout?: number,
 	timeout?: number,
 	keepAliveTimeout?: number,
 	keepAliveMax?: number,
@@ -33,6 +35,8 @@ export interface RequestOptions
 	scriptFilename?: string,
 	/** Additional parameters to send to FastCGI server. If sending to PHP, they will be found in $_SERVER. If `params` object is given, it will be modified - `scriptFilename` and parameters inferred from request URL will be added to it. */
 	params?: Map<string, string>,
+	/** Milliseconds. If socket connection takes longer, it will be forced to close. */
+	connectTimeout?: number,
 	/** Milliseconds. Connection will be forced to close after this timeout elapses. */
 	timeout?: number,
 	/** Milliseconds. Idle connection will be closed if not used for this period of time. */
@@ -124,6 +128,7 @@ export class Client
 	private onerror: (error: Error) => void = () => {};
 
 	private maxConns: number;
+	private connectTimeout: number;
 	private timeout: number;
 	private keepAliveTimeout: number;
 	private keepAliveMax: number;
@@ -131,6 +136,7 @@ export class Client
 
 	constructor(options?: ClientOptions)
 	{	this.maxConns = options?.maxConns || DEFAULT_MAX_CONNS;
+		this.connectTimeout = options?.connectTimeout || DEFAULT_CONNECT_TIMEOUT;
 		this.timeout = options?.timeout || DEFAULT_TIMEOUT;
 		this.keepAliveTimeout = options?.keepAliveTimeout || DEFAULT_KEEP_ALIVE_TIMEOUT;
 		this.keepAliveMax = options?.keepAliveMax || DEFAULT_KEEP_ALIVE_MAX;
@@ -141,12 +147,13 @@ export class Client
 	 **/
 	options(options?: ClientOptions): ClientOptions
 	{	this.maxConns = options?.maxConns ?? this.maxConns;
+		this.connectTimeout = options?.connectTimeout ?? this.connectTimeout;
 		this.timeout = options?.timeout ?? this.timeout;
 		this.keepAliveTimeout = options?.keepAliveTimeout ?? this.keepAliveTimeout;
 		this.keepAliveMax = options?.keepAliveMax ?? this.keepAliveMax;
 		this.onLogError = options?.onLogError ?? this.onLogError;
-		let {maxConns, timeout, keepAliveTimeout, keepAliveMax, onLogError} = this;
-		return {maxConns, timeout, keepAliveTimeout, keepAliveMax, onLogError};
+		let {maxConns, connectTimeout, timeout, keepAliveTimeout, keepAliveMax, onLogError} = this;
+		return {maxConns, connectTimeout, timeout, keepAliveTimeout, keepAliveMax, onLogError};
 	}
 
 	/**	`onError(callback)` - catch general connection errors. Only one handler is active. Second `onError(callback2)` overrides the previous handler.
@@ -172,7 +179,10 @@ export class Client
 	}
 
 	async fetch(request_options: RequestOptions, input: Request|URL|string, init?: RequestInit & {bodyIter?: AsyncIterable<Uint8Array>}): Promise<ResponseWithCookies>
-	{	let {addr, scriptFilename, params, timeout, keepAliveTimeout, keepAliveMax, onLogError} = request_options;
+	{	let {addr, scriptFilename, params, connectTimeout, timeout, keepAliveTimeout, keepAliveMax, onLogError} = request_options;
+		if (connectTimeout == undefined)
+		{	connectTimeout = this.connectTimeout;
+		}
 		if (timeout == undefined)
 		{	timeout = this.timeout;
 		}
@@ -212,7 +222,7 @@ export class Client
 			}
 		}
 		// get_conn
-		var {conn, server_addr_str, conn_type} = await this.get_conn(addr, timeout, keepAliveTimeout, keepAliveMax);
+		var {conn, server_addr_str, conn_type} = await this.get_conn(addr, connectTimeout, timeout, keepAliveTimeout, keepAliveMax);
 		conn.on_log_error = onLogError;
 		// query
 		let buffer = new Uint8Array(BUFFER_LEN);
@@ -228,7 +238,7 @@ export class Client
 						this.return_conn(server_addr_str, conn, conn_type);
 						let conns = this.get_conns(server_addr_str);
 						conns.no_reuse_connection_since = Date.now();
-						var {conn} = await this.get_conn(server_addr_str, timeout, keepAliveTimeout, keepAliveMax);
+						var {conn} = await this.get_conn(server_addr_str, connectTimeout, timeout, keepAliveTimeout, keepAliveMax);
 						continue;
 					}
 					throw e;
@@ -274,7 +284,7 @@ export class Client
 	}
 
 	async fetchCapabilities(addr: FcgiAddr | Deno.Conn)
-	{	let {conn, server_addr_str} = await this.get_conn(addr, DEFAULT_TIMEOUT, 0, 1);
+	{	let {conn, server_addr_str} = await this.get_conn(addr, DEFAULT_CONNECT_TIMEOUT, DEFAULT_TIMEOUT, 0, 1);
 		await conn.write_record_get_values(new Map(Object.entries({FCGI_MAX_CONNS: '', FCGI_MAX_REQS: '', FCGI_MPXS_CONNS: ''})));
 		let header = await conn.read_record_header();
 		let map = await conn.read_record_get_values_result(header.content_length, header.padding_length);
@@ -325,7 +335,7 @@ export class Client
 		return conns;
 	}
 
-	private async get_conn(addr: FcgiAddr | Deno.Conn, timeout: number, keepAliveTimeout: number, keepAliveMax: number): Promise<{conn: FcgiConn, server_addr_str: string, conn_type: number}>
+	private async get_conn(addr: FcgiAddr | Deno.Conn, connectTimeout: number, timeout: number, keepAliveTimeout: number, keepAliveMax: number): Promise<{conn: FcgiConn, server_addr_str: string, conn_type: number}>
 	{	debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
 		while (this.n_busy_all >= this.maxConns)
 		{	await new Promise<void>(y => {this.can_fetch_callbacks.push(y)});
@@ -353,7 +363,7 @@ export class Client
 			else
 			{	conn = idle.pop();
 				if (!conn)
-				{	conn = new FcgiConn(await connect(server_addr as any, timeout));
+				{	conn = new FcgiConn(await connect(server_addr as any, connectTimeout));
 				}
 				else if (conn.use_till <= now)
 				{	this.n_idle_all--;
@@ -514,11 +524,11 @@ export class Client
 	}
 }
 
-async function connect(options: Deno.ConnectOptions, timeout: number)
+async function connect(options: Deno.ConnectOptions, connectTimeout: number)
 {	let want_conn = Deno.connect(options);
 	let timer_resolve;
 	let timer_promise = new Promise<undefined>(y => {timer_resolve = y});
-	let timer = setTimeout(timer_resolve as any, timeout);
+	let timer = setTimeout(timer_resolve as any, connectTimeout);
 	let maybe_conn = await Promise.race([want_conn, timer_promise]);
 	if (!maybe_conn)
 	{	want_conn.then(conn => conn.close()).catch(() => {});
