@@ -1,150 +1,104 @@
-# deno_fcgi
-FastCGI implementation for Deno.
+# fcgi
+FastCGI protocol implementation for Deno.
 
 This library allows the following:
 
-1. To create Deno backend application behind FastCGI-capable web server (like Apache or Nginx).
-2. To make queries to a FastCGI service, like PHP.
-3. To create 2 applications, and communicate between them through FastCGI protocol.
+1. To create Deno backend application behind a FastCGI-capable web server (like Apache or Nginx).
+2. To make queries to a FastCGI service, such as PHP (as web server does).
+3. To create 2 Deno applications, and communicate between them through FastCGI protocol.
 
-FastCGI is simple protocol designed to forward HTTP requests.
-Usually it's used to forward different HTTP requests to different applications from HTTP server that listens on single host/port.
+FastCGI is a simple protocol designed to forward HTTP requests.
+Usually it's used to forward different HTTP requests to different applications from one HTTP server that listens on single host/port.
 Having master HTTP server is convenient. It allows to have confuguration in single place, that controls all the WWW actions.
 
-## Backend application example
+## Backend application example (FastCGI server)
 
 ```ts
-import {fcgi} from 'https://deno.land/x/fcgi@v1.0.1/mod.ts';
+// File: backend.ts
 
-console.log(`Started on [::1]:8989`);
-fcgi.listen
-(	'[::1]:8989',
-	'',
+import {fcgi} from 'https://deno.land/x/fcgi@v1.0.4/mod.ts';
+
+const listener = fcgi.listen
+(	'localhost:9988', // FastCGI service will listen on this address
+	'', // Handle all URL paths
 	async req =>
-	{	console.log(req.url);
+	{	// Handle the request
+		console.log(req.url);
 		req.responseHeaders.set('Content-Type', 'text/html');
-		await req.respond({body: 'Your cookies: '+JSON.stringify([...req.cookies.entries()])});
+		await req.respond({body: 'Hello world!'});
 	}
 );
+
+console.log(`Started on ${listener.addr.transport=='tcp' ? listener.addr.hostname+':'+listener.addr.port : listener.addr.transport}`);
 ```
 
-## Apache backend configuration
+And you can set up your web server to forward HTTP requests to `localhost:9988`, and the application will get them.
 
-For Deno backend behind Apache, need to enable FastCGI module, and configure Apache to forward requests.
-There're many approaches. I'll show one of them.
+## Frontend application example (FastCGI client)
 
-1. Use "SetHandler" directive to forward requests. You can wrap "SetHandler" in "Location" ("LocationMatch") or "Files" ("FilesMatch") to forward only certain requests.
+Or you can create a web server with Deno, and make requests to some FastCGI server. This can be PHP-FPM, or this can be our Deno backend application shown above.
 
-```apache
-<VirtualHost *:80>
-	ServerName deno-server.loc
-	DocumentRoot /var/www/deno-server-root
-    DirectoryIndex index.html
-
-	<LocationMatch "\.ts$">
-		SetHandler "proxy:fcgi://[::1]:8989"
-	</LocationMatch>
-</VirtualHost>
-```
-
-If "DocumentRoot" directive is present, the specified directory must exist.
-
-2. Enable module called "proxy_fcgi":
-
-```bash
-sudo a2enmod proxy_fcgi`
-sudo systemctl reload apache2
-```
-
-3. To use fake domain name `deno-server.loc` from localhost, add it to `/etc/hosts`:
-
-```
-127.0.0.1	deno-server.loc
-```
-
-4. Run Deno application like this:
-
-```bash
-deno run --unstable --allow-net main.ts
-```
-
-Now requests to `http://deno-server.loc/` will be forwarded to our Deno application.
-
-If we want to listen on unix-domain socket, we can use such "SetHandler" directive:
-
-```apache
-	SetHandler "proxy:unix:/run/deno-server/main.sock|fcgi://localhost"
-```
-
-And use socket node path in `fcgi.listen()`.
+In the following example i'll use [x/oak](https://deno.land/x/oak) to create HTTP server in Deno:
 
 ```ts
-// ...
-fcgi.listen
-(	'/run/deno-server/main.sock',
-	'',
-	async req =>
-	{	// ...
+// File: frontend.ts
+
+import {Application} from 'https://deno.land/x/oak@v9.0.1/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v1.0.4/mod.ts';
+
+const app = new Application;
+
+app.use
+(	async ctx =>
+	{	const resp = await fcgi.fetch
+		(	{	addr: 'localhost:9988',
+			},
+			new Request
+			(	ctx.request.url.href,
+				{	method: ctx.request.method,
+					headers: ctx.request.headers,
+					body: ctx.request.hasBody ? ctx.request.body({type: 'stream'}).value : undefined,
+				}
+			)
+		);
+		ctx.response.status = resp.status;
+		ctx.response.headers = resp.headers;
+		ctx.response.body = resp.body;
 	}
 );
+
+app.listen('localhost:8123');
+console.log(`Started on http://localhost:8123`);
 ```
 
-But there will be 1 problem. Deno script creates socket node and sets it's owner and group to the user from which you run Deno.
-And Apache user will not be able to connect.
-Changing socket group after starting Deno application can solve the problem.
-You can use this script to start deno application:
+Here's how to run the previous 2 examples:
 
 ```bash
-APACHE_USER=www-data
-
-sudo mkdir /run/deno-server
-sudo chown "$USER:" /run/deno-server
-deno run --unstable --allow-read --allow-write main.ts & sleep 3 && sudo chown "$USER:$APACHE_USER" /run/deno-server/main.sock; fg
+deno run --allow-net backend.ts &
+deno run --allow-net frontend.ts
 ```
 
-## Nginx backend configuration
+Now HTTP requests on `http://localhost:8123` will be forwarded to `fcgi://localhost:9988` and handled by the backend application.
 
-Example configuration:
+## Setup examples:
 
-```nginx
-server
-{	listen 127.0.0.1:8000;
-	listen [::1]:8000;
-
-	server_name deno-server.loc;
-
-	root /var/www/deno-server-root;
-	index index.html;
-
-	location /
-	{	try_files $uri $uri/ =404;
-	}
-
-	location ~ \.ts$
-	{	fastcgi_split_path_info ^(.+?\.ts)(/.*)$;
-		set $path_info $fastcgi_path_info;
-		fastcgi_param PATH_INFO $path_info;
-		fastcgi_index index.ts;
-		include fastcgi.conf;
-
-		fastcgi_pass [::1]:8989;
-	}
-}
-```
+- [Nginx → Deno](./examples/Nginx%20→%20Deno): how to set up Nginx HTTP server.
+- [Apache → Deno](./examples/Apache%20→%20Deno): how to set up Apache HTTP server.
+- [Deno → PHP](./examples/Deno%20→%20PHP): how to set up PHP-FPM and forward requests to it.
 
 ## Using the API
 
 This library provides first-class object through which you can do all the supported FastCGI operations: starting FastCGI server, and making queries to FastCGI services.
 
-This object is called [fcgi](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.1/mod.ts#Fcgi).
+This object is called [fcgi](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.4/mod.ts#Fcgi).
 
 ```ts
-import {fcgi} from 'https://deno.land/x/fcgi@v1.0.1/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v1.0.4/mod.ts';
 ```
 
 Methods:
 
-1. `fcgi.listen(addr_or_listener: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.1/mod.ts#FcgiAddr)` | `[Deno.Listener](https://doc.deno.land/builtin/stable#Deno.Listener)`, path_pattern: PathPattern, callback: Callback)`
+1. `fcgi.listen(addr_or_listener: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.4/mod.ts#FcgiAddr)` | `[Deno.Listener](https://doc.deno.land/builtin/stable#Deno.Listener)`, path_pattern: PathPattern, callback: Callback)`
 
 Registers a FastCGI server on specified network address. The address can be given as:
 * a port number (`8000`),
@@ -170,7 +124,7 @@ Example:
 
 ```ts
 fcgi.listen
-(	8989,
+(	9988,
 	'/page-1.html',
 	async req =>
 	{	await req.respond({body: 'Hello world'});
@@ -178,7 +132,7 @@ fcgi.listen
 );
 
 fcgi.listen
-(	8989,
+(	9988,
 	'/catalog/:item',
 	async (req, params) =>
 	{	await req.respond({body: `Item ${params.item}`});
@@ -186,7 +140,7 @@ fcgi.listen
 );
 
 fcgi.listen
-(	8989,
+(	9988,
 	'', // match all paths
 	async req =>
 	{	await req.respond({body: 'Something else'});
@@ -194,7 +148,7 @@ fcgi.listen
 );
 ```
 
-2. `fcgi.unlisten(addr?: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.1/mod.ts#FcgiAddr)`)`
+2. `fcgi.unlisten(addr?: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.4/mod.ts#FcgiAddr)`)`
 
 Stop serving requests on specified address, or on all addresses (if the addr parameter was undefined). Removing all listeners will trigger "end" event.
 
@@ -210,7 +164,7 @@ Stop serving requests on specified address, or on all addresses (if the addr par
 
 `fcgi.offEnd()` - remove all callbacks.
 
-7. `options(options?: `[ServerOptions](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.1/mod.ts#ServerOptions)` & `[ClientOptions](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.1/mod.ts#ClientOptions)`): ServerOptions & ClientOptions`
+7. `options(options?: `[ServerOptions](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.4/mod.ts#ServerOptions)` & `[ClientOptions](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.4/mod.ts#ClientOptions)`): ServerOptions & ClientOptions`
 
 Allows to modify `Server` and/or `Client` options. Not specified options will retain their previous values.
 This function can be called at any time, even after server started running, and new option values will take effect when possible.
@@ -222,7 +176,7 @@ fcgi.options({maxConns: 123});
 console.log(`Now maxConns=${fcgi.options().maxConns}`);
 ```
 
-8. `fcgi.fetch(request_options: `[RequestOptions](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.1/mod.ts#RequestOptions)`, input: `[Request](https://doc.deno.land/builtin/stable#Request)` | `[URL](https://doc.deno.land/builtin/stable#URL)` | string, init?: RequestInit & { bodyIter: AsyncIterable<Uint8Array> }): Promise<`[ResponseWithCookies](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.1/mod.ts#ResponseWithCookies)`>`
+8. `fcgi.fetch(request_options: `[RequestOptions](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.4/mod.ts#RequestOptions)`, input: `[Request](https://doc.deno.land/builtin/stable#Request)` | `[URL](https://doc.deno.land/builtin/stable#URL)` | string, init?: RequestInit & { bodyIter: AsyncIterable<Uint8Array> }): Promise<`[ResponseWithCookies](https://doc.deno.land/https/deno.land/x/fcgi@v1.0.4/mod.ts#ResponseWithCookies)`>`
 
 Send request to a FastCGI service, such as PHP, just like Apache and Nginx do.
 
@@ -270,9 +224,9 @@ You can call `fcgi.closeIdle()` to close all idle connections.
 The mentioned `fcgi` object is just a wrapper around low-level functions and classes. It's possible to use them directly.
 
 ```ts
-import {Server} from 'https://deno.land/x/fcgi@v1.0.1/mod.ts';
+import {Server} from 'https://deno.land/x/fcgi@v1.0.4/mod.ts';
 
-const listener = Deno.listen({hostname: "::1", port: 8989});
+const listener = Deno.listen({hostname: "::1", port: 9988});
 const server = new Server(listener);
 console.log(`Started on ${(listener.addr as Deno.NetAddr).port}`);
 
@@ -312,12 +266,12 @@ Response body can be given to `respond()`, or it can be written to `ServerReques
 ```ts
 // test like this: curl --data 'INPUT DATA' http://deno-server.loc/test.ts
 
-import {fcgi} from 'https://deno.land/x/fcgi@v1.0.1/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v1.0.4/mod.ts';
 import {readAll, writeAll} from 'https://deno.land/std@0.113.0/streams/conversion.ts';
 
-console.log(`Started on [::1]:8989`);
+console.log(`Started on [::1]:9988`);
 fcgi.listen
-(	'[::1]:8989',
+(	'[::1]:9988',
 	'',
 	async req =>
 	{	console.log(req.url);

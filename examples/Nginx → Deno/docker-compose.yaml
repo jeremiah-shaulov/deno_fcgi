@@ -1,0 +1,17 @@
+services:
+
+  http_service:
+    build:
+      context: .
+      dockerfile: ./infra/http_service/Dockerfile
+    ports:
+      - ${HTTP_PORT:-80}:80
+    restart: always
+    depends_on:
+      - deno_service
+
+  deno_service:
+    build:
+      context: .
+      dockerfile: ./infra/deno_service/Dockerfile
+    restart: always

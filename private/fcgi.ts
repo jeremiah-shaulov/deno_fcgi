@@ -81,7 +81,7 @@ export class Fcgi
 			{	listener = Deno.listen({transport: 'tcp', port: addr.port, hostname: addr.hostname});
 			}
 			else if (addr.transport == 'unix')
-			{	listener = Deno.listen({transport: 'unix', path: addr.path});
+			{	listener = Deno.listen({transport: 'unix', path: addr.path} as any); // "as any" in order to avoid requireing --unstable
 			}
 			else
 			{	throw new Error('Can only listen to tcp/unix');
