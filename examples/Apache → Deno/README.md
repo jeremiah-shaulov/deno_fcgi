@@ -20,7 +20,8 @@ The `deno_service` contains [Deno app](./src/deno_service/backend.ts) that serve
 
 To start these 2 services in background on your computer, do:
 
-```
+```bash
+# from directory that contains docker-compose.yaml
 HTTP_PORT=8123 docker-compose up -d --build
 ```
 
@@ -28,7 +29,8 @@ Then you can open http://localhost:8123/ in your browser, and see how it works.
 
 To stop the services:
 
-```
+```bash
+# from directory that contains docker-compose.yaml
 docker-compose down
 ```
 
