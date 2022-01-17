@@ -239,6 +239,7 @@ export class Client
 						let conns = this.get_conns(server_addr_str);
 						conns.no_reuse_connection_since = Date.now();
 						var {conn} = await this.get_conn(server_addr_str, connectTimeout, timeout, keepAliveTimeout, keepAliveMax);
+						conn.on_log_error = onLogError;
 						continue;
 					}
 					throw e;
