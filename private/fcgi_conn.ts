@@ -1,4 +1,5 @@
 import {debug_assert} from './debug_assert.ts';
+import {Conn} from './deno_ifaces.ts';
 import {pack_nvp} from "./server_request.ts";
 import {Server} from "./server.ts";
 import {SetCookies} from "./set_cookies.ts";
@@ -49,7 +50,7 @@ export class FcgiConn
 	private request_id = 0;
 	private buffer_8 = new Uint8Array(8);
 
-	constructor(private conn: Deno.Conn)
+	constructor(private conn: Conn)
 	{
 	}
 
@@ -376,11 +377,11 @@ export class FcgiConn
 		(	{	addr: {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 1},
 				rid: 1,
 
-				async *[Symbol.asyncIterator](): AsyncGenerator<Deno.Conn, void, unknown>
+				async *[Symbol.asyncIterator](): AsyncGenerator<Conn, void, unknown>
 				{	yield await this.accept();
 				},
 
-				async accept(): Promise<Deno.Conn>
+				async accept(): Promise<Conn>
 				{	if (read_pos != 0)
 					{	throw new Error('Failed to get constants');
 					}
@@ -388,6 +389,14 @@ export class FcgiConn
 					{	localAddr: {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 1},
 						remoteAddr: {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 2},
 						rid: 1,
+
+						get readable(): ReadableStream<Uint8Array>
+						{	throw new Error('No need');
+						},
+
+						get writable(): WritableStream<Uint8Array>
+						{	throw new Error('No need');
+						},
 
 						async read(buffer: Uint8Array): Promise<number | null>
 						{	let chunk_size = Math.min(buffer.length, data.length-read_pos);

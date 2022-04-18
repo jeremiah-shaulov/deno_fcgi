@@ -1,4 +1,5 @@
 import {debug_assert} from './debug_assert.ts';
+import {Conn} from './deno_ifaces.ts';
 import {faddr_to_addr, addr_to_string} from './addr.ts';
 import type {FcgiAddr} from './addr.ts';
 import {FcgiConn} from "./fcgi_conn.ts";
@@ -30,7 +31,7 @@ export interface ClientOptions
 
 export interface RequestOptions
 {	/** FastCGI service address. For example address of PHP-FPM service (what appears in "listen" directive in PHP-FPM pool configuration file). */
-	addr: FcgiAddr | Deno.Conn,
+	addr: FcgiAddr | Conn,
 	/** `scriptFilename` can be specified here, or in `params` under 'SCRIPT_FILENAME' key. Note that if sending to PHP-FPM, the response will be empty unless you provide this parameter. This parameter must contain PHP script file name. */
 	scriptFilename?: string,
 	/** Additional parameters to send to FastCGI server. If sending to PHP, they will be found in $_SERVER. If `params` object is given, it will be modified - `scriptFilename` and parameters inferred from request URL will be added to it. */
@@ -284,7 +285,7 @@ export class Client
 		);
 	}
 
-	async fetchCapabilities(addr: FcgiAddr | Deno.Conn)
+	async fetchCapabilities(addr: FcgiAddr | Conn)
 	{	let {conn, server_addr_str} = await this.get_conn(addr, DEFAULT_CONNECT_TIMEOUT, DEFAULT_TIMEOUT, 0, 1);
 		await conn.write_record_get_values(new Map(Object.entries({FCGI_MAX_CONNS: '', FCGI_MAX_REQS: '', FCGI_MPXS_CONNS: ''})));
 		let header = await conn.read_record_header();
@@ -336,7 +337,7 @@ export class Client
 		return conns;
 	}
 
-	private async get_conn(addr: FcgiAddr | Deno.Conn, connectTimeout: number, timeout: number, keepAliveTimeout: number, keepAliveMax: number): Promise<{conn: FcgiConn, server_addr_str: string, conn_type: number}>
+	private async get_conn(addr: FcgiAddr | Conn, connectTimeout: number, timeout: number, keepAliveTimeout: number, keepAliveMax: number): Promise<{conn: FcgiConn, server_addr_str: string, conn_type: number}>
 	{	debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
 		while (this.n_busy_all >= this.maxConns)
 		{	await new Promise<void>(y => {this.can_fetch_callbacks.push(y)});

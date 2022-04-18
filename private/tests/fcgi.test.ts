@@ -1,3 +1,4 @@
+import {Listener} from '../deno_ifaces.ts';
 import {fcgi} from "../fcgi.ts";
 import {ProtocolError} from '../error.ts';
 import {map_to_obj, MockListener, MockFcgiConn, get_random_string} from './mock/mod.ts';
@@ -5,7 +6,7 @@ import {SERVER_SOFTWARE, RequestOptions} from '../client.ts';
 import {RECYCLE_REQUEST_ID_AFTER} from '../fcgi_conn.ts';
 import {SetCookies} from '../set_cookies.ts';
 import {writeAll, readAll} from '../deps.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.113.0/testing/asserts.ts";
+import {assert, assertEquals} from "https://deno.land/std@0.135.0/testing/asserts.ts";
 import {sleep} from "https://deno.land/x/sleep@v1.2.0/mod.ts";
 
 Deno.test
@@ -279,7 +280,7 @@ Deno.test
 		fcgi.onError(e => {console.error(e); server_error = e});
 		fcgi.options({keepAliveMax: 0, maxConns: FILTERS.length});
 		// accept
-		let listeners: Deno.Listener[] = [];
+		let listeners: Listener[] = [];
 		for (let i=0; i<FILTERS.length; i++)
 		{	listeners[i] = fcgi.listen
 			(	0,

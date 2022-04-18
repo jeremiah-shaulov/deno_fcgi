@@ -1,14 +1,15 @@
+import {Conn, Listener} from '../../../deno_ifaces.ts';
 import {MockFcgiConn} from './mock_fcgi_conn.ts';
 
-export class MockListener implements Deno.Listener
+export class MockListener implements Listener
 {	addr = {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: Math.floor(Math.random()*0xFFFF)};
 	rid = Math.floor(Math.random()*0x7FFF_FFFF);
 
 	is_closed = false;
 
-	private satisfy = [] as {y: (conn: Deno.Conn) => void, n: (error: Error) => void}[];
+	private satisfy = [] as {y: (conn: Conn) => void, n: (error: Error) => void}[];
 
-	constructor(private pending: Deno.Conn[] = [])
+	constructor(private pending: Conn[] = [])
 	{
 	}
 
@@ -24,13 +25,13 @@ export class MockListener implements Deno.Listener
 		return conn;
 	}
 
-	async *[Symbol.asyncIterator](): AsyncGenerator<Deno.Conn, void, unknown>
+	async *[Symbol.asyncIterator](): AsyncGenerator<Conn, void, unknown>
 	{	while (!this.is_closed)
 		{	yield await this.accept();
 		}
 	}
 
-	async accept(): Promise<Deno.Conn>
+	async accept(): Promise<Conn>
 	{	if (this.is_closed)
 		{	throw new Error('Server closed');
 		}
