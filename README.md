@@ -271,7 +271,7 @@ Callback given to `fcgi.`[listen](https://doc.deno.land/https://deno.land/x/fcgi
 - `cookies` (Map) - Request cookies. Adding and deleting them adds corresponding response HTTP headers.
 - `body` (Deno.Reader) - Allows to read raw POST body if `req.post.parse()` was not called. The body can be also read from `ServerRequest` object itself, as it implements `Deno.Reader` (`req.body == req`).
 - `responseStatus` (number) - Set this to HTTP status code before calling `respond()`. However status given to `respond()` (if given) overrides this one.
-- `responseHeaders` (Headers) - Set response HTTP headers here, before calling `respond()`, and/or pass them to `respond()` (the latter have precedence).
+- `responseHeaders` (Headers) - Set response HTTP headers here, before calling `respond()`, and/or pass them to `respond()` (the latter has precedence).
 - `headersSent` (boolean) - Indicates that response headers are already sent. They will be sent by `respond()` or earlier if you write data to the `ServerRequest` object (it implements `Deno.Writer`).
 
 To respond to the request, you need to call `req.respond()` method, that sends all pending data to FastCGI server, and terminates the request, freeing all the resources, and deleting all the uploaded files (you need to move them to different location to keep them). The object will be not usable after calling `respond()`.
