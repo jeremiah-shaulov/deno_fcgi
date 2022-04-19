@@ -11,19 +11,6 @@ FastCGI is a simple protocol designed to forward HTTP requests.
 Usually it's used to forward different HTTP requests to different applications from one HTTP server that listens on single host/port.
 Having master HTTP server is convenient. It allows to have confuguration that controls all the WWW actions in one place.
 
-## About v1.x.x
-
-Versions v1.x.x and v0.x.x dont't work anymore.
-
-This happened after release of one of `std` library versions that references `Deno.FsFile`, which was added in `deno@v1.19.0`.
-
-`x/fcgi@v1.x.x` version series use `std@0.113.0`, and one of the files inside the `std@0.113.0` library imports another `std` file without specifying version number, so the latest version is picked up.
-And that version has references to the `Deno.FsFile`.
-
-On `deno@v1.19.0` this library doesn't work as well, because it has new definition of `Deno.Conn` interface, that make it's implementation in this library invalid.
-
-**Please, choose a newer version.**
-
 ## Backend application example (FastCGI server)
 
 ```ts
