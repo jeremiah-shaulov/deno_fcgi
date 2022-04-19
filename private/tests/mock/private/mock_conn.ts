@@ -1,3 +1,5 @@
+// deno-lint-ignore-file
+
 import {Conn} from '../../../deno_ifaces.ts';
 
 /**	Data can be passed to constructor, and then it can be added with `pend_read()`.

@@ -1,3 +1,5 @@
+// deno-lint-ignore-file
+
 import {Listener} from '../deno_ifaces.ts';
 import {fcgi} from "../fcgi.ts";
 import {ProtocolError} from '../error.ts';

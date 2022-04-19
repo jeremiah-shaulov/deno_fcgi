@@ -1,3 +1,5 @@
+// deno-lint-ignore-file
+
 import {MockConn} from './mock_conn.ts';
 import {MockListener} from './mock_listener.ts';
 import {Server} from "../../../server.ts";

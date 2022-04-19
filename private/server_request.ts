@@ -1,3 +1,5 @@
+// deno-lint-ignore-file
+
 import {debug_assert} from './debug_assert.ts';
 import {Conn} from './deno_ifaces.ts';
 import {Get} from "./get.ts";

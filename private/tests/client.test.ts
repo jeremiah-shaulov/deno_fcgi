@@ -1,3 +1,5 @@
+// deno-lint-ignore-file
+
 import {Client, ReadableReadableStream, ResponseWithCookies} from "../client.ts";
 import {MockConn, get_random_string} from './mock/mod.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.135.0/testing/asserts.ts";

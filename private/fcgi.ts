@@ -1,3 +1,5 @@
+// deno-lint-ignore-file
+
 import {Conn, Listener} from './deno_ifaces.ts';
 import {Server, ServerOptions} from './server.ts';
 import {faddr_to_addr, addr_to_string} from './addr.ts';

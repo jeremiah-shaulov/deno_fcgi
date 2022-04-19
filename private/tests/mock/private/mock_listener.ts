@@ -1,3 +1,5 @@
+// deno-lint-ignore-file
+
 import {Conn, Listener} from '../../../deno_ifaces.ts';
 import {MockFcgiConn} from './mock_fcgi_conn.ts';
 

@@ -1,3 +1,5 @@
+// deno-lint-ignore-file
+
 import {debug_assert} from './debug_assert.ts';
 import {Conn, Listener} from './deno_ifaces.ts';
 import {ServerRequest, poll, take_next_request, is_processing} from './server_request.ts';
