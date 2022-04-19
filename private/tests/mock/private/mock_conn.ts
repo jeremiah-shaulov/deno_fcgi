@@ -1,9 +1,13 @@
+// deno-lint-ignore-file
+
+import {Conn} from '../../../deno_ifaces.ts';
+
 /**	Data can be passed to constructor, and then it can be added with `pend_read()`.
 	These data will be read later through `Deno.Reader` interface (`read()`).
 
 	`get_written()` returns what is written through `Deno.Writer`.
  **/
-export class MockConn implements Deno.Conn
+export class MockConn implements Conn
 {	localAddr: Deno.Addr;
 	remoteAddr: Deno.Addr;
 	rid = 999999999;
@@ -20,6 +24,14 @@ export class MockConn implements Deno.Conn
 	{	this.read_data = new TextEncoder().encode(str);
 		this.localAddr = localAddr || {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 999999999};
 		this.remoteAddr = remoteAddr || {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 999999999};
+	}
+
+	get readable(): ReadableStream<Uint8Array>
+	{	throw new Error('No need');
+	}
+
+	get writable(): WritableStream<Uint8Array>
+	{	throw new Error('No need');
 	}
 
 	pend_read(data: Uint8Array)

@@ -1,4 +1,7 @@
+// deno-lint-ignore-file
+
 import {debug_assert} from './debug_assert.ts';
+import {Conn, Listener} from './deno_ifaces.ts';
 import {ServerRequest, poll, take_next_request, is_processing} from './server_request.ts';
 import {is_default_route} from './addr.ts';
 
@@ -16,30 +19,30 @@ export interface ServerOptions
 }
 
 class AcceptError
-{	constructor(public listener: Deno.Listener, public error: Error)
+{	constructor(public listener: Listener, public error: Error)
 	{
 	}
 }
 
-export class Server implements Deno.Listener
+export class Server implements Listener
 {	readonly addr: Deno.Addr;
 	readonly rid: number;
 
-	private listeners: Deno.Listener[];
-	private active_listeners: Deno.Listener[] = [];
-	private removed_listeners: Deno.Listener[] = [];
+	private listeners: Listener[];
+	private active_listeners: Listener[] = [];
+	private removed_listeners: Listener[] = [];
 	private structuredParams: boolean;
 	private maxConns: number;
 	private maxNameLength: number;
 	private maxValueLength: number;
 	private maxFileSize: number;
-	private promises: Promise<Deno.Conn | ServerRequest | AcceptError>[] = [];
+	private promises: Promise<Conn | ServerRequest | AcceptError>[] = [];
 	private requests: ServerRequest[] = [];
 	private onerror: (error: Error) => void = () => {};
 	private is_accepting = false;
 	private n_processing = 0;
 
-	constructor(listener?: Deno.Listener, options?: ServerOptions)
+	constructor(listener?: Listener, options?: ServerOptions)
 	{	this.addr = listener?.addr ?? {transport: 'tcp', hostname: 'localhost', port: NaN};
 		this.rid = listener?.rid ?? -1;
 		this.listeners = listener ? [listener] : [];
@@ -103,7 +106,7 @@ export class Server implements Deno.Listener
 
 		this.is_accepting = true;
 
-		function find_listener(conn: Deno.Conn)
+		function find_listener(conn: Conn)
 		{	if (active_listeners.length == 1)
 			{	return 0;
 			}
@@ -249,7 +252,7 @@ export class Server implements Deno.Listener
 	{	return this.n_processing;
 	}
 
-	addListener(listener: Deno.Listener)
+	addListener(listener: Listener)
 	{	let {transport, hostname, port, path} = listener.addr as any;
 		// find in "listeners"
 		let i = this.listeners.findIndex

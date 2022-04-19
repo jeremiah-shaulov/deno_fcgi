@@ -1,4 +1,7 @@
+// deno-lint-ignore-file
+
 import {debug_assert} from './debug_assert.ts';
+import {Conn} from './deno_ifaces.ts';
 import {faddr_to_addr, addr_to_string} from './addr.ts';
 import type {FcgiAddr} from './addr.ts';
 import {FcgiConn} from "./fcgi_conn.ts";
@@ -30,7 +33,7 @@ export interface ClientOptions
 
 export interface RequestOptions
 {	/** FastCGI service address. For example address of PHP-FPM service (what appears in "listen" directive in PHP-FPM pool configuration file). */
-	addr: FcgiAddr | Deno.Conn,
+	addr: FcgiAddr | Conn,
 	/** `scriptFilename` can be specified here, or in `params` under 'SCRIPT_FILENAME' key. Note that if sending to PHP-FPM, the response will be empty unless you provide this parameter. This parameter must contain PHP script file name. */
 	scriptFilename?: string,
 	/** Additional parameters to send to FastCGI server. If sending to PHP, they will be found in $_SERVER. If `params` object is given, it will be modified - `scriptFilename` and parameters inferred from request URL will be added to it. */
@@ -56,28 +59,23 @@ export class ResponseWithCookies extends Response
 export class ReadableReadableStream extends ReadableStream<Uint8Array> implements Deno.Reader
 {	private is_reading = false;
 
-	constructor(private body_first_part: Uint8Array|undefined, private body_it: AsyncGenerator<number, number, Uint8Array>, private ondone: () => void)
+	constructor(private reader: Deno.Reader)
 	{	super
-		(	{	pull: async (controller) =>
+		(	{	pull: async controller =>
 				{	try
 					{	if (!this.is_reading)
-						{	// initially enqueue 1 empty chunk, befire user decides does he want to read this object through `ReadableStream`, or through `Deno.Reader`
+						{	// initially enqueue 1 empty chunk, before user decides does he want to read this object through `ReadableStream`, or through `Deno.Reader`
 							this.is_reading = true;
 							controller.enqueue(new Uint8Array);
 						}
-						else if (this.body_first_part)
-						{	controller.enqueue(this.body_first_part); // "enqueue()" consumes the buffer by setting "value.buffer.byteLength" to "0"
-							this.body_first_part = undefined;
-						}
 						else
 						{	let buffer = new Uint8Array(BUFFER_LEN);
-							let {value: n_read, done} = await this.body_it.next(buffer);
-							if (!done)
-							{	controller.enqueue(buffer.subarray(0, n_read as number)); // "enqueue()" consumes the buffer by setting "value.buffer.byteLength" to "0"
+							let n = await reader.read(buffer);
+							if (n == null)
+							{	controller.close();
 							}
 							else
-							{	this.ondone();
-								controller.close();
+							{	controller.enqueue(buffer.subarray(0, n)); // "enqueue()" consumes the buffer by setting "value.buffer.byteLength" to "0"
 							}
 						}
 					}
@@ -90,26 +88,8 @@ export class ReadableReadableStream extends ReadableStream<Uint8Array> implement
 		);
 	}
 
-	async read(buffer: Uint8Array): Promise<number | null>
-	{	if (this.body_first_part)
-		{	let len = this.body_first_part.length;
-			if (buffer.length >= len)
-			{	buffer.set(this.body_first_part);
-				this.body_first_part = undefined;
-				return len;
-			}
-			else
-			{	buffer.set(this.body_first_part.subarray(0, buffer.length));
-				this.body_first_part = this.body_first_part.subarray(buffer.length);
-				return buffer.length;
-			}
-		}
-		let {value: n_read, done} = await this.body_it.next(buffer);
-		if (!done)
-		{	return n_read as number;
-		}
-		this.ondone();
-		return null;
+	read(buffer: Uint8Array): Promise<number | null>
+	{	return this.reader.read(buffer);
 	}
 }
 
@@ -225,7 +205,7 @@ export class Client
 		var {conn, server_addr_str, conn_type} = await this.get_conn(addr, connectTimeout, timeout, keepAliveTimeout, keepAliveMax);
 		conn.on_log_error = onLogError;
 		// query
-		let buffer = new Uint8Array(BUFFER_LEN);
+		let first_buffer: Uint8Array|undefined = new Uint8Array(BUFFER_LEN);
 		try
 		{	while (true)
 			{	try
@@ -246,9 +226,9 @@ export class Client
 				}
 				break;
 			}
-			var it = conn.read_response(buffer);
-			let {value: n_read, done} = await it.next(buffer); // this reads all the headers before getting to the body
-			buffer = buffer.subarray(0, done ? 0 : n_read as number);
+			var response_reader = conn.get_response_reader();
+			let n_read = await response_reader.read(first_buffer); // this reads all the headers before getting to the body
+			first_buffer = !n_read ? undefined : first_buffer.subarray(0, n_read);
 		}
 		catch (e)
 		{	this.return_conn(server_addr_str, conn, CONN_TYPE_INTERNAL_NO_REUSE);
@@ -265,15 +245,31 @@ export class Client
 		let cookies = conn.cookies;
 		conn.headers = new Headers;
 		conn.cookies = new SetCookies;
-		if (buffer.length == 0)
+		if (!first_buffer)
 		{	this.return_conn(server_addr_str, conn, conn_type);
 		}
+		let that = this;
 		return new ResponseWithCookies
-		(	buffer.length==0 ? null : new ReadableReadableStream
-			(	buffer,
-				it,
-				() =>
-				{	this.return_conn(server_addr_str, conn, conn_type);
+		(	!first_buffer ? null : new ReadableReadableStream
+			(	{	async read(buffer: Uint8Array): Promise<number | null>
+					{	if (first_buffer)
+						{	let n = Math.min(buffer.length, first_buffer.length);
+							buffer.set(first_buffer.subarray(0, n));
+							first_buffer = n>=first_buffer.length ? undefined : first_buffer.subarray(n);
+							return n;
+						}
+						try
+						{	let n = await response_reader.read(buffer);
+							if (n == null)
+							{	that.return_conn(server_addr_str, conn, conn_type);
+							}
+							return n;
+						}
+						catch (e)
+						{	that.return_conn(server_addr_str, conn, conn_type);
+							throw e;
+						}
+					}
 				}
 			),
 			{	status: parseInt(status_str) || 200,
@@ -284,7 +280,7 @@ export class Client
 		);
 	}
 
-	async fetchCapabilities(addr: FcgiAddr | Deno.Conn)
+	async fetchCapabilities(addr: FcgiAddr | Conn)
 	{	let {conn, server_addr_str} = await this.get_conn(addr, DEFAULT_CONNECT_TIMEOUT, DEFAULT_TIMEOUT, 0, 1);
 		await conn.write_record_get_values(new Map(Object.entries({FCGI_MAX_CONNS: '', FCGI_MAX_REQS: '', FCGI_MPXS_CONNS: ''})));
 		let header = await conn.read_record_header();
@@ -336,7 +332,7 @@ export class Client
 		return conns;
 	}
 
-	private async get_conn(addr: FcgiAddr | Deno.Conn, connectTimeout: number, timeout: number, keepAliveTimeout: number, keepAliveMax: number): Promise<{conn: FcgiConn, server_addr_str: string, conn_type: number}>
+	private async get_conn(addr: FcgiAddr | Conn, connectTimeout: number, timeout: number, keepAliveTimeout: number, keepAliveMax: number): Promise<{conn: FcgiConn, server_addr_str: string, conn_type: number}>
 	{	debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
 		while (this.n_busy_all >= this.maxConns)
 		{	await new Promise<void>(y => {this.can_fetch_callbacks.push(y)});

@@ -1,4 +1,7 @@
+// deno-lint-ignore-file
+
 import {debug_assert} from './debug_assert.ts';
+import {Conn} from './deno_ifaces.ts';
 import {pack_nvp} from "./server_request.ts";
 import {Server} from "./server.ts";
 import {SetCookies} from "./set_cookies.ts";
@@ -44,12 +47,13 @@ export class FcgiConn
 
 	headers = new Headers;
 	cookies = new SetCookies;
+	app_status = 0;
 	on_log_error: ((error: string) => void) | undefined;
 
 	private request_id = 0;
 	private buffer_8 = new Uint8Array(8);
 
-	constructor(private conn: Deno.Conn)
+	constructor(private conn: Conn)
 	{
 	}
 
@@ -72,11 +76,15 @@ export class FcgiConn
 		await this.write_record_stdin(this.request_id, this.buffer_8.subarray(0, 0), true);
 	}
 
-	async *read_response(buffer: Uint8Array): AsyncGenerator<number, number, Uint8Array>
+	get_response_reader(): Deno.Reader
 	{	let headers_read = false;
 		let headers_buffer: Uint8Array | undefined;
 		let headers_buffer_len = 0;
+		let is_reading_content = false;
+		let cur_content_length = 0;
+		let cur_padding_length = 0;
 		let {headers, cookies, on_log_error} = this;
+		let that = this;
 
 		function add_header(line: Uint8Array)
 		{	if (line.length == 0)
@@ -153,78 +161,95 @@ export class FcgiConn
 			return data;
 		}
 
-		while (true)
-		{	let {record_type, request_id, content_length, padding_length} = await this.read_record_header();
-			if (request_id == this.request_id)
-			{	if (record_type==FCGI_STDOUT || record_type==FCGI_STDERR)
-				{	let stderr: Uint8Array | undefined;
-					let stderr_len = 0;
-					while (content_length > 0)
-					{	let n = await this.conn.read(buffer.subarray(0, Math.min(content_length+padding_length, buffer.length)));
-						if (n == null)
-						{	throw new Error('Unexpected end of stream');
-						}
-						let data = buffer.subarray(0, Math.min(n, content_length));
-						if (record_type == FCGI_STDOUT)
-						{	data = cut_headers(data);
-							debug_assert(!headers_read || headers_buffer_len==0);
-							if (headers_read && data.length>0)
-							{	let n_shift = data.byteOffset - buffer.byteOffset;
-								if (n_shift > 0)
-								{	buffer.copyWithin(0, n_shift, n_shift+data.length);
+		async function read(buffer: Uint8Array)
+		{	var content_length = 0;
+			var padding_length = 0;
+			while (true)
+			{	if (!is_reading_content)
+				{	var {record_type, request_id, content_length, padding_length} = await that.read_record_header();
+					if (request_id == that.request_id)
+					{	switch (record_type)
+						{	case FCGI_STDERR:
+								if (record_type==FCGI_STDERR && on_log_error && content_length>0)
+								{	let n_skip = content_length + padding_length;
+									let stderr = n_skip<=buffer.length ? buffer.subarray(0,  n_skip) : new Uint8Array(n_skip);
+									await that.read_exact(stderr);
+									on_log_error(new TextDecoder().decode(stderr.subarray(0, content_length)));
+									continue;
 								}
-								buffer = yield data.length;
-							}
-						}
-						else
-						{	if (!stderr || stderr_len+data.length>stderr.length)
-							{	// realloc
-								let tmp = new Uint8Array(Math.max((stderr?.length || 0)*2, stderr_len+data.length));
-								if (stderr)
-								{	tmp.set(stderr.subarray(0, stderr_len));
+								break;
+							case FCGI_STDOUT:
+								while (content_length > 0)
+								{	let n = await that.conn.read(buffer.subarray(0, Math.min(content_length+padding_length, buffer.length)));
+									if (n == null)
+									{	throw new Error('Unexpected end of stream');
+									}
+									let data = buffer.subarray(0, Math.min(n, content_length));
+									data = cut_headers(data);
+									debug_assert(!headers_read || headers_buffer_len==0);
+									content_length -= n; // negative "content_length" means that part of padding is already consumed
+									if (headers_read && data.length>0)
+									{	let n_shift = data.byteOffset - buffer.byteOffset;
+										if (n_shift > 0)
+										{	buffer.copyWithin(0, n_shift, n_shift+data.length);
+										}
+										is_reading_content = true;
+										cur_content_length = content_length;
+										cur_padding_length = padding_length;
+										return data.length;
+									}
 								}
-								stderr = tmp;
-							}
-							stderr.set(data, stderr_len);
-							stderr_len += data.length;
+								break;
+							case FCGI_END_REQUEST:
+								{	await that.read_exact(that.buffer_8);
+									let data = new DataView(that.buffer_8.buffer);
+									that.app_status = data.getInt32(0);
+									let protocol_status = data.getUint8(4);
+									while (padding_length > 0)
+									{	let n = await that.conn.read(buffer.subarray(0, Math.min(padding_length, buffer.length)));
+										if (n == null)
+										{	throw new Error('Unexpected end of stream');
+										}
+										padding_length -= n;
+									}
+									if (protocol_status == FCGI_CANT_MPX_CONN)
+									{	throw new Error('This service cannot multiplex connections');
+									}
+									if (protocol_status == FCGI_OVERLOADED)
+									{	throw new Error('Service overloaded');
+									}
+									if (protocol_status == FCGI_UNKNOWN_ROLE)
+									{	throw new Error("Service doesn't support responder role");
+									}
+								}
+								return null;
 						}
-						content_length -= n;
-					}
-					if (stderr)
-					{	on_log_error?.(new TextDecoder().decode(stderr.subarray(0, stderr_len)));
 					}
 				}
-				else if (record_type == FCGI_END_REQUEST)
-				{	await this.read_exact(this.buffer_8);
-					let data = new DataView(this.buffer_8.buffer);
-					let app_status = data.getInt32(0);
-					let protocol_status = data.getUint8(4);
-					while (padding_length > 0)
-					{	let n = await this.conn.read(buffer.subarray(0, Math.min(padding_length, buffer.length)));
-						if (n == null)
-						{	throw new Error('Unexpected end of stream');
-						}
-						padding_length -= n;
+				else if (cur_content_length > 0)
+				{	let n = await that.conn.read(buffer.subarray(0, Math.min(cur_content_length+cur_padding_length, buffer.length)));
+					if (n == null)
+					{	throw new Error('Unexpected end of stream');
 					}
-					if (protocol_status == FCGI_CANT_MPX_CONN)
-					{	throw new Error('This service cannot multiplex connections');
-					}
-					if (protocol_status == FCGI_OVERLOADED)
-					{	throw new Error('Service overloaded');
-					}
-					if (protocol_status == FCGI_UNKNOWN_ROLE)
-					{	throw new Error("Service doesn't support responder role");
-					}
-					return app_status;
+					let data = buffer.subarray(0, Math.min(n, cur_content_length));
+					cur_content_length -= n; // negative "content_length" means that part of padding is already consumed
+					return data.length;
 				}
+				else
+				{	is_reading_content = false;
+					content_length = cur_content_length;
+					padding_length = cur_padding_length;
+				}
+				let n_skip = content_length + padding_length; // negative "content_length" means that part of padding is already consumed
+				while (n_skip > buffer.length)
+				{	await that.read_exact(buffer);
+					n_skip -= buffer.length;
+				}
+				await that.read_exact(buffer.subarray(0,  n_skip));
 			}
-			let n_skip = content_length + padding_length; // negative "content_length" means that part of padding is already consumed
-			while (n_skip > buffer.length)
-			{	await this.read_exact(buffer);
-				n_skip -= buffer.length;
-			}
-			await this.read_exact(buffer.subarray(0,  n_skip));
 		}
+
+		return {read};
 	}
 
 	write_record(record_type: number, request_id: number, payload: string|Uint8Array)
@@ -376,11 +401,11 @@ export class FcgiConn
 		(	{	addr: {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 1},
 				rid: 1,
 
-				async *[Symbol.asyncIterator](): AsyncGenerator<Deno.Conn, void, unknown>
+				async *[Symbol.asyncIterator](): AsyncGenerator<Conn, void, unknown>
 				{	yield await this.accept();
 				},
 
-				async accept(): Promise<Deno.Conn>
+				async accept(): Promise<Conn>
 				{	if (read_pos != 0)
 					{	throw new Error('Failed to get constants');
 					}
@@ -388,6 +413,14 @@ export class FcgiConn
 					{	localAddr: {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 1},
 						remoteAddr: {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 2},
 						rid: 1,
+
+						get readable(): ReadableStream<Uint8Array>
+						{	throw new Error('No need');
+						},
+
+						get writable(): WritableStream<Uint8Array>
+						{	throw new Error('No need');
+						},
 
 						async read(buffer: Uint8Array): Promise<number | null>
 						{	let chunk_size = Math.min(buffer.length, data.length-read_pos);

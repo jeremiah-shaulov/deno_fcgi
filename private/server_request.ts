@@ -1,4 +1,7 @@
+// deno-lint-ignore-file
+
 import {debug_assert} from './debug_assert.ts';
+import {Conn} from './deno_ifaces.ts';
 import {Get} from "./get.ts";
 import {Post} from "./post.ts";
 import {Cookies} from "./cookies.ts";
@@ -37,7 +40,7 @@ const FCGI_KEEP_CONN          =  1;
 
 debug_assert(BUFFER_LEN >= 256+16);
 
-export class ServerRequest implements Deno.Conn
+export class ServerRequest implements Conn
 {	readonly localAddr: Deno.Addr;
 	readonly remoteAddr: Deno.Addr;
 	readonly rid: number;
@@ -113,7 +116,7 @@ export class ServerRequest implements Deno.Conn
 	private decoder = new TextDecoder;
 
 	constructor
-	(	public conn: Deno.Conn,
+	(	public conn: Conn,
 		private onerror: (error: Error) => void,
 		buffer: Uint8Array|null,
 		private structuredParams: boolean,
@@ -127,6 +130,14 @@ export class ServerRequest implements Deno.Conn
 		this.rid = conn.rid;
 		this.buffer = buffer ?? new Uint8Array(BUFFER_LEN);
 		this.post = new Post(this, onerror);
+	}
+
+	get readable(): ReadableStream<Uint8Array>
+	{	return this.conn.readable;
+	}
+
+	get writable(): WritableStream<Uint8Array>
+	{	return this.conn.writable;
 	}
 
 	async read(buffer: Uint8Array): Promise<number|null>

@@ -1,3 +1,6 @@
+// deno-lint-ignore-file
+
+import {Conn, Listener} from './deno_ifaces.ts';
 import {Server, ServerOptions} from './server.ts';
 import {faddr_to_addr, addr_to_string} from './addr.ts';
 import type {FcgiAddr} from './addr.ts';
@@ -66,10 +69,10 @@ export class Fcgi
 			}
 		);
 	 **/
-	listen(addr_or_listener: FcgiAddr | Deno.Listener, path_pattern: PathPattern, callback: Callback)
+	listen(addr_or_listener: FcgiAddr | Listener, path_pattern: PathPattern, callback: Callback)
 	{	let {server} = this;
-		if (typeof(addr_or_listener)=='object' && (addr_or_listener as Deno.Listener).addr)
-		{	var listener = addr_or_listener as Deno.Listener;
+		if (typeof(addr_or_listener)=='object' && (addr_or_listener as Listener).addr)
+		{	var listener = addr_or_listener as Listener;
 		}
 		else
 		{	let addr = faddr_to_addr(addr_or_listener as FcgiAddr);
@@ -224,7 +227,7 @@ export class Fcgi
 
 	/**	Ask a FastCGI service (like PHP) for it's protocol capabilities. This is not so useful information. Only for those who curious. As i know, Apache and Nginx don't even ask for this during protocol usage.
 	 **/
-	fetchCapabilities(addr: FcgiAddr | Deno.Conn): Promise<{FCGI_MAX_CONNS?: number, FCGI_MAX_REQS?: number, FCGI_MPXS_CONNS?: number}>
+	fetchCapabilities(addr: FcgiAddr | Conn): Promise<{FCGI_MAX_CONNS?: number, FCGI_MAX_REQS?: number, FCGI_MPXS_CONNS?: number}>
 	{	return this.client.fetchCapabilities(addr);
 	}
 
@@ -274,7 +277,7 @@ export class Fcgi
 	// Stop your existing PHP-FPM service, setup `PHP_POOL_CONFIG_FILE` and `DOCUMENT_ROOT` variables, and run this code.
 	// This code creates PHP-FPM capable HTTP server.
 
-	import {listenAndServe} from 'https://deno.land/std@0.113.0/http/server.ts';
+	import {listenAndServe} from 'https://deno.land/std@0.135.0/http/server.ts';
 
 	const PHP_POOL_CONFIG_FILE = '/etc/php/7.4/fpm/pool.d/www.conf';
 	const DOCUMENT_ROOT = '/var/www/deno-server-root';
