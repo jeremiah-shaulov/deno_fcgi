@@ -57,28 +57,23 @@ export class ResponseWithCookies extends Response
 export class ReadableReadableStream extends ReadableStream<Uint8Array> implements Deno.Reader
 {	private is_reading = false;
 
-	constructor(private body_first_part: Uint8Array|undefined, private body_it: AsyncGenerator<number, number, Uint8Array>, private ondone: () => void)
+	constructor(private reader: Deno.Reader)
 	{	super
-		(	{	pull: async (controller) =>
+		(	{	pull: async controller =>
 				{	try
 					{	if (!this.is_reading)
-						{	// initially enqueue 1 empty chunk, befire user decides does he want to read this object through `ReadableStream`, or through `Deno.Reader`
+						{	// initially enqueue 1 empty chunk, before user decides does he want to read this object through `ReadableStream`, or through `Deno.Reader`
 							this.is_reading = true;
 							controller.enqueue(new Uint8Array);
 						}
-						else if (this.body_first_part)
-						{	controller.enqueue(this.body_first_part); // "enqueue()" consumes the buffer by setting "value.buffer.byteLength" to "0"
-							this.body_first_part = undefined;
-						}
 						else
 						{	let buffer = new Uint8Array(BUFFER_LEN);
-							let {value: n_read, done} = await this.body_it.next(buffer);
-							if (!done)
-							{	controller.enqueue(buffer.subarray(0, n_read as number)); // "enqueue()" consumes the buffer by setting "value.buffer.byteLength" to "0"
+							let n = await reader.read(buffer);
+							if (n == null)
+							{	controller.close();
 							}
 							else
-							{	this.ondone();
-								controller.close();
+							{	controller.enqueue(buffer.subarray(0, n)); // "enqueue()" consumes the buffer by setting "value.buffer.byteLength" to "0"
 							}
 						}
 					}
@@ -91,26 +86,8 @@ export class ReadableReadableStream extends ReadableStream<Uint8Array> implement
 		);
 	}
 
-	async read(buffer: Uint8Array): Promise<number | null>
-	{	if (this.body_first_part)
-		{	let len = this.body_first_part.length;
-			if (buffer.length >= len)
-			{	buffer.set(this.body_first_part);
-				this.body_first_part = undefined;
-				return len;
-			}
-			else
-			{	buffer.set(this.body_first_part.subarray(0, buffer.length));
-				this.body_first_part = this.body_first_part.subarray(buffer.length);
-				return buffer.length;
-			}
-		}
-		let {value: n_read, done} = await this.body_it.next(buffer);
-		if (!done)
-		{	return n_read as number;
-		}
-		this.ondone();
-		return null;
+	read(buffer: Uint8Array): Promise<number | null>
+	{	return this.reader.read(buffer);
 	}
 }
 
@@ -226,7 +203,7 @@ export class Client
 		var {conn, server_addr_str, conn_type} = await this.get_conn(addr, connectTimeout, timeout, keepAliveTimeout, keepAliveMax);
 		conn.on_log_error = onLogError;
 		// query
-		let buffer = new Uint8Array(BUFFER_LEN);
+		let first_buffer: Uint8Array|undefined = new Uint8Array(BUFFER_LEN);
 		try
 		{	while (true)
 			{	try
@@ -247,9 +224,9 @@ export class Client
 				}
 				break;
 			}
-			var it = conn.read_response(buffer);
-			let {value: n_read, done} = await it.next(buffer); // this reads all the headers before getting to the body
-			buffer = buffer.subarray(0, done ? 0 : n_read as number);
+			var response_reader = conn.get_response_reader();
+			let n_read = await response_reader.read(first_buffer); // this reads all the headers before getting to the body
+			first_buffer = !n_read ? undefined : first_buffer.subarray(0, n_read);
 		}
 		catch (e)
 		{	this.return_conn(server_addr_str, conn, CONN_TYPE_INTERNAL_NO_REUSE);
@@ -266,15 +243,31 @@ export class Client
 		let cookies = conn.cookies;
 		conn.headers = new Headers;
 		conn.cookies = new SetCookies;
-		if (buffer.length == 0)
+		if (!first_buffer)
 		{	this.return_conn(server_addr_str, conn, conn_type);
 		}
+		let that = this;
 		return new ResponseWithCookies
-		(	buffer.length==0 ? null : new ReadableReadableStream
-			(	buffer,
-				it,
-				() =>
-				{	this.return_conn(server_addr_str, conn, conn_type);
+		(	!first_buffer ? null : new ReadableReadableStream
+			(	{	async read(buffer: Uint8Array): Promise<number | null>
+					{	if (first_buffer)
+						{	let n = Math.min(buffer.length, first_buffer.length);
+							buffer.set(first_buffer.subarray(0, n));
+							first_buffer = n>=first_buffer.length ? undefined : first_buffer.subarray(n);
+							return n;
+						}
+						try
+						{	let n = await response_reader.read(buffer);
+							if (n == null)
+							{	that.return_conn(server_addr_str, conn, conn_type);
+							}
+							return n;
+						}
+						catch (e)
+						{	that.return_conn(server_addr_str, conn, conn_type);
+							throw e;
+						}
+					}
 				}
 			),
 			{	status: parseInt(status_str) || 200,
