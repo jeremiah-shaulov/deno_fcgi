@@ -21,6 +21,8 @@ const CONN_TYPE_INTERNAL_NO_REUSE = 0;
 const CONN_TYPE_INTERNAL_REUSE = 1;
 const CONN_TYPE_EXTERNAL = 2;
 
+const EOF_MARK = new Uint8Array;
+
 export interface ClientOptions
 {	maxConns?: number,
 	connectTimeout?: number,
@@ -253,7 +255,10 @@ export class Client
 		(	!first_buffer ? null : new ReadableReadableStream
 			(	{	async read(buffer: Uint8Array): Promise<number | null>
 					{	if (first_buffer)
-						{	let n = Math.min(buffer.length, first_buffer.length);
+						{	if (first_buffer == EOF_MARK)
+							{	return null;
+							}
+							let n = Math.min(buffer.length, first_buffer.length);
 							buffer.set(first_buffer.subarray(0, n));
 							first_buffer = n>=first_buffer.length ? undefined : first_buffer.subarray(n);
 							return n;
@@ -261,7 +266,8 @@ export class Client
 						try
 						{	let n = await response_reader.read(buffer);
 							if (n == null)
-							{	that.return_conn(server_addr_str, conn, conn_type);
+							{	first_buffer = EOF_MARK;
+								that.return_conn(server_addr_str, conn, conn_type);
 							}
 							return n;
 						}
