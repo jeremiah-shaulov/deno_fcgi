@@ -24,6 +24,14 @@ export class MockConn implements Conn
 		this.remoteAddr = remoteAddr || {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 999999999};
 	}
 
+	ref()
+	{
+	}
+
+	unref()
+	{
+	}
+
 	get readable(): ReadableStream<Uint8Array>
 	{	throw new Error('No need');
 	}
@@ -77,6 +85,10 @@ export class MockConn implements Conn
 	}
 
 	close()
+	{	this.is_closed = true;
+	}
+
+	[Symbol.dispose]()
 	{	this.is_closed = true;
 	}
 

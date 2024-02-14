@@ -6,6 +6,7 @@ import {Cookies} from "./cookies.ts";
 import {ServerResponse} from './server_response.ts';
 import {AbortedError, TerminatedError, ProtocolError} from './error.ts';
 import {writeAll, copy} from './deps.ts';
+import {RdStream, WrStream} from './deps.ts';
 
 export const is_processing = Symbol('is_processing');
 export const take_next_request = Symbol('take_next_request');
@@ -45,46 +46,84 @@ export class ServerRequest implements Conn
 {	readonly localAddr: Deno.Addr;
 	readonly remoteAddr: Deno.Addr;
 	readonly rid: number;
-	/// REQUEST_URI of the request, like '/path/index.html?a=1'
+
+	/** REQUEST_URI of the request, like '/path/index.html?a=1'
+	 **/
 	url = '';
-	/// Request method, like 'GET'
+
+	/** Request method, like 'GET'
+	 **/
 	method = '';
-	/// Request protocol, like 'HTTP/1.1' or 'HTTP/2'
+
+	/** Request protocol, like 'HTTP/1.1' or 'HTTP/2'
+	 **/
 	proto = '';
+
 	protoMinor = 0;
 	protoMajor = 0;
-	/// Environment params sent from FastCGI frontend. This usually includes 'REQUEST_URI', 'SCRIPT_URI', 'SCRIPT_FILENAME', 'DOCUMENT_ROOT', can contain 'CONTEXT_DOCUMENT_ROOT' (if using Apache MultiViews), etc.
-	params = new Map<string, string>();
-	/// Request HTTP headers
-	headers = new Headers;
-	/// Access POST body and uploaded files from here.
-	get = new Get;
-	/// Access POST body and uploaded files from here.
-	post: Post;
-	/// Request cookies can be read from here, and modified. Setting or deleting a cookie sets corresponding HTTP headers.
-	cookies = new Cookies;
-	/// Post body can be read from here. Also it can be read from "this" directly (`request.body` and `request` are the same `Deno.Reader` implementors).
-	body: Deno.Reader = this;
 
-	/// Set this at any time before calling respond() to be default response HTTP status code (like 200 or 404). However status provided to respond() overrides this. Leave 0 for default 200 status.
+	/** Environment params sent from FastCGI frontend. This usually includes 'REQUEST_URI', 'SCRIPT_URI', 'SCRIPT_FILENAME', 'DOCUMENT_ROOT', can contain 'CONTEXT_DOCUMENT_ROOT' (if using Apache MultiViews), etc.
+	 **/
+	params = new Map<string, string>();
+
+	/** Request HTTP headers
+	 **/
+	headers = new Headers;
+
+	/** Access POST body and uploaded files from here.
+	 **/
+	get = new Get;
+
+	/** Access POST body and uploaded files from here.
+	 **/
+	post: Post;
+
+	/** Request cookies can be read from here, and modified. Setting or deleting a cookie sets corresponding HTTP headers.
+	 **/
+	cookies = new Cookies;
+
+	/** Post body can be read from here.
+	 **/
+	readonly readable = new RdStream({read: v => this.read(v)});
+
+	/**	Write request here.
+	 **/
+	readonly writable = new WrStream({write: c => this.write(c)});
+
+	/** Set this at any time before calling respond() to be default response HTTP status code (like 200 or 404). However status provided to respond() overrides this. Leave 0 for default 200 status.
+	 **/
 	responseStatus = 0;
-	/// You can set response HTTP headers before calling respond(). Headers provided to respond() will override them. Header called "status" acts as default HTTP status code, if responseStatus is not set.
+
+	/** You can set response HTTP headers before calling respond(). Headers provided to respond() will override them. Header called "status" acts as default HTTP status code, if responseStatus is not set.
+	 **/
 	responseHeaders = new Headers;
 
-	/// True if headers have been sent to client. They will be sent if you write some response data to this request object (it implements `Deno.Writer`).
+	/** True if headers have been sent to client. They will be sent if you write some response data to this request object (it implements `Deno.Writer`).
+	 **/
 	headersSent = false;
 
-	/// Id that FastCGI server assigned to this request
+	/** Id that FastCGI server assigned to this request
+	 **/
 	private request_id = 0;
-	/// If reading STDIN stream, how many bytes are available in this.buffer[this.buffer_start ..]. Calling `poll()` without consuming these bytes will discard them. Call `poll()` to fetch more bytes.
+
+	/** If reading STDIN stream, how many bytes are available in this.buffer[this.buffer_start ..]. Calling `poll()` without consuming these bytes will discard them. Call `poll()` to fetch more bytes.
+	 **/
 	private stdin_length = 0;
-	/// Finished reading STDIN. This means that FastCGI server is now waiting for response (it's possible to send response earlier, but after reading PARAMS).
+
+	/** Finished reading STDIN. This means that FastCGI server is now waiting for response (it's possible to send response earlier, but after reading PARAMS).
+	 **/
 	private stdin_complete = false;
-	/// FastCGI server send ABORT record. The request is assumed to respond soon, and it's response will be probably ignored.
+
+	/** FastCGI server send ABORT record. The request is assumed to respond soon, and it's response will be probably ignored.
+	 **/
 	private is_aborted = false;
-	/// Response sent back to FastCGI server, and this object is unusable. This can happen after `respond()` called, or if exception thrown during communication.
+
+	/** Response sent back to FastCGI server, and this object is unusable. This can happen after `respond()` called, or if exception thrown during communication.
+	 **/
 	private is_terminated = false;
-	/// poll() sets this (together with is_terminated) if error occures
+
+	/** poll() sets this (together with is_terminated) if error occures
+	 **/
 	private last_error: Error|undefined;
 
 	private has_stderr = false;
@@ -104,13 +143,20 @@ export class ServerRequest implements Conn
 	private ongoing_write: Promise<unknown> | undefined;
 	private complete_promise: ((request: ServerRequest) => void) | undefined;
 
-	/// Server returned this object to user. If "false", the object is considered to modifiable from outside space.
+	/** Server returned this object to user. If "false", the object is considered to modifiable from outside space.
+	 **/
 	private is_processing = false;
-	/// If FCGI_KEEP_CONN flag is provided, i'll create a new ServerRequest object that uses the same "conn" and "buffer", and let it continue reading records.
+
+	/** If FCGI_KEEP_CONN flag is provided, i'll create a new ServerRequest object that uses the same "conn" and "buffer", and let it continue reading records.
+	 **/
 	private next_request: ServerRequest | undefined;
-	/// "this.next_request" will have "prev_request" set to this, so if FCGI_ABORT_REQUEST record comes, it will cancel the previous request
+
+	/** "this.next_request" will have "prev_request" set to this, so if FCGI_ABORT_REQUEST record comes, it will cancel the previous request
+	 **/
 	private prev_request: ServerRequest | undefined;
-	/// Result of "next_request.poll()"
+
+	/** Result of "next_request.poll()"
+	 **/
 	private next_request_ready: Promise<ServerRequest> | undefined;
 
 	constructor
@@ -130,12 +176,12 @@ export class ServerRequest implements Conn
 		this.post = new Post(this, onerror);
 	}
 
-	get readable(): ReadableStream<Uint8Array>
-	{	return this.conn.readable;
+	ref()
+	{
 	}
 
-	get writable(): WritableStream<Uint8Array>
-	{	return this.conn.writable;
+	unref()
+	{
 	}
 
 	async read(buffer: Uint8Array): Promise<number|null>
@@ -306,6 +352,10 @@ export class ServerRequest implements Conn
 	}
 
 	close()
+	{	this.do_close();
+	}
+
+	[Symbol.dispose]()
 	{	this.do_close();
 	}
 

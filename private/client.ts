@@ -4,9 +4,10 @@ import {faddr_to_addr, addr_to_string} from './addr.ts';
 import type {FcgiAddr} from './addr.ts';
 import {FcgiConn} from "./fcgi_conn.ts";
 import {SetCookies} from "./set_cookies.ts";
+import {RdStream} from './deps.ts';
 
-const BUFFER_LEN = 8*1024;
 export const SERVER_SOFTWARE = 'DenoFcgi/1.0';
+const BUFFER_LEN = 8*1024;
 const DEFAULT_MAX_CONNS = 128;
 const DEFAULT_CONNECT_TIMEOUT = 4000;
 const DEFAULT_TIMEOUT = 10000;
@@ -20,6 +21,8 @@ const CONN_TYPE_INTERNAL_REUSE = 1;
 const CONN_TYPE_EXTERNAL = 2;
 
 const EOF_MARK = new Uint8Array;
+
+const RE_CHARSET = /;\s*charset\s*=\s*\"?([^";]+)/;
 
 export interface ClientOptions
 {	maxConns?: number,
@@ -51,45 +54,32 @@ export interface RequestOptions
 }
 
 export class ResponseWithCookies extends Response
-{	constructor(public body: ReadableReadableStream | null, init?: ResponseInit|undefined, public cookies = new SetCookies)
+{	#charset: string|undefined;
+
+	constructor(public body: RdStream|null, init?: ResponseInit|undefined, public cookies = new SetCookies)
 	{	super(body, init);
 	}
-}
 
-export class ReadableReadableStream extends ReadableStream<Uint8Array> implements Deno.Reader
-{	private is_reading = false;
-
-	constructor(private reader: Deno.Reader)
-	{	super
-		(	{	pull: async controller =>
-				{	try
-					{	if (!this.is_reading)
-						{	// initially enqueue 1 empty chunk, before user decides does he want to read this object through `ReadableStream`, or through `Deno.Reader`
-							this.is_reading = true;
-							controller.enqueue(new Uint8Array);
-						}
-						else
-						{	const buffer = new Uint8Array(BUFFER_LEN);
-							const n = await reader.read(buffer);
-							if (n == null)
-							{	controller.close();
-							}
-							else
-							{	controller.enqueue(buffer.subarray(0, n)); // "enqueue()" consumes the buffer by setting "value.buffer.byteLength" to "0"
-							}
-						}
-					}
-					catch (e)
-					{	controller.error(e);
-						controller.close();
-					}
+	get charset()
+	{	if (this.#charset == undefined)
+		{	this.#charset = '';
+			const content_type = this.headers.get('content-type');
+			if (content_type)
+			{	const m = content_type.match(RE_CHARSET);
+				if (m)
+				{	this.#charset = m[1].trim();
 				}
 			}
-		);
+		}
+		return this.#charset;
 	}
 
-	read(buffer: Uint8Array): Promise<number | null>
-	{	return this.reader.read(buffer);
+	text()
+	{	return !this.body ? Promise.resolve('') : this.body.text(this.charset || undefined);
+	}
+
+	uint8Array()
+	{	return !this.body ? Promise.resolve(new Uint8Array) : this.body.uint8Array();
 	}
 }
 
@@ -158,7 +148,7 @@ export class Client
 		debug_assert(this.n_idle_all == 0);
 	}
 
-	async fetch(request_options: RequestOptions, input: Request|URL|string, init?: RequestInit & {bodyIter?: AsyncIterable<Uint8Array>}): Promise<ResponseWithCookies>
+	async fetch(request_options: RequestOptions, input: Request|URL|string, init?: RequestInit): Promise<ResponseWithCookies>
 	{	let {addr, scriptFilename, params, connectTimeout, timeout, keepAliveTimeout, keepAliveMax, onLogError} = request_options;
 		if (connectTimeout == undefined)
 		{	connectTimeout = this.connectTimeout;
@@ -210,7 +200,7 @@ export class Client
 		try
 		{	while (true)
 			{	try
-				{	await conn.write_request(params, init?.bodyIter ?? input.body, conn_type!=CONN_TYPE_INTERNAL_NO_REUSE);
+				{	await conn.write_request(params, input.body, conn_type!=CONN_TYPE_INTERNAL_NO_REUSE);
 				}
 				catch (e)
 				{	if (conn_type==CONN_TYPE_INTERNAL_REUSE && e.name=='BrokenPipe')
@@ -254,11 +244,11 @@ export class Client
 		// deno-lint-ignore no-this-alias
 		const that = this;
 		return new ResponseWithCookies
-		(	!first_buffer ? null : new ReadableReadableStream
-			(	{	async read(buffer: Uint8Array): Promise<number | null>
+		(	!first_buffer ? null : new RdStream
+			(	{	async read(buffer: Uint8Array)
 					{	if (first_buffer)
 						{	if (first_buffer == EOF_MARK)
-							{	return null;
+							{	return 0;
 							}
 							const n = Math.min(buffer.length, first_buffer.length);
 							buffer.set(first_buffer.subarray(0, n));

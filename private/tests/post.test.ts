@@ -1,6 +1,5 @@
 import {Post} from "../post.ts";
 import {TEST_CHUNK_SIZES, get_random_string, map_to_obj, MockConn} from './mock/mod.ts';
-import {readAll} from '../deps.ts';
 import {exists} from "https://deno.land/std@0.135.0/fs/mod.ts";
 import {assert, assertEquals} from "https://deno.land/std@0.135.0/testing/asserts.ts";
 
@@ -124,10 +123,7 @@ Deno.test
 				const uploaded_file = post.files.get('main image');
 				const tmpName = uploaded_file?.tmpName;
 				assert(tmpName);
-				assert(await exists(tmpName));
-				let f = await Deno.open(tmpName, {read: true});
-				const contents = new TextDecoder().decode(await readAll(f));
-				f.close();
+				const contents = await Deno.readTextFile(tmpName);
 				assertEquals(contents, file_contents);
 				assertEquals({...uploaded_file}, {error: 0, name: '/tmp/current_file', size: file_contents.length, tmpName: uploaded_file!.tmpName, type: i==0 ? 'text/plain' : 'application/octet-stream'});
 				if (i == 1)
@@ -232,10 +228,7 @@ Deno.test
 				const tmpName = uploaded_file?.tmpName;
 				assert(i==0 ? !tmpName : tmpName);
 				if (tmpName)
-				{	assert(await exists(tmpName));
-					const f = await Deno.open(tmpName, {read: true});
-					const contents = new TextDecoder().decode(await readAll(f));
-					f.close();
+				{	const contents = await Deno.readTextFile(tmpName);
 					assertEquals(contents, file_contents);
 					uploaded_file!.tmpName = '';
 					assertEquals({...uploaded_file}, {error: 0, name: '/tmp/current_file', size: file_contents.length, tmpName: '', type: 'application/octet-stream'});
@@ -285,10 +278,7 @@ Deno.test
 			const tmpName = uploaded_file?.tmpName;
 			assert(tmpName);
 			tmp_names[i] = tmpName;
-			assert(await exists(tmpName));
-			const f = await Deno.open(tmpName, {read: true});
-			const contents = new TextDecoder().decode(await readAll(f));
-			f.close();
+			const contents = await Deno.readTextFile(tmpName);
 			assertEquals(contents, file_contents[i]);
 			uploaded_file!.tmpName = '';
 			assertEquals({...uploaded_file}, {error: 0, name: '/tmp/file_'+i, size: file_contents[i].length, tmpName: '', type: 'application/octet-stream'});

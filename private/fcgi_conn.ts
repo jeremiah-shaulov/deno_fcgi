@@ -70,8 +70,15 @@ export class FcgiConn
 		await this.write_record_begin_request(this.request_id, 'responder', keep_conn);
 		await this.write_record_params(this.request_id, params, true);
 		if (body)
-		{	for await (const chunk of body)
-			{	await this.write_record_stdin(this.request_id, chunk, false);
+		{	let promise;
+			for await (const chunk of body)
+			{	if (promise)
+				{	await promise;
+				}
+				promise = this.write_record_stdin(this.request_id, chunk, false);
+			}
+			if (promise)
+			{	await promise;
 			}
 		}
 		await this.write_record_stdin(this.request_id, this.buffer_8.subarray(0, 0), true);
@@ -445,7 +452,19 @@ export class FcgiConn
 						{
 						},
 
+						ref()
+						{
+						},
+
+						unref()
+						{
+						},
+
 						close()
+						{
+						},
+
+						[Symbol.dispose]()
 						{
 						}
 					};

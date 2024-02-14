@@ -4,7 +4,6 @@ import {ProtocolError} from '../error.ts';
 import {map_to_obj, MockListener, MockFcgiConn, get_random_string} from './mock/mod.ts';
 import {SERVER_SOFTWARE, RequestOptions} from '../client.ts';
 import {RECYCLE_REQUEST_ID_AFTER} from '../fcgi_conn.ts';
-import {readAll} from '../deps.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.135.0/testing/asserts.ts";
 
 Deno.test
@@ -85,7 +84,7 @@ Deno.test
 	{	for (const [chunk_size, strlen] of [[12, 3000], [123, 123]])
 		{	const LONG_STR = '*'.repeat(strlen);
 			const conn = new MockFcgiConn(chunk_size, -1, 'full');
-			conn.pend_read_fcgi_stdout(1, `Status: 403\r\nContent-Type: text/junk\r\nX-Hello: "a\rb\nc"\r\nX-Long: ${LONG_STR}\r\n\r\nResponse body`);
+			conn.pend_read_fcgi_stdout(1, `Status: 403\r\nContent-Type: text/junk; charset=utf-8\r\nX-Hello: "a\rb\nc"\r\nX-Long: ${LONG_STR}\r\n\r\nResponse body`);
 			conn.pend_read_fcgi_end_request(1, 'request_complete');
 			const response = await fcgi.fetch({addr: conn}, `http://example.com/`, {method: 'post', headers: {'Content-Type': 'text/plain'}, body: 'Request body'});
 			// check request
@@ -96,7 +95,7 @@ Deno.test
 			// check response
 			assertEquals(response.status, 403);
 			assertEquals(await response.text(), 'Response body');
-			assertEquals(map_to_obj(response.headers), {'content-type': 'text/junk', 'x-long': LONG_STR});
+			assertEquals(map_to_obj(response.headers), {'content-type': 'text/junk; charset=utf-8', 'x-long': LONG_STR});
 		}
 	}
 );
@@ -257,7 +256,7 @@ Deno.test
 			'',
 			async req =>
 			{	assertEquals(map_to_obj(req.params), {id: 'req 2'});
-				assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body 2');
+				assertEquals(await req.readable.text(), 'Body 2');
 				await req.respond({body: 'Hello'});
 				fcgi.unlisten();
 			}
@@ -341,7 +340,7 @@ Deno.test
 						}
 					);
 					assertEquals(response.status, 200);
-					assertEquals(!response.body ? '' : new TextDecoder().decode(await readAll(response.body)), `Response body ${i}`);
+					assertEquals(!response.body ? '' : await response.body.text(), `Response body ${i}`);
 				}
 			);
 		}

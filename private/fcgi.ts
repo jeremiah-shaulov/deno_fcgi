@@ -4,7 +4,7 @@ import {faddr_to_addr, addr_to_string} from './addr.ts';
 import type {FcgiAddr} from './addr.ts';
 import {Routes} from './routes.ts';
 import type {Callback, PathPattern} from './routes.ts';
-import {Client, ResponseWithCookies} from './client.ts';
+import {Client} from './client.ts';
 import type {ClientOptions, RequestOptions} from './client.ts';
 import {EventPromises} from './event_promises.ts';
 
@@ -216,7 +216,7 @@ export class Fcgi
 	/**	Send request to a FastCGI service, such as PHP, just like Apache and Nginx do.
 		First argument (`request_options`) specifies how to connect to the service, and what parameters to send to it.
 		2 most important parameters are `request_options.addr` (service socket address), and `request_options.scriptFilename` (path to script file that the service must execute).
-		Second (`input`) and 3rd (`init`) arguments are the same as in built-in `fetch()` function, except that `init` allows to read request body from an `AsyncIterable<Uint8Array>` (`init.bodyIter`).
+		Second (`input`) and 3rd (`init`) arguments are the same as in built-in `fetch()` function.
 		Returned response object extends built-in `Response` (that regular `fetch()` returns) by adding `cookies` property, that contains all `Set-Cookie` headers.
 		Also `response.body` object extends regular `ReadableStream<Uint8Array>` by adding `Deno.Reader` implementation.
 		The response body must be explicitly read, before specified `request_options.timeout` period elapses. After this period, the connection will be forced to close.
@@ -224,13 +224,13 @@ export class Fcgi
 		(except the case where existing `Deno.Conn` was given to `request_options.addr` - in this case the creator of this object decides what to do with this object then).
 		Idle connections will be closed after `request_options.keepAliveTimeout` milliseconds, and after `request_options.keepAliveMax` times used.
 	 **/
-	fetch(request_options: RequestOptions, input: Request|URL|string, init?: RequestInit & {bodyIter?: AsyncIterable<Uint8Array>}): Promise<ResponseWithCookies>
+	fetch(request_options: RequestOptions, input: Request|URL|string, init?: RequestInit)
 	{	return this.client.fetch(request_options, input, init);
 	}
 
 	/**	Ask a FastCGI service (like PHP) for it's protocol capabilities. This is not so useful information. Only for those who curious. As i know, Apache and Nginx don't even ask for this during protocol usage.
 	 **/
-	fetchCapabilities(addr: FcgiAddr | Conn): Promise<{FCGI_MAX_CONNS?: number, FCGI_MAX_REQS?: number, FCGI_MPXS_CONNS?: number}>
+	fetchCapabilities(addr: FcgiAddr | Conn)
 	{	return this.client.fetchCapabilities(addr);
 	}
 
@@ -244,11 +244,11 @@ export class Fcgi
 		}
 		await fcgi.fetch(...);
 	 **/
-	canFetch(): boolean
+	canFetch()
 	{	return this.client.canFetch();
 	}
 
-	waitCanFetch(): Promise<void>
+	waitCanFetch()
 	{	return this.client.waitCanFetch();
 	}
 

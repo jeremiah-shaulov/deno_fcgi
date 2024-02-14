@@ -178,14 +178,14 @@ fcgi.options({maxConns: 123});
 console.log(`Now maxConns=${fcgi.options().maxConns}`);
 ```
 
-8. `fcgi.`[fetch](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.3/mod.ts/~/Fcgi#fetch)`(request_options: `[RequestOptions](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.3/mod.ts/~/RequestOptions)`, input: `[Request](https://doc.deno.land/deno/stable/~/Request)` | `[URL](https://doc.deno.land/deno/stable/~/URL)` | string, init?: RequestInit & { bodyIter: AsyncIterable<Uint8Array> }): Promise<`[ResponseWithCookies](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.3/mod.ts/~/ResponseWithCookies)`>`
+8. `fcgi.`[fetch](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.3/mod.ts/~/Fcgi#fetch)`(request_options: `[RequestOptions](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.3/mod.ts/~/RequestOptions)`, input: `[Request](https://doc.deno.land/deno/stable/~/Request)` | `[URL](https://doc.deno.land/deno/stable/~/URL)` | string, init?: RequestInit): Promise<`[ResponseWithCookies](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.3/mod.ts/~/ResponseWithCookies)`>`
 
 Send request to a FastCGI service, such as PHP, just like Apache and Nginx do.
 
 First argument (`request_options`) specifies how to connect to the service, and what parameters to send to it.
 2 most important parameters are `request_options.addr` (service socket address), and `request_options.scriptFilename` (path to script file that the service must execute).
 
-Second (`input`) and 3rd (`init`) arguments are the same as in built-in `fetch()` function, except that `init` allows to read request body from an `AsyncIterable<Uint8Array>` (`init.bodyIter`).
+Second (`input`) and 3rd (`init`) arguments are the same as in built-in `fetch()` function.
 
 Returned response object extends built-in `Response` (that regular `fetch()` returns) by adding `cookies` property, that contains all `Set-Cookie` headers.
 Also `response.body` object extends regular `ReadableStream<Uint8Array>` by adding `Deno.Reader` implementation.
@@ -273,7 +273,7 @@ Response body can be given to `respond()`, or it can be written to `ServerReques
 // test like this: curl --data 'INPUT DATA' http://deno-server.loc/test.ts
 
 import {fcgi} from 'https://deno.land/x/fcgi@v2.0.3/mod.ts';
-import {readAll, writeAll} from 'https://deno.land/std@0.135.0/streams/conversion.ts';
+import {writeAll} from 'https://deno.land/std@0.135.0/streams/conversion.ts';
 
 console.log(`Started on [::1]:9988`);
 fcgi.listen
@@ -282,7 +282,7 @@ fcgi.listen
 	async req =>
 	{	console.log(req.url);
 		// read raw POST input
-		let raw_input = await readAll(req.body);
+		let raw_input = await req.body.uint8Array();
 		// write response
 		req.responseHeaders.set('Content-Type', 'text/plain');
 		await writeAll(req, new TextEncoder().encode('The POST input was:\n'));
