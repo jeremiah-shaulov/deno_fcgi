@@ -1,5 +1,3 @@
-// deno-lint-ignore-file
-
 import {Conn, Listener} from '../../../deno_ifaces.ts';
 import {MockFcgiConn} from './mock_fcgi_conn.ts';
 
@@ -9,15 +7,12 @@ export class MockListener implements Listener
 
 	is_closed = false;
 
-	private satisfy = [] as {y: (conn: Conn) => void, n: (error: Error) => void}[];
-
-	constructor(private pending: Conn[] = [])
-	{
-	}
+	private pending = new Array<Conn>;
+	private satisfy = new Array<{y: (conn: Conn) => void, n: (error: Error) => void}>;
 
 	pend_accept(chunk_size: number, force_padding=-1, split_stream_records: 'no'|'yes'|'full'='no')
-	{	let conn = new MockFcgiConn(chunk_size, force_padding, split_stream_records, this.addr);
-		let satisfy = this.satisfy.shift();
+	{	const conn = new MockFcgiConn(chunk_size, force_padding, split_stream_records, this.addr);
+		const satisfy = this.satisfy.shift();
 		if (satisfy)
 		{	satisfy.y(conn);
 		}
@@ -33,11 +28,12 @@ export class MockListener implements Listener
 		}
 	}
 
+	// deno-lint-ignore require-await
 	async accept(): Promise<Conn>
 	{	if (this.is_closed)
 		{	throw new Error('Server closed');
 		}
-		let conn = this.pending.shift();
+		const conn = this.pending.shift();
 		return conn || new Promise((y, n) => this.satisfy.push({y, n}));
 	}
 

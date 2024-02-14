@@ -1,5 +1,5 @@
 import type {FcgiAddr} from "../addr.ts";
-import {faddr_to_addr, addr_to_string, is_default_route} from "../addr.ts";
+import {faddr_to_addr, addr_to_string} from "../addr.ts";
 import {assert, assertEquals} from "https://deno.land/std@0.135.0/testing/asserts.ts";
 
 Deno.test
@@ -17,7 +17,7 @@ Deno.test
 				['/run/test/main.sock',	{transport: 'unix', path: '/run/test/main.sock'}],
 			]
 		);
-		for (let [faddr, addr] of ADDRESSES)
+		for (const [faddr, addr] of ADDRESSES)
 		{	assertEquals(addr, faddr_to_addr(faddr));
 		}
 	}
@@ -38,7 +38,7 @@ Deno.test
 				[{transport: 'unix', path: '/run/test/main.sock'}, '/run/test/main.sock'],
 			]
 		);
-		for (let [addr, str] of ADDRESSES)
+		for (const [addr, str] of ADDRESSES)
 		{	assertEquals(str, addr_to_string(addr));
 		}
 		let error;

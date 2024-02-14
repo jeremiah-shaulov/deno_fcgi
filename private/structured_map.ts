@@ -1,6 +1,7 @@
 export type PathNode = string | Map<string, PathNode>;
 
-/// Extends `Map` and provides `setStructured()` method.
+/**	Extends `Map` and provides `setStructured()` method.
+ **/
 export class StructuredMap extends Map<string, PathNode>
 {	constructor(public structuredParams=true)
 	{	super();
@@ -15,6 +16,7 @@ export class StructuredMap extends Map<string, PathNode>
 		{	this.set(name, value);
 			return true;
 		}
+		// deno-lint-ignore no-this-alias
 		let map: Map<string, PathNode> = this;
 		let sub = name.slice(0, pos);
 		let ok = true;

@@ -5,7 +5,7 @@ import {assert, assertEquals} from "https://deno.land/std@0.135.0/testing/assert
 Deno.test
 (	'Cookies 1',
 	() =>
-	{	let cookies = new Cookies('coo-1= val <1> ; coo-2=val <2>.');
+	{	const cookies = new Cookies('coo-1= val <1> ; coo-2=val <2>.');
 		assertEquals(cookies.size, 2);
 		assertEquals(cookies.get('coo-1'), ' val <1> ');
 		assertEquals(cookies.get('coo-2'), 'val <2>.');
@@ -23,7 +23,7 @@ Deno.test
 Deno.test
 (	'Cookies 2',
 	() =>
-	{	let cookies = new Cookies('coo-1= val <1> ; coo-2=val <2>.; ');
+	{	const cookies = new Cookies('coo-1= val <1> ; coo-2=val <2>.; ');
 		assertEquals(cookies.size, 2);
 		assertEquals(cookies.get('coo-1'), ' val <1> ');
 		assertEquals(cookies.get('coo-2'), 'val <2>.');
@@ -41,7 +41,7 @@ Deno.test
 Deno.test
 (	'Cookies: unicode',
 	() =>
-	{	let cookies = new Cookies('א= א ; ב=ב;');
+	{	const cookies = new Cookies('א= א ; ב=ב;');
 		assertEquals(cookies.size, 2);
 		assertEquals(cookies.get('א'), ' א ');
 		assertEquals(cookies.get('ב'), 'ב');
@@ -55,15 +55,15 @@ Deno.test
 Deno.test
 (	'Cookies: Max-Age',
 	() =>
-	{	let cookies = new Cookies;
+	{	const cookies = new Cookies;
 		assertEquals(cookies.size, 0);
-		let now = Date.now();
+		const now = Date.now();
 		cookies.set('coo', 'val', {maxAge: 30});
 		assertEquals(cookies.size, 1);
 		assertEquals(cookies.headers.size, 1);
 		let h = cookies.headers.get('coo');
 		let expires;
-		h = h?.replace(/Expires=([^;]+)/, (a, m) => {expires=m; return 'Expires='});
+		h = h?.replace(/Expires=([^;]+)/, (_a, m) => {expires=m; return 'Expires='});
 		assertEquals(h, 'coo=val; Expires=; Max-Age=30');
 		assert(expires == new Date(now + 30_000).toUTCString() || expires == new Date(now + 29_000).toUTCString());
 	}
@@ -72,15 +72,15 @@ Deno.test
 Deno.test
 (	'Cookies: Expires',
 	() =>
-	{	let cookies = new Cookies;
+	{	const cookies = new Cookies;
 		assertEquals(cookies.size, 0);
-		let expires = new Date(Date.now() + 30_000);
+		const expires = new Date(Date.now() + 30_000);
 		cookies.set('coo', 'val', {expires});
 		assertEquals(cookies.size, 1);
 		assertEquals(cookies.headers.size, 1);
 		let h = cookies.headers.get('coo');
 		let max_age;
-		h = h?.replace(/Max-Age=([^;]+)/, (a, m) => {max_age=m; return 'Max-Age='});
+		h = h?.replace(/Max-Age=([^;]+)/, (_a, m) => {max_age=m; return 'Max-Age='});
 		assertEquals(h, `coo=val; Expires=${expires.toUTCString()}; Max-Age=`);
 		assert(max_age=='30' || max_age=='29');
 	}
@@ -89,7 +89,7 @@ Deno.test
 Deno.test
 (	'Cookies: empty value',
 	() =>
-	{	let cookies = new Cookies;
+	{	const cookies = new Cookies;
 		assertEquals(cookies.size, 0);
 		cookies.set('coo', '', {maxAge: 30});
 		assertEquals(cookies.size, 0);
@@ -139,7 +139,7 @@ Deno.test
 Deno.test
 (	'Cookies: entries',
 	() =>
-	{	let cookies = new Cookies('coo-1= val <1> ; coo-2=val <2>.');
+	{	const cookies = new Cookies('coo-1= val <1> ; coo-2=val <2>.');
 		cookies.set('coo-3', 'val <3>', {maxAge: 30});
 		cookies.set('coo-1', '');
 		assertEquals([...cookies.keys()], ['coo-2', 'coo-3']);
@@ -154,7 +154,7 @@ Deno.test
 		);
 		assertEquals(all, {'coo-2': 'val <2>.', 'coo-3': 'val <3>'});
 		all = {};
-		for (let [k, v] of cookies)
+		for (const [k, v] of cookies)
 		{	all[k] = v;
 		}
 		assertEquals(all, {'coo-2': 'val <2>.', 'coo-3': 'val <3>'});

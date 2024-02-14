@@ -29,7 +29,7 @@ export class Get extends StructuredMap
 	private init()
 	{	if (!this.is_inited)
 		{	this.is_inited = true;
-			let {query_string} = this;
+			const {query_string} = this;
 			this.query_string = ''; // free memory
 			let i = 0;
 			while (i < query_string.length)
@@ -37,7 +37,7 @@ export class Get extends StructuredMap
 				if (i_end == -1)
 				{	i_end = query_string.length;
 				}
-				let eq = query_string.indexOf('=', i);
+				const eq = query_string.indexOf('=', i);
 				let name;
 				let value = '';
 				if (eq<i_end && eq!=-1)

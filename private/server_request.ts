@@ -1,5 +1,3 @@
-// deno-lint-ignore-file
-
 import {debug_assert} from './debug_assert.ts';
 import {Conn} from './deno_ifaces.ts';
 import {Get} from "./get.ts";
@@ -22,23 +20,26 @@ const FCGI_PARAMS             =  4;
 const FCGI_STDIN              =  5;
 const FCGI_STDOUT             =  6;
 const FCGI_STDERR             =  7;
-const FCGI_DATA               =  8;
+const _FCGI_DATA              =  8;
 const FCGI_GET_VALUES         =  9;
 const FCGI_GET_VALUES_RESULT  = 10;
 const FCGI_UNKNOWN_TYPE       = 11;
 
 const FCGI_REQUEST_COMPLETE   =  0;
 const FCGI_CANT_MPX_CONN      =  1;
-const FCGI_OVERLOADED         =  2;
+const _FCGI_OVERLOADED        =  2;
 const FCGI_UNKNOWN_ROLE       =  3;
 
 const FCGI_RESPONDER          =  1;
-const FCGI_AUTHORIZER         =  2;
-const FCGI_FILTER             =  3;
+const _FCGI_AUTHORIZER        =  2;
+const _FCGI_FILTER            =  3;
 
 const FCGI_KEEP_CONN          =  1;
 
 debug_assert(BUFFER_LEN >= 256+16);
+
+const encoder = new TextEncoder;
+const decoder = new TextDecoder;
 
 export class ServerRequest implements Conn
 {	readonly localAddr: Deno.Addr;
@@ -112,9 +113,6 @@ export class ServerRequest implements Conn
 	/// Result of "next_request.poll()"
 	private next_request_ready: Promise<ServerRequest> | undefined;
 
-	private encoder = new TextEncoder;
-	private decoder = new TextDecoder;
-
 	constructor
 	(	public conn: Conn,
 		private onerror: (error: Error) => void,
@@ -143,7 +141,7 @@ export class ServerRequest implements Conn
 	async read(buffer: Uint8Array): Promise<number|null>
 	{	while (true)
 		{	if (this.stdin_length)
-			{	let chunk_size = Math.min(this.stdin_length, buffer.length);
+			{	const chunk_size = Math.min(this.stdin_length, buffer.length);
 				buffer.set(this.buffer.subarray(this.buffer_start, this.buffer_start+chunk_size));
 				this.buffer_start += chunk_size;
 				this.stdin_length -= chunk_size;
@@ -184,12 +182,12 @@ export class ServerRequest implements Conn
 		if (this.is_terminated)
 		{	throw new TerminatedError('Request already terminated');
 		}
-		this.write_stdout(this.encoder.encode(message), FCGI_STDERR);
+		this.write_stdout(encoder.encode(message), FCGI_STDERR);
 	}
 
 	private throw_terminated_error(msg='Unexpected end of input')
 	{	if (this.last_error)
-		{	let e = this.last_error;
+		{	const e = this.last_error;
 			this.last_error = undefined;
 			throw e;
 		}
@@ -201,7 +199,7 @@ export class ServerRequest implements Conn
 	}
 
 	private async do_respond(response?: ServerResponse, is_for_abort=false)
-	{	let was_terminated = this.is_terminated;
+	{	const was_terminated = this.is_terminated;
 		while (!this.stdin_complete)
 		{	await this.poll(true);
 		}
@@ -209,26 +207,27 @@ export class ServerRequest implements Conn
 		try
 		{	if (!this.is_terminated && !this.is_aborted)
 			{	if (response)
-				{	var {status, headers, setCookies, body} = response;
+				{	// deno-lint-ignore no-inner-declarations no-var
+					var {status, headers, setCookies, body} = response;
 				}
 				if (!this.headersSent)
 				{	if (status)
 					{	this.responseStatus = status;
 					}
 					if (headers)
-					{	for (let [k, v] of headers)
+					{	for (const [k, v] of headers)
 						{	this.responseHeaders.set(k, v);
 						}
 					}
 					if (setCookies)
-					{	for (let [k, v] of setCookies)
+					{	for (const [k, v] of setCookies)
 						{	this.cookies.set(k, v.value, v.options);
 						}
 					}
 				}
 				if (body)
 				{	if (typeof(body) == 'string')
-					{	body = this.encoder.encode(body);
+					{	body = encoder.encode(body);
 					}
 					if (body instanceof Uint8Array)
 					{	this.write_stdout(body, FCGI_STDOUT, true);
@@ -247,7 +246,7 @@ export class ServerRequest implements Conn
 				{	this.write_stdout(this.buffer.subarray(0, 0), FCGI_STDOUT, true);
 				}
 			}
-			let ongoing_write = (this.next_request || this).ongoing_write;
+			const ongoing_write = (this.next_request || this).ongoing_write;
 			if (ongoing_write)
 			{	if (this.next_request)
 				{	this.next_request.ongoing_write = undefined; // So next request will not suffer from errors in "ongoing_write", if it will throw. It's safe to clear "ongoing_write", because the next request object was not yet returned to the user, so there're no writes
@@ -256,18 +255,16 @@ export class ServerRequest implements Conn
 			}
 		}
 		catch (e)
-		{	if (read_error)
-			{	e = read_error;
-			}
-			if (e instanceof AbortedError)
+		{	const e2 = read_error ?? e;
+			if (e2 instanceof AbortedError)
 			{	debug_assert(this.is_aborted);
 			}
 			else
 			{	await this.do_close(true);
-				throw e;
+				throw e2;
 			}
 		}
-		let was_terminated_2 = this.is_terminated;
+		const was_terminated_2 = this.is_terminated;
 		// Prepare for further requests on "this.conn"
 		debug_assert(this.stdin_content_length==0 && this.stdin_padding_length==0 && this.stdin_complete && !this.prev_request);
 		if (!was_terminated_2)
@@ -285,7 +282,7 @@ export class ServerRequest implements Conn
 			{	this.is_terminated = true;
 				this.stdin_complete = true;
 				this.post.close();
-				let next_request = new ServerRequest(this.conn, this.onerror, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize);
+				const next_request = new ServerRequest(this.conn, this.onerror, this.buffer, this.structuredParams, this.maxConns, this.maxNameLength, this.maxValueLength, this.maxFileSize);
 				next_request.buffer_start = this.buffer_start;
 				next_request.buffer_end = this.buffer_end;
 				this.next_request = next_request;
@@ -316,7 +313,7 @@ export class ServerRequest implements Conn
 	{	if (!this.is_terminated)
 		{	this.is_terminated = true;
 			this.stdin_complete = true;
-			let cur = this.next_request || this;
+			const cur = this.next_request || this;
 			if (cur.ongoing_write)
 			{	try
 				{	await cur.ongoing_write;
@@ -364,7 +361,7 @@ export class ServerRequest implements Conn
 	/**	For internal use.
 	 **/
 	[take_next_request]()
-	{	let {next_request, next_request_ready} = this;
+	{	const {next_request, next_request_ready} = this;
 		this.next_request = undefined; // free memory (don't hold links)
 		this.next_request_ready = undefined; // free memory (don't hold links)
 		return {next_request, next_request_ready};
@@ -381,10 +378,11 @@ export class ServerRequest implements Conn
 			this.buffer_end -= this.buffer_start;
 			this.buffer_start = 0;
 		}
-		let to = this.buffer_start + n_bytes;
+		const to = this.buffer_start + n_bytes;
 		while (this.buffer_end < to)
 		{	try
-			{	var n_read = await this.conn.read(this.buffer.subarray(this.buffer_end));
+			{	// deno-lint-ignore no-inner-declarations no-var
+				var n_read = await this.conn.read(this.buffer.subarray(this.buffer_end));
 			}
 			catch (e)
 			{	if (!can_eof || !this.stdin_complete)
@@ -414,7 +412,7 @@ export class ServerRequest implements Conn
 		When next such record arrives, call "this.cur_nvp_read_state.next(len)" with the length of the new record.
 	 **/
 	private async *read_nvp(len: number, map: Map<string, string>, headers_and_cookies?: {headers: Headers, cookies: Cookies}): AsyncGenerator<undefined, void, number>
-	{	let {buffer, maxNameLength, maxValueLength} = this;
+	{	const {buffer, maxNameLength, maxValueLength} = this;
 
 		debug_assert(len > 0);
 
@@ -435,7 +433,7 @@ export class ServerRequest implements Conn
 				len--;
 				if (nv_len > 127)
 				{	if (len < 3)
-					{	let rest = new Uint8Array(3);
+					{	const rest = new Uint8Array(3);
 						let rest_len = len;
 						if (this.buffer_end-this.buffer_start < len)
 						{	await this.read_at_least(len);
@@ -445,7 +443,7 @@ export class ServerRequest implements Conn
 						while (rest_len < rest.length)
 						{	len = (yield)|0; // stand by till next NVP record
 							debug_assert(len > 0);
-							let add_len = Math.min(len, rest.length-rest_len);
+							const add_len = Math.min(len, rest.length-rest_len);
 							if (this.buffer_end-this.buffer_start < add_len)
 							{	await this.read_at_least(add_len);
 							}
@@ -480,7 +478,7 @@ export class ServerRequest implements Conn
 			{	// Skip if name or value is too long
 				let n_skip = name_len + value_len;
 				while (true)
-				{	let cur_n = Math.min(n_skip, len);
+				{	const cur_n = Math.min(n_skip, len);
 					n_skip -= cur_n;
 					len -= cur_n;
 					await this.skip_bytes(cur_n);
@@ -497,24 +495,24 @@ export class ServerRequest implements Conn
 				let name: string | undefined;
 				while (true)
 				{	let str;
-					let str_len = name==undefined ? name_len : value_len;
+					const str_len = name==undefined ? name_len : value_len;
 					if (str_len<=len && str_len<=BUFFER_LEN)
 					{	if (this.buffer_end-this.buffer_start < str_len)
 						{	await this.read_at_least(str_len);
 						}
-						str = this.decoder.decode(buffer.subarray(this.buffer_start, this.buffer_start+str_len));
+						str = decoder.decode(buffer.subarray(this.buffer_start, this.buffer_start+str_len));
 						this.buffer_start += str_len;
 						len -= str_len;
 					}
 					else
-					{	let bytes = new Uint8Array(str_len);
+					{	const bytes = new Uint8Array(str_len);
 						let bytes_len = 0;
 						while (bytes_len < bytes.length)
 						{	if (len <= 0)
 							{	len = (yield)|0; // stand by till next NVP record
 								debug_assert(len > 0);
 							}
-							let has = Math.min(bytes.length-bytes_len, len, BUFFER_LEN);
+							const has = Math.min(bytes.length-bytes_len, len, BUFFER_LEN);
 							if (this.buffer_end-this.buffer_start < has)
 							{	await this.read_at_least(has);
 							}
@@ -523,7 +521,7 @@ export class ServerRequest implements Conn
 							this.buffer_start += has;
 							len -= has;
 						}
-						str = this.decoder.decode(bytes);
+						str = decoder.decode(bytes);
 					}
 					if (name == undefined)
 					{	name = str;
@@ -549,7 +547,7 @@ export class ServerRequest implements Conn
 	}
 
 	private async skip_bytes(len: number)
-	{	let n_skip = Math.min(len, this.buffer_end-this.buffer_start);
+	{	const n_skip = Math.min(len, this.buffer_end-this.buffer_start);
 		this.buffer_start += n_skip;
 		len -= n_skip;
 		while (len > BUFFER_LEN)
@@ -562,8 +560,8 @@ export class ServerRequest implements Conn
 	}
 
 	private schedule_write<T>(callback: () => T | Promise<T>): Promise<T>
-	{	let cur = this.next_request || this;
-		let promise = (cur.ongoing_write || Promise.resolve()).then(callback);
+	{	const cur = this.next_request || this;
+		const promise = (cur.ongoing_write || Promise.resolve()).then(callback);
 		cur.ongoing_write = promise;
 		return promise;
 	}
@@ -585,19 +583,19 @@ export class ServerRequest implements Conn
 				if (record_type == FCGI_STDOUT)
 				{	if (!this.headersSent)
 					{	this.headersSent = true;
-						let status = this.responseStatus ? this.responseStatus+'' : (this.responseHeaders.get('status') ?? '200');
+						const status = this.responseStatus ? this.responseStatus+'' : (this.responseHeaders.get('status') ?? '200');
 						let headers_str = `        status: ${status}\r\n`; // 8-byte header
-						for (let [k, v] of this.responseHeaders)
+						for (const [k, v] of this.responseHeaders)
 						{	if (k != 'status')
 							{	headers_str += `${k}: ${v}\r\n`;
 							}
 						}
-						for (let v of this.cookies.headers.values())
+						for (const v of this.cookies.headers.values())
 						{	headers_str += `set-cookie: ${v}\r\n`;
 						}
 						headers_str += "\r\n        "; // 8-byte (at most) padding
-						let headers_bytes = this.encoder.encode(headers_str);
-						let padding_length = (8 - headers_bytes.length%8) % 8;
+						const headers_bytes = encoder.encode(headers_str);
+						const padding_length = (8 - headers_bytes.length%8) % 8;
 						set_record_stdout(headers_bytes, 0, FCGI_STDOUT, this.request_id, headers_bytes.length-16, padding_length);
 						await writeAll(this.conn, headers_bytes.subarray(0, headers_bytes.length-(8 - padding_length)));
 					}
@@ -606,18 +604,18 @@ export class ServerRequest implements Conn
 				{	this.has_stderr = true;
 				}
 				// Send body
-				let orig_len = value.length;
+				const orig_len = value.length;
 				while (value.length > 0xFFF8) // max packet length without padding is 0xFFF8 (0xFFF9..0xFFFF must be padded, and 0x10000 is impossible, because such number cannot be represented in content_length field)
 				{	await writeAll(this.conn, set_record_stdout(new Uint8Array(8), 0, record_type, this.request_id, 0xFFF8));
 					await writeAll(this.conn, value.subarray(0, 0xFFF8));
 					value = value.subarray(0xFFF8);
 				}
 				if (value.length > BUFFER_LEN) // i don't want to allocate chunks larger than BUFFER_LEN
-				{	let padding_length = (8 - value.length%8) % 8;
+				{	const padding_length = (8 - value.length%8) % 8;
 					await writeAll(this.conn, set_record_stdout(new Uint8Array(8), 0, record_type, this.request_id, value.length, padding_length));
 					await writeAll(this.conn, value);
 					if (is_last || padding_length>0)
-					{	let all = new Uint8Array(padding_length + (!is_last ? 0 : !this.has_stderr ? 24 : 32));
+					{	const all = new Uint8Array(padding_length + (!is_last ? 0 : !this.has_stderr ? 24 : 32));
 						if (is_last)
 						{	let pos = padding_length;
 							set_record_stdout(all, pos, FCGI_STDOUT, this.request_id);
@@ -632,8 +630,8 @@ export class ServerRequest implements Conn
 					}
 				}
 				else if (value.length > 0)
-				{	let padding_length = (8 - value.length%8) % 8;
-					let all = new Uint8Array((!is_last ? 8 : !this.has_stderr ? 32 : 40) + value.length + padding_length);
+				{	const padding_length = (8 - value.length%8) % 8;
+					const all = new Uint8Array((!is_last ? 8 : !this.has_stderr ? 32 : 40) + value.length + padding_length);
 					set_record_stdout(all, 0, record_type, this.request_id, value.length, padding_length);
 					all.set(value, 8);
 					if (is_last)
@@ -649,7 +647,7 @@ export class ServerRequest implements Conn
 					await writeAll(this.conn, all);
 				}
 				else if (is_last)
-				{	let all = new Uint8Array(!this.has_stderr ? 24 : 32);
+				{	const all = new Uint8Array(!this.has_stderr ? 24 : 32);
 					set_record_stdout(all, 0, FCGI_STDOUT, this.request_id);
 					if (this.has_stderr)
 					{	set_record_stdout(all, 8, FCGI_STDERR, this.request_id);
@@ -680,7 +678,7 @@ export class ServerRequest implements Conn
 		{	return this.ongoing_read;
 		}
 		debug_assert(!this.is_terminated && !this.is_aborted && !this.is_polling_request);
-		let promise = this.do_poll(store_error_dont_print);
+		const promise = this.do_poll(store_error_dont_print);
 		if (this.is_polling_request)
 		{	this.ongoing_read = promise;
 		}
@@ -696,7 +694,7 @@ export class ServerRequest implements Conn
 		- is_terminated + stdin_complete (if due to error, also last_error is set)
 	 **/
 	private async do_poll(store_error_dont_print=false)
-	{	let {buffer} = this;
+	{	const {buffer} = this;
 
 		this.is_polling_request = true;
 
@@ -755,10 +753,10 @@ export class ServerRequest implements Conn
 						return this;
 					}
 				}
-				let record_type = buffer[this.buffer_start+1];
-				let request_id = (buffer[this.buffer_start+2] << 8) | buffer[this.buffer_start+3];
-				let content_length = (buffer[this.buffer_start+4] << 8) | buffer[this.buffer_start+5];
-				let padding_length = buffer[this.buffer_start+6];
+				const record_type = buffer[this.buffer_start+1];
+				const request_id = (buffer[this.buffer_start+2] << 8) | buffer[this.buffer_start+3];
+				const content_length = (buffer[this.buffer_start+4] << 8) | buffer[this.buffer_start+5];
+				const padding_length = buffer[this.buffer_start+6];
 				this.buffer_start += 8;
 
 				// 2. Read payload
@@ -767,8 +765,8 @@ export class ServerRequest implements Conn
 					{	if (this.buffer_end-this.buffer_start < 8)
 						{	await this.read_at_least(8);
 						}
-						let role = (buffer[this.buffer_start+0] << 8) | buffer[this.buffer_start+1];
-						let flags = buffer[this.buffer_start+2];
+						const role = (buffer[this.buffer_start+0] << 8) | buffer[this.buffer_start+1];
+						const flags = buffer[this.buffer_start+2];
 						this.buffer_start += 8;
 						this.no_keep_conn = (flags&FCGI_KEEP_CONN) == 0;
 						if (role != FCGI_RESPONDER)
@@ -819,10 +817,10 @@ export class ServerRequest implements Conn
 								this.method = this.params.get('REQUEST_METHOD') ?? '';
 								this.proto = this.params.get('SERVER_PROTOCOL') ?? '';
 								let pos = this.proto.indexOf('/');
-								let pos_2 = this.proto.indexOf('.', pos);
+								const pos_2 = this.proto.indexOf('.', pos);
 								this.protoMajor = parseInt(this.proto.slice(pos+1, pos_2==-1 ? this.proto.length : pos_2)) || 0;
 								this.protoMinor = pos_2==-1 ? 0 : parseInt(this.proto.slice(pos_2+1)) || 0;
-								let query_string = this.params.get('QUERY_STRING');
+								const query_string = this.params.get('QUERY_STRING');
 								let contentType = this.params.get('CONTENT_TYPE') ?? '';
 								let boundary = '';
 								pos = contentType.indexOf(';');
@@ -914,9 +912,9 @@ export class ServerRequest implements Conn
 						break;
 					}
 					case FCGI_GET_VALUES:
-					{	let values = new Map<string, string>();
+					{	const values = new Map<string, string>();
 						await this.read_nvp(content_length, values).next();
-						let result = new Map<string, string>();
+						const result = new Map<string, string>();
 						if (values.has('FCGI_MAX_CONNS'))
 						{	result.set('FCGI_MAX_CONNS', this.maxConns+'');
 						}
@@ -960,7 +958,7 @@ export class ServerRequest implements Conn
 
 function set_record_end_request(buffer: Uint8Array, offset: number, request_id: number, protocol_status: number)
 {	debug_assert(buffer.byteOffset == 0); // i create such
-	let v = new DataView(buffer.buffer, offset);
+	const v = new DataView(buffer.buffer, offset);
 	v.setUint8(0, 1); // version
 	v.setUint8(1, FCGI_END_REQUEST); // record_type
 	v.setUint16(2, request_id); // request_id
@@ -976,8 +974,8 @@ function set_record_end_request(buffer: Uint8Array, offset: number, request_id: 
 }
 
 function record_unknown_type(record_type: number)
-{	let buffer = new Uint8Array(16);
-	let v = new DataView(buffer.buffer);
+{	const buffer = new Uint8Array(16);
+	const v = new DataView(buffer.buffer);
 	v.setUint8(0, 1); // version
 	v.setUint8(1, FCGI_UNKNOWN_TYPE); // record_type
 	//v.setUint16(2, 0); // request_id
@@ -994,7 +992,7 @@ function record_unknown_type(record_type: number)
 
 function set_record_stdout(buffer: Uint8Array, offset: number, record_type: number, request_id: number, content_length=0, padding_length=0)
 {	debug_assert(buffer.byteOffset == 0); // i create such
-	let v = new DataView(buffer.buffer, offset);
+	const v = new DataView(buffer.buffer, offset);
 	v.setUint8(0, 1); // version
 	v.setUint8(1, record_type); // record_type
 	v.setUint16(2, request_id); // request_id
@@ -1010,12 +1008,11 @@ export function pack_nvp(record_type: number, request_id: number, value: Map<str
 	let all = new Uint8Array(BUFFER_LEN/2);
 	let header_offset = 0;
 	let offset = 8; // after packet header (that will be added later)
-	let encoder = new TextEncoder;
 
 	function add_header()
 	{	// add packet header
-		let padding_length = (8 - offset%8) % 8;
-		let header = new DataView(all.buffer, header_offset);
+		const padding_length = (8 - offset%8) % 8;
+		const header = new DataView(all.buffer, header_offset);
 		header.setUint8(0, 1); // version
 		header.setUint8(1, record_type); // record_type
 		header.setUint16(2, request_id); // request_id
@@ -1029,7 +1026,7 @@ export function pack_nvp(record_type: number, request_id: number, value: Map<str
 
 	function realloc(new_length: number)
 	{	if (new_length > all.length)
-		{	let new_all = new Uint8Array(Math.max(new_length, all.length*2));
+		{	const new_all = new Uint8Array(Math.max(new_length, all.length*2));
 			new_all.set(all);
 			all = new_all;
 		}
@@ -1038,7 +1035,7 @@ export function pack_nvp(record_type: number, request_id: number, value: Map<str
 	function add(part: Uint8Array)
 	{	while (offset-header_offset+part.length > 0xFFF8) // max packet length without padding is 0xFFF8 (0xFFF9..0xFFFF must be padded, and 0x10000 is impossible, because such number cannot be represented in content_length field)
 		{	realloc(offset + part.length + 8);
-			let break_at = 0xFFF8 - (offset-header_offset);
+			const break_at = 0xFFF8 - (offset-header_offset);
 			all.set(part.subarray(0, break_at), offset);
 			offset += break_at;
 			add_header();
@@ -1050,10 +1047,10 @@ export function pack_nvp(record_type: number, request_id: number, value: Map<str
 		offset += part.length;
 	}
 
-	for (let [k, v] of value)
-	{	let k_buf = encoder.encode(k);
-		let v_buf = encoder.encode(v);
-		let kv_header = new Uint8Array(8);
+	for (const [k, v] of value)
+	{	const k_buf = encoder.encode(k);
+		const v_buf = encoder.encode(v);
+		const kv_header = new Uint8Array(8);
 		let kv_offset = 0;
 		// name
 		if (k_buf.length <= 127)

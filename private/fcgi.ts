@@ -1,5 +1,3 @@
-// deno-lint-ignore-file
-
 import {Conn, Listener} from './deno_ifaces.ts';
 import {Server, ServerOptions} from './server.ts';
 import {faddr_to_addr, addr_to_string} from './addr.ts';
@@ -29,11 +27,11 @@ export class Fcgi
 
 	/**	Registers a FastCGI server on specified network address.
 		The address can be given as:
-		a port number (`8000`),
-		a hostname with optional port (`localhost:8000`, `0.0.0.0:8000`, `[::1]:8000`, `::1`),
-		a unix-domain socket file name (`/run/deno-fcgi-server.sock`),
-		a `Deno.Addr` (`{transport: 'tcp', hostname: '127.0.0.1', port: 8000}`),
-		or a ready `Deno.Listener` object can also be given.
+		- a port number (`8000`),
+		- a hostname with optional port (`localhost:8000`, `0.0.0.0:8000`, `[::1]:8000`, `::1`),
+		- a unix-domain socket file name (`/run/deno-fcgi-server.sock`),
+		- a `Deno.Addr` (`{transport: 'tcp', hostname: '127.0.0.1', port: 8000}`),
+		- or a ready `Deno.Listener` object can also be given.
 		This function can be called multiple times with the same or different addresses.
 		Calling with the same address adds another handler callback that will be tried to handle matching requests.
 		Calling with different address creates another FastCGI server.
@@ -70,13 +68,14 @@ export class Fcgi
 		);
 	 **/
 	listen(addr_or_listener: FcgiAddr | Listener, path_pattern: PathPattern, callback: Callback)
-	{	let {server} = this;
-		if (typeof(addr_or_listener)=='object' && (addr_or_listener as Listener).addr)
-		{	var listener = addr_or_listener as Listener;
+	{	const {server} = this;
+		if (typeof(addr_or_listener)=='object' && 'addr' in addr_or_listener)
+		{	// deno-lint-ignore no-inner-declarations  no-var
+			var listener = addr_or_listener;
 		}
 		else
-		{	let addr = faddr_to_addr(addr_or_listener as FcgiAddr);
-			let found_listener = server.getListener(addr);
+		{	const addr = faddr_to_addr(addr_or_listener);
+			const found_listener = server.getListener(addr);
 			if (found_listener)
 			{	listener = found_listener;
 			}
@@ -90,22 +89,22 @@ export class Fcgi
 			{	throw new Error('Can only listen to tcp/unix');
 			}
 		}
-		let {addr} = listener;
+		const {addr} = listener;
 		this.routes.add_route(addr_to_string(addr), path_pattern, callback);
 		server.addListener(listener);
 		if (!this.is_serving)
 		{	this.is_serving = true;
 			(	async () =>
 				{	try
-					{	for await (let request of server)
+					{	for await (const request of server)
 						{	queueMicrotask
 							(	async () =>
 								{	let path = request.params.get('REQUEST_URI') || '';
-									let pos = path.indexOf('?');
+									const pos = path.indexOf('?');
 									if (pos != -1)
 									{	path = path.slice(0, pos);
 									}
-									for (let {callback, params} of this.routes.get_callback_and_params(addr_to_string(request.localAddr), path))
+									for (const {callback, params} of this.routes.get_callback_and_params(addr_to_string(request.localAddr), path))
 									{	try
 										{	await callback(request, params);
 										}
@@ -169,7 +168,11 @@ export class Fcgi
 		await fcgi.onEnd();
 	 **/
 	onEnd(callback?: () => unknown)
-	{	return this.onend.add(callback);
+	{	const promise = this.onend.add(callback);
+		if (!this.is_serving)
+		{	this.onend.trigger();
+		}
+		return promise;
 	}
 
 	/**	`offError(callback)` - remove this callback that was added through `onError(callback)`.
@@ -205,8 +208,8 @@ export class Fcgi
 		console.log(`Now maxConns=${fcgi.options().maxConns}`);
 	 **/
 	options(options?: ServerOptions & ClientOptions): ServerOptions & ClientOptions
-	{	let server_options = this.server.options(options);
-		let client_options = this.client.options(options);
+	{	const server_options = this.server.options(options);
+		const client_options = this.client.options(options);
 		return {...server_options, ...client_options};
 	}
 

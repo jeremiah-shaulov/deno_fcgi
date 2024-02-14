@@ -15,11 +15,12 @@ export function faddr_to_addr(addr: FcgiAddr): Deno.Addr
 		{	addr = {transport: 'tcp', hostname: '0.0.0.0', port: parseInt(addr)};
 		}
 		else
-		{	let pos = addr.lastIndexOf(':');
+		{	const pos = addr.lastIndexOf(':');
 			if (pos>0 && addr.charAt(pos-1)!=':')
-			{	let port = parseInt(addr.slice(pos+1));
+			{	const port = parseInt(addr.slice(pos+1));
 				if (addr.charAt(0)=='[' && addr.charAt(pos-1)==']')
 				{	// assume: IPv6 address, like [::1]:10000
+					// deno-lint-ignore no-inner-declarations no-var
 					var hostname = addr.slice(1, pos-1);
 				}
 				else
@@ -37,7 +38,7 @@ export function faddr_to_addr(addr: FcgiAddr): Deno.Addr
 
 export function addr_to_string(addr: Deno.Addr)
 {	if (addr.transport == 'tcp')
-	{	let {hostname, port} = addr;
+	{	const {hostname, port} = addr;
 		if (is_default_route(hostname))
 		{	return ':'+port;
 		}

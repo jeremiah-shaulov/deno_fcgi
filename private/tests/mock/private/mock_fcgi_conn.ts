@@ -1,5 +1,3 @@
-// deno-lint-ignore-file
-
 import {MockConn} from './mock_conn.ts';
 import {MockListener} from './mock_listener.ts';
 import {Server} from "../../../server.ts";
@@ -13,15 +11,15 @@ const FCGI_PARAMS             =  4;
 const FCGI_STDIN              =  5;
 const FCGI_STDOUT             =  6;
 const FCGI_STDERR             =  7;
-const FCGI_DATA               =  8;
+const _FCGI_DATA              =  8;
 const FCGI_GET_VALUES         =  9;
 const FCGI_GET_VALUES_RESULT  = 10;
 const FCGI_UNKNOWN_TYPE       = 11;
 
-const FCGI_REQUEST_COMPLETE   =  0;
-const FCGI_CANT_MPX_CONN      =  1;
-const FCGI_OVERLOADED         =  2;
-const FCGI_UNKNOWN_ROLE       =  3;
+const _FCGI_REQUEST_COMPLETE  =  0;
+const _FCGI_CANT_MPX_CONN     =  1;
+const _FCGI_OVERLOADED        =  2;
+const _FCGI_UNKNOWN_ROLE      =  3;
 
 const FCGI_RESPONDER          =  1;
 const FCGI_AUTHORIZER         =  2;
@@ -41,13 +39,13 @@ export class MockFcgiConn extends MockConn
 
 	pend_read_fcgi(record_type: number, request_id: number, payload: string|Uint8Array)
 	{	let payload_bytes = typeof(payload)!='string' ? payload : new TextEncoder().encode(payload);
-		let padding = this.force_padding>=0 && this.force_padding<=255 ? this.force_padding : (8 - payload_bytes.length%8) % 8;
-		let n_records = Math.ceil(payload_bytes.length / 0xFFFF) || 1; // 0..=0xFFFF = 1rec, 0x10000..=0xFFFF*2 = 2rec
-		let buffer = new Uint8Array(8*n_records + payload_bytes.length + padding);
+		const padding = this.force_padding>=0 && this.force_padding<=255 ? this.force_padding : (8 - payload_bytes.length%8) % 8;
+		const n_records = Math.ceil(payload_bytes.length / 0xFFFF) || 1; // 0..=0xFFFF = 1rec, 0x10000..=0xFFFF*2 = 2rec
+		const buffer = new Uint8Array(8*n_records + payload_bytes.length + padding);
 		let pos = 0;
 		while (payload_bytes.length > 0xFFFF)
 		{	// header
-			let header = new DataView(buffer.buffer, pos);
+			const header = new DataView(buffer.buffer, pos);
 			header.setUint8(0, 1); // version
 			header.setUint8(1, record_type); // type
 			header.setUint16(2, request_id); // request_id
@@ -60,7 +58,7 @@ export class MockFcgiConn extends MockConn
 			pos += 0xFFFF;
 		}
 		// header
-		let header = new DataView(buffer.buffer, pos);
+		const header = new DataView(buffer.buffer, pos);
 		header.setUint8(0, 1); // version
 		header.setUint8(1, record_type); // type
 		header.setUint16(2, request_id); // request_id
@@ -76,28 +74,28 @@ export class MockFcgiConn extends MockConn
 	}
 
 	pend_read_fcgi_begin_request(request_id: number, role: 'responder'|'authorizer'|'filter', keep_conn: boolean)
-	{	let payload = new Uint8Array(8);
-		let p = new DataView(payload.buffer);
+	{	const payload = new Uint8Array(8);
+		const p = new DataView(payload.buffer);
 		p.setUint16(0, role=='responder' ? FCGI_RESPONDER : role=='authorizer' ? FCGI_AUTHORIZER : FCGI_FILTER);
 		p.setUint8(2, keep_conn ? FCGI_KEEP_CONN : 0);
 		this.pend_read_fcgi(FCGI_BEGIN_REQUEST, request_id, payload);
 	}
 
 	pend_read_fcgi_params(request_id: number, params: any, is_get_values=false)
-	{	let record_type = is_get_values ? FCGI_GET_VALUES : FCGI_PARAMS;
-		let data = pack_nvp(record_type, request_id, new Map(Object.entries(params)), 0x7FFF_FFFF, 0x7FFF_FFFF);
+	{	const record_type = is_get_values ? FCGI_GET_VALUES : FCGI_PARAMS;
+		const data = pack_nvp(record_type, request_id, new Map(Object.entries(params)), 0x7FFF_FFFF, 0x7FFF_FFFF);
 		if (data.length > 8)
-		{	let break_at = Math.min(this.chunk_size % 10, data.length-9); // choose break boundary depending on "chunk_size" (so will test many possibilities)
+		{	const break_at = Math.min(this.chunk_size % 10, data.length-9); // choose break boundary depending on "chunk_size" (so will test many possibilities)
 			if (this.split_stream_records=='no' || break_at<=0 || record_type==FCGI_GET_VALUES)
 			{	this.pend_read(data);
 			}
 			else
-			{	let part_0 = data.slice(0, 8+break_at); // header + "break_at" bytes
-				let part_1 = data.slice(break_at); // space for new header + data starting at byte "break_at"
-				let header_0 = new DataView(part_0.buffer);
-				let header_1 = new DataView(part_1.buffer);
-				let content_length = header_0.getUint16(4);
-				let padding_length = header_0.getUint8(6);
+			{	const part_0 = data.slice(0, 8+break_at); // header + "break_at" bytes
+				const part_1 = data.slice(break_at); // space for new header + data starting at byte "break_at"
+				const header_0 = new DataView(part_0.buffer);
+				const header_1 = new DataView(part_1.buffer);
+				const content_length = header_0.getUint16(4);
+				const padding_length = header_0.getUint8(6);
 				if (content_length <= break_at)
 				{	this.pend_read(data);
 				}
@@ -160,8 +158,8 @@ export class MockFcgiConn extends MockConn
 	}
 
 	pend_read_fcgi_end_request(request_id: number, protocol_status: 'request_complete'|'cant_mpx_conn'|'overloaded'|'unknown_role')
-	{	let data = new Uint8Array(8);
-		let v = new DataView(data.buffer);
+	{	const data = new Uint8Array(8);
+		const v = new DataView(data.buffer);
 		//v.setUint32(0, 0); // appStatus
 		v.setUint8(4, PROTOCOL_STATUSES.indexOf(protocol_status)); // protocol_status
 		//v.setUint8(5, 0); // reserved
@@ -175,24 +173,24 @@ export class MockFcgiConn extends MockConn
 	}
 
 	take_written_fcgi(request_id=-1, only_id_record_type=-1, include_header_and_padding=false): {record_type: number, request_id: number, record_type_name: string, payload: Uint8Array} | undefined
-	{	let written = this.get_written();
+	{	const written = this.get_written();
 		let pos = request_id==-1 ? 0 : this.written_pos.get(request_id) || 0;
 		while (pos+8 <= written.length)
-		{	let header = new DataView(written.buffer, written.byteOffset+pos);
-			let record_type = header.getUint8(1);
-			let rec_request_id = header.getUint16(2);
-			let content_length = header.getUint16(4);
-			let padding_length = header.getUint8(6);
+		{	const header = new DataView(written.buffer, written.byteOffset+pos);
+			const record_type = header.getUint8(1);
+			const rec_request_id = header.getUint16(2);
+			const content_length = header.getUint16(4);
+			const padding_length = header.getUint8(6);
 			if (only_id_record_type!=-1 && record_type!=only_id_record_type && request_id!=-1 && rec_request_id==request_id)
 			{	return;
 			}
-			let prev_pos = pos;
+			const prev_pos = pos;
 			pos += 8 + content_length + padding_length;
 			if (request_id != -1)
 			{	this.written_pos.set(request_id, pos);
 			}
 			if (request_id!=-1 ? rec_request_id==request_id : prev_pos>=(this.written_pos.get(rec_request_id) ?? 0))
-			{	let payload = written.subarray(include_header_and_padding ? prev_pos : prev_pos+8, include_header_and_padding ? pos : pos-padding_length);
+			{	const payload = written.subarray(include_header_and_padding ? prev_pos : prev_pos+8, include_header_and_padding ? pos : pos-padding_length);
 				return {request_id: rec_request_id, record_type, record_type_name: RECORD_TYPE_NAMES[record_type] || '', payload};
 			}
 		}
@@ -208,7 +206,7 @@ export class MockFcgiConn extends MockConn
 		{	if (record.payload.length == 0)
 			{	break;
 			}
-			let tmp = new Uint8Array(data.length + record.payload.length);
+			const tmp = new Uint8Array(data.length + record.payload.length);
 			tmp.set(data);
 			tmp.set(record.payload, data.length);
 			data = tmp;
@@ -225,54 +223,54 @@ export class MockFcgiConn extends MockConn
 	}
 
 	take_written_fcgi_end_request(request_id: number): string
-	{	let record = this.take_written_fcgi(request_id, FCGI_END_REQUEST);
+	{	const record = this.take_written_fcgi(request_id, FCGI_END_REQUEST);
 		let protocol_status = -1;
 		if (record)
-		{	let header = new DataView(record.payload.buffer, record.payload.byteOffset);
+		{	const header = new DataView(record.payload.buffer, record.payload.byteOffset);
 			protocol_status = header.getUint8(4);
 		}
 		return PROTOCOL_STATUSES[protocol_status] || '';
 	}
 
 	take_written_fcgi_begin_request(request_id: number): {role: ''|'responder'|'authorizer'|'filter', keep_conn: boolean} | undefined
-	{	let record = this.take_written_fcgi(request_id, FCGI_BEGIN_REQUEST);
+	{	const record = this.take_written_fcgi(request_id, FCGI_BEGIN_REQUEST);
 		if (!record)
 		{	return;
 		}
-		let header = new DataView(record.payload.buffer, record.payload.byteOffset);
-		let role_num = header.getUint16(0);
-		let keep_conn = header.getUint8(2) != 0;
-		let role: ''|'responder'|'authorizer'|'filter' = role_num==FCGI_RESPONDER ? 'responder' : role_num==FCGI_AUTHORIZER ? 'authorizer' : role_num==FCGI_FILTER ? 'filter' : '';
+		const header = new DataView(record.payload.buffer, record.payload.byteOffset);
+		const role_num = header.getUint16(0);
+		const keep_conn = header.getUint8(2) != 0;
+		const role: ''|'responder'|'authorizer'|'filter' = role_num==FCGI_RESPONDER ? 'responder' : role_num==FCGI_AUTHORIZER ? 'authorizer' : role_num==FCGI_FILTER ? 'filter' : '';
 		return {role, keep_conn};
 	}
 
 	take_written_fcgi_unknown_type(): string
-	{	let record = this.take_written_fcgi(0, FCGI_UNKNOWN_TYPE);
+	{	const record = this.take_written_fcgi(0, FCGI_UNKNOWN_TYPE);
 		let record_type = -1;
 		if (record)
-		{	let header = new DataView(record.payload.buffer, record.payload.byteOffset);
+		{	const header = new DataView(record.payload.buffer, record.payload.byteOffset);
 			record_type = header.getUint8(0);
 		}
 		return record_type==-1 ? '' : RECORD_TYPE_NAMES[record_type] || record_type+'';
 	}
 
 	async take_written_fcgi_get_values_result(request_id=0, record_type=FCGI_GET_VALUES_RESULT): Promise<Map<string, string> | undefined>
-	{	let {payload} = this.take_written_fcgi(request_id, record_type, true) || {};
+	{	const {payload} = this.take_written_fcgi(request_id, record_type, true) || {};
 		if (!payload)
 		{	return;
 		}
-		let data = payload.slice();
+		const data = payload.slice();
 		// "payload" contains FCGI_GET_VALUES_RESULT record.
 		// I want to convert it to FCGI_PARAMS to parse.
 		// To do so, i need to modify 2 fields in header: record_type and request_id
-		let header = new DataView(data.buffer, data.byteOffset);
+		const header = new DataView(data.buffer, data.byteOffset);
 		header.setUint8(1, FCGI_PARAMS); // record_type
 		header.setUint16(2, 1); // request_id
 		// Parse the FCGI_PARAMS record
-		let conn_1 = new MockFcgiConn(1024, -1, 'no');
-		let conn_2 = new MockFcgiConn(1024, -1, 'no');
-		let listener = new MockListener([conn_1, conn_2]);
-		let server = new Server(listener);
+		const listener = new MockListener;
+		const conn_1 = listener.pend_accept(1024, -1, 'no');
+		const conn_2 = listener.pend_accept(1024, -1, 'no');
+		const server = new Server(listener);
 		conn_1.pend_read_fcgi_begin_request(1, 'responder', false);
 		conn_1.pend_read(data);
 		conn_1.pend_read_fcgi(FCGI_PARAMS, 1, new Uint8Array); // empty record terminates stream
@@ -280,15 +278,15 @@ export class MockFcgiConn extends MockConn
 		conn_2.pend_read_fcgi_begin_request(1, 'responder', false);
 		conn_2.pend_read_fcgi_params(1, {});
 		conn_2.pend_read_fcgi_stdin(1, '');
-		for await (let req of server)
+		for await (const req of server)
 		{	return req.params;
 		}
 	}
 
 	async take_written_fcgi_params(request_id: number): Promise<Map<string, string> | undefined>
 	{	// read first params record
-		let params = await this.take_written_fcgi_get_values_result(request_id, FCGI_PARAMS);
-		let {payload} = this.take_written_fcgi(request_id, FCGI_PARAMS) || {};
+		const params = await this.take_written_fcgi_get_values_result(request_id, FCGI_PARAMS);
+		const {payload} = this.take_written_fcgi(request_id, FCGI_PARAMS) || {};
 		if (!payload || payload.length>0)
 		{	return;
 		}
@@ -297,23 +295,23 @@ export class MockFcgiConn extends MockConn
 
 	toString()
 	{	let str = '';
-		for (let data of [this.read_data, this.get_written()])
+		for (const data of [this.read_data, this.get_written()])
 		{	if (data!=this.read_data && data.length)
 			{	str += '----------- OUTPUT -----------\n\n';
 			}
 			let pos = 0;
 			while (pos+8 <= data.length)
-			{	let header = new DataView(data.buffer, data.byteOffset+pos);
-				let record_type = header.getUint8(1);
-				let request_id = header.getUint16(2);
-				let content_length = header.getUint16(4);
-				let padding_length = header.getUint8(6);
-				let payload = data.subarray(pos+8, pos+8+content_length);
+			{	const header = new DataView(data.buffer, data.byteOffset+pos);
+				const record_type = header.getUint8(1);
+				const request_id = header.getUint16(2);
+				const content_length = header.getUint16(4);
+				const padding_length = header.getUint8(6);
+				const payload = data.subarray(pos+8, pos+8+content_length);
 				str += `@${pos} ID${request_id} ${RECORD_TYPE_NAMES[record_type] || '?'} (${content_length} + ${padding_length} bytes)`;
 				if (record_type == FCGI_BEGIN_REQUEST)
-				{	let role = header.getUint16(8);
-					let keep_conn = (header.getUint8(10) & FCGI_KEEP_CONN)!=0 ? 'keep_conn' : '!keep_conn';
-					let role_name = role==FCGI_RESPONDER ? 'responder' : role==FCGI_AUTHORIZER ? 'authorizer' : 'filter';
+				{	const role = header.getUint16(8);
+					const keep_conn = (header.getUint8(10) & FCGI_KEEP_CONN)!=0 ? 'keep_conn' : '!keep_conn';
+					const role_name = role==FCGI_RESPONDER ? 'responder' : role==FCGI_AUTHORIZER ? 'authorizer' : 'filter';
 					str += `: ${role_name} ${keep_conn}`;
 				}
 				else if (record_type != FCGI_PARAMS)

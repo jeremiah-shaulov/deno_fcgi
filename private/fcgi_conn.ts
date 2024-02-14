@@ -1,5 +1,3 @@
-// deno-lint-ignore-file
-
 import {debug_assert} from './debug_assert.ts';
 import {Conn} from './deno_ifaces.ts';
 import {pack_nvp} from "./server_request.ts";
@@ -22,12 +20,12 @@ const FCGI_PARAMS             =  4;
 const FCGI_STDIN              =  5;
 const FCGI_STDOUT             =  6;
 const FCGI_STDERR             =  7;
-const FCGI_DATA               =  8;
+const _FCGI_DATA              =  8;
 const FCGI_GET_VALUES         =  9;
-const FCGI_GET_VALUES_RESULT  = 10;
-const FCGI_UNKNOWN_TYPE       = 11;
+const _FCGI_GET_VALUES_RESULT = 10;
+const _FCGI_UNKNOWN_TYPE      = 11;
 
-const FCGI_REQUEST_COMPLETE   =  0;
+const _FCGI_REQUEST_COMPLETE  =  0;
 const FCGI_CANT_MPX_CONN      =  1;
 const FCGI_OVERLOADED         =  2;
 const FCGI_UNKNOWN_ROLE       =  3;
@@ -39,6 +37,9 @@ const FCGI_FILTER             =  3;
 const FCGI_KEEP_CONN          =  1;
 
 debug_assert(RECYCLE_REQUEST_ID_AFTER>=1 && RECYCLE_REQUEST_ID_AFTER<=0xFFFF); // number must fit uint16_t
+
+const encoder = new TextEncoder;
+const decoder = new TextDecoder;
 
 export class FcgiConn
 {	request_till = 0; // for connections pool - 0 means no ongoing request, >0 means is executing request with timeout till this time
@@ -69,7 +70,7 @@ export class FcgiConn
 		await this.write_record_begin_request(this.request_id, 'responder', keep_conn);
 		await this.write_record_params(this.request_id, params, true);
 		if (body)
-		{	for await (let chunk of body)
+		{	for await (const chunk of body)
 			{	await this.write_record_stdin(this.request_id, chunk, false);
 			}
 		}
@@ -83,8 +84,9 @@ export class FcgiConn
 		let is_reading_content = false;
 		let cur_content_length = 0;
 		let cur_padding_length = 0;
-		let {headers, cookies, on_log_error} = this;
-		let that = this;
+		const {headers, cookies, on_log_error} = this;
+		// deno-lint-ignore no-this-alias
+		const that = this;
 
 		function add_header(line: Uint8Array)
 		{	if (line.length == 0)
@@ -93,7 +95,7 @@ export class FcgiConn
 			}
 			else
 			{	let pos = line.indexOf(COLON);
-				let name = new TextDecoder().decode(line.subarray(0, pos)).trim().toLowerCase();
+				const name = decoder.decode(line.subarray(0, pos)).trim().toLowerCase();
 				pos++;
 				while (line[pos]==SPACE || line[pos]==TAB)
 				{	pos++;
@@ -103,7 +105,7 @@ export class FcgiConn
 				}
 				else
 				{	if (headers)
-					{	let value = new TextDecoder().decode(line.subarray(pos)).trim();
+					{	const value = decoder.decode(line.subarray(pos)).trim();
 						try
 						{	headers.set(name, value);
 						}
@@ -127,7 +129,7 @@ export class FcgiConn
 				if (pos==-1 || pos==data.length-1)
 				{	if (!headers_buffer || headers_buffer_len+data.length > headers_buffer.length)
 					{	// realloc
-						let tmp = new Uint8Array(Math.max(128, (headers_buffer?.length || 0)*2, headers_buffer_len+data.length));
+						const tmp = new Uint8Array(Math.max(128, (headers_buffer?.length || 0)*2, headers_buffer_len+data.length));
 						if (headers_buffer)
 						{	tmp.set(headers_buffer.subarray(0, headers_buffer_len));
 						}
@@ -142,7 +144,7 @@ export class FcgiConn
 					if (headers_buffer_len>0 && headers_buffer)
 					{	if (headers_buffer_len+pos > headers_buffer.length)
 						{	// realloc
-							let tmp = new Uint8Array(Math.max(headers_buffer.length*2, headers_buffer_len+pos));
+							const tmp = new Uint8Array(Math.max(headers_buffer.length*2, headers_buffer_len+pos));
 							tmp.set(headers_buffer.subarray(0, headers_buffer_len));
 							headers_buffer = tmp;
 						}
@@ -162,25 +164,28 @@ export class FcgiConn
 		}
 
 		async function read(buffer: Uint8Array)
-		{	var content_length = 0;
+		{	// deno-lint-ignore no-var
+			var content_length = 0;
+			// deno-lint-ignore no-var
 			var padding_length = 0;
 			while (true)
 			{	if (!is_reading_content)
-				{	var {record_type, request_id, content_length, padding_length} = await that.read_record_header();
+				{	// deno-lint-ignore no-inner-declarations no-var no-redeclare
+					var {record_type, request_id, content_length, padding_length} = await that.read_record_header();
 					if (request_id == that.request_id)
 					{	switch (record_type)
 						{	case FCGI_STDERR:
 								if (record_type==FCGI_STDERR && on_log_error && content_length>0)
-								{	let n_skip = content_length + padding_length;
-									let stderr = n_skip<=buffer.length ? buffer.subarray(0,  n_skip) : new Uint8Array(n_skip);
+								{	const n_skip = content_length + padding_length;
+									const stderr = n_skip<=buffer.length ? buffer.subarray(0,  n_skip) : new Uint8Array(n_skip);
 									await that.read_exact(stderr);
-									on_log_error(new TextDecoder().decode(stderr.subarray(0, content_length)));
+									on_log_error(decoder.decode(stderr.subarray(0, content_length)));
 									continue;
 								}
 								break;
 							case FCGI_STDOUT:
 								while (content_length > 0)
-								{	let n = await that.conn.read(buffer.subarray(0, Math.min(content_length+padding_length, buffer.length)));
+								{	const n = await that.conn.read(buffer.subarray(0, Math.min(content_length+padding_length, buffer.length)));
 									if (n == null)
 									{	throw new Error('Unexpected end of stream');
 									}
@@ -189,7 +194,7 @@ export class FcgiConn
 									debug_assert(!headers_read || headers_buffer_len==0);
 									content_length -= n; // negative "content_length" means that part of padding is already consumed
 									if (headers_read && data.length>0)
-									{	let n_shift = data.byteOffset - buffer.byteOffset;
+									{	const n_shift = data.byteOffset - buffer.byteOffset;
 										if (n_shift > 0)
 										{	buffer.copyWithin(0, n_shift, n_shift+data.length);
 										}
@@ -202,11 +207,11 @@ export class FcgiConn
 								break;
 							case FCGI_END_REQUEST:
 								{	await that.read_exact(that.buffer_8);
-									let data = new DataView(that.buffer_8.buffer);
+									const data = new DataView(that.buffer_8.buffer);
 									that.app_status = data.getInt32(0);
-									let protocol_status = data.getUint8(4);
+									const protocol_status = data.getUint8(4);
 									while (padding_length > 0)
-									{	let n = await that.conn.read(buffer.subarray(0, Math.min(padding_length, buffer.length)));
+									{	const n = await that.conn.read(buffer.subarray(0, Math.min(padding_length, buffer.length)));
 										if (n == null)
 										{	throw new Error('Unexpected end of stream');
 										}
@@ -227,11 +232,11 @@ export class FcgiConn
 					}
 				}
 				else if (cur_content_length > 0)
-				{	let n = await that.conn.read(buffer.subarray(0, Math.min(cur_content_length+cur_padding_length, buffer.length)));
+				{	const n = await that.conn.read(buffer.subarray(0, Math.min(cur_content_length+cur_padding_length, buffer.length)));
 					if (n == null)
 					{	throw new Error('Unexpected end of stream');
 					}
-					let data = buffer.subarray(0, Math.min(n, cur_content_length));
+					const data = buffer.subarray(0, Math.min(n, cur_content_length));
 					cur_content_length -= n; // negative "content_length" means that part of padding is already consumed
 					return data.length;
 				}
@@ -253,14 +258,14 @@ export class FcgiConn
 	}
 
 	write_record(record_type: number, request_id: number, payload: string|Uint8Array)
-	{	let payload_bytes = typeof(payload)!='string' ? payload : new TextEncoder().encode(payload);
-		let padding = (8 - payload_bytes.length%8) % 8;
-		let n_records = Math.ceil(payload_bytes.length / 0xFFFF) || 1; // 0..=0xFFFF = 1rec, 0x10000..=0xFFFF*2 = 2rec
-		let buffer = new Uint8Array(8*n_records + payload_bytes.length + padding);
+	{	let payload_bytes = typeof(payload)!='string' ? payload : encoder.encode(payload);
+		const padding = (8 - payload_bytes.length%8) % 8;
+		const n_records = Math.ceil(payload_bytes.length / 0xFFFF) || 1; // 0..=0xFFFF = 1rec, 0x10000..=0xFFFF*2 = 2rec
+		const buffer = new Uint8Array(8*n_records + payload_bytes.length + padding);
 		let pos = 0;
 		while (payload_bytes.length > 0xFFFF)
 		{	// header
-			let header = new DataView(buffer.buffer, pos);
+			const header = new DataView(buffer.buffer, pos);
 			header.setUint8(0, 1); // version
 			header.setUint8(1, record_type); // type
 			header.setUint16(2, request_id); // request_id
@@ -273,7 +278,7 @@ export class FcgiConn
 			pos += 0xFFFF;
 		}
 		// header
-		let header = new DataView(buffer.buffer, pos);
+		const header = new DataView(buffer.buffer, pos);
 		header.setUint8(0, 1); // version
 		header.setUint8(1, record_type); // type
 		header.setUint16(2, request_id); // request_id
@@ -289,15 +294,15 @@ export class FcgiConn
 	}
 
 	write_record_begin_request(request_id: number, role: 'responder'|'authorizer'|'filter', keep_conn: boolean)
-	{	let payload = this.buffer_8;
-		let p = new DataView(payload.buffer);
+	{	const payload = this.buffer_8;
+		const p = new DataView(payload.buffer);
 		p.setUint16(0, role=='responder' ? FCGI_RESPONDER : role=='authorizer' ? FCGI_AUTHORIZER : FCGI_FILTER);
 		p.setUint8(2, keep_conn ? FCGI_KEEP_CONN : 0);
 		return this.write_record(FCGI_BEGIN_REQUEST, request_id, payload);
 	}
 
 	async write_record_params(request_id: number, params: Map<string, string>, is_terminal: boolean)
-	{	let data = pack_nvp(FCGI_PARAMS, request_id, params, 0x7FFF_FFFF, 0x7FFF_FFFF);
+	{	const data = pack_nvp(FCGI_PARAMS, request_id, params, 0x7FFF_FFFF, 0x7FFF_FFFF);
 		if (data.length > 8)
 		{	await writeAll(this.conn, data);
 		}
@@ -307,7 +312,7 @@ export class FcgiConn
 	}
 
 	async write_record_get_values(params: Map<string, string>)
-	{	let data = pack_nvp(FCGI_GET_VALUES, 0, params, 0x7FFF_FFFF, 0x7FFF_FFFF);
+	{	const data = pack_nvp(FCGI_GET_VALUES, 0, params, 0x7FFF_FFFF, 0x7FFF_FFFF);
 		if (data.length > 8)
 		{	await writeAll(this.conn, data);
 		}
@@ -329,7 +334,7 @@ export class FcgiConn
 	private async read_exact(buffer: Uint8Array)
 	{	let pos = 0;
 		while (pos < buffer.length)
-		{	let n = await this.conn.read(buffer.subarray(pos, buffer.length));
+		{	const n = await this.conn.read(buffer.subarray(pos, buffer.length));
 			if (n == null)
 			{	throw new Error('Unexpected end of stream');
 			}
@@ -339,11 +344,11 @@ export class FcgiConn
 
 	async read_record_header(): Promise<{record_type: number, request_id: number, content_length: number, padding_length: number}>
 	{	await this.read_exact(this.buffer_8);
-		let header = new DataView(this.buffer_8.buffer);
-		let record_type = header.getUint8(1);
-		let request_id = header.getUint16(2);
-		let content_length = header.getUint16(4);
-		let padding_length = header.getUint8(6);
+		const header = new DataView(this.buffer_8.buffer);
+		const record_type = header.getUint8(1);
+		const request_id = header.getUint16(2);
+		const content_length = header.getUint16(4);
+		const padding_length = header.getUint8(6);
 		return {record_type, request_id, content_length, padding_length};
 	}
 
@@ -353,9 +358,9 @@ export class FcgiConn
 		const REC_BEGIN_REQUEST_LEN = 16;
 		const REC_PARAMS_HEADER_LEN = 8;
 		const REC_STDIN_LEN = 8;
-		let data_len = REC_BEGIN_REQUEST_LEN + REC_PARAMS_HEADER_LEN + content_length + padding_length + REC_STDIN_LEN;
-		let data = new Uint8Array(data_len);
-		let data_view = new DataView(data.buffer);
+		const data_len = REC_BEGIN_REQUEST_LEN + REC_PARAMS_HEADER_LEN + content_length + padding_length + REC_STDIN_LEN;
+		const data = new Uint8Array(data_len);
+		const data_view = new DataView(data.buffer);
 
 		// 1. Set FCGI_BEGIN_REQUEST header
 		data_view.setUint8(0, 1); // version
@@ -379,9 +384,9 @@ export class FcgiConn
 
 		// 4. Read content_length and padding_length of the FCGI_GET_VALUES_RESULT record
 		let pos = REC_BEGIN_REQUEST_LEN + REC_PARAMS_HEADER_LEN;
-		let end_pos = pos + content_length + padding_length;
+		const end_pos = pos + content_length + padding_length;
 		while (pos < end_pos)
-		{	let n = await this.conn.read(data.subarray(pos, end_pos));
+		{	const n = await this.conn.read(data.subarray(pos, end_pos));
 			if (n == null)
 			{	throw new Error('Unexpected end of stream');
 			}
@@ -397,7 +402,7 @@ export class FcgiConn
 
 		// 6. Use Server to parse the request
 		let read_pos = 0;
-		let server = new Server
+		const server = new Server
 		(	{	addr: {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 1},
 				rid: 1,
 
@@ -405,11 +410,12 @@ export class FcgiConn
 				{	yield await this.accept();
 				},
 
+				// deno-lint-ignore require-await
 				async accept(): Promise<Conn>
 				{	if (read_pos != 0)
 					{	throw new Error('Failed to get constants');
 					}
-					let conn =
+					const conn =
 					{	localAddr: {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 1},
 						remoteAddr: {transport: 'tcp' as 'tcp'|'udp', hostname: 'localhost', port: 2},
 						rid: 1,
@@ -422,13 +428,15 @@ export class FcgiConn
 						{	throw new Error('No need');
 						},
 
+						// deno-lint-ignore require-await
 						async read(buffer: Uint8Array): Promise<number | null>
-						{	let chunk_size = Math.min(buffer.length, data.length-read_pos);
+						{	const chunk_size = Math.min(buffer.length, data.length-read_pos);
 							buffer.set(data.subarray(read_pos, read_pos+chunk_size));
 							read_pos += chunk_size;
 							return chunk_size || null;
 						},
 
+						// deno-lint-ignore require-await
 						async write(buffer: Uint8Array): Promise<number>
 						{	return buffer.length;
 						},
@@ -450,7 +458,7 @@ export class FcgiConn
 			}
 		);
 		let params;
-		for await (let req of server)
+		for await (const req of server)
 		{	params = req.params;
 			await req.respond();
 			server.close();

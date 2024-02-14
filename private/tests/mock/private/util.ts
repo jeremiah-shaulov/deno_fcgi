@@ -1,5 +1,5 @@
 export function get_random_bytes(length: number)
-{	let buffer = new Uint8Array(length);
+{	const buffer = new Uint8Array(length);
 	for (let i=0; i<buffer.length; i++)
 	{	buffer[i] = 32 + Math.floor(Math.random()*90);
 	}
@@ -11,12 +11,12 @@ export function get_random_string(length: number)
 }
 
 export function map_to_obj(map: any)
-{	let j = JSON.stringify
+{	const j = JSON.stringify
 	(	map,
-		(k, v) =>
+		(_k, v) =>
 		{	if (v instanceof Map || v instanceof Headers)
-			{	let obj: any = {};
-				for (let [mk, mv] of v)
+			{	const obj: any = {};
+				for (const [mk, mv] of v)
 				{	obj[mk] = mv;
 				}
 				v = obj;

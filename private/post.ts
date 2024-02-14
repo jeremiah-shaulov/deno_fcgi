@@ -22,6 +22,8 @@ const BACKSLASH = '\\'.charCodeAt(0);
 
 debug_assert(MAX_BOUNDARY_LEN+2 <= BUFFER_LEN); // (boundary + "\r\n").length
 
+const encoder = new TextEncoder;
+
 export class UploadedFile
 {	constructor(public name='', public type='', public size=0, public tmpName='', public error=0)
 	{
@@ -35,7 +37,7 @@ export class Post extends StructuredMap
 	files = new Map<string, UploadedFile>();
 
 	private is_parse_success = false;
-	private uploaded_files: string[] = [];
+	private uploaded_files = new Array<string>;
 
 	constructor
 	(	private reader: Deno.Reader,
@@ -61,8 +63,8 @@ export class Post extends StructuredMap
 	}
 
 	close()
-	{	let promises = [];
-		for (let f of this.uploaded_files)
+	{	const promises = [];
+		for (const f of this.uploaded_files)
 		{	promises[promises.length] = Deno.remove(f).catch
 			(	e =>
 				{	if (e.name != 'NotFound')
@@ -123,7 +125,7 @@ L:		while (true)
 				{	// ignore extremely long parameter
 					ignored_some_param = true;
 					while (true)
-					{	let n_read = await reader.read(buffer);
+					{	const n_read = await reader.read(buffer);
 						if (n_read == null)
 						{	break L;
 						}
@@ -145,13 +147,13 @@ L:		while (true)
 					}
 					else
 					{	// realloc
-						let tmp = new Uint8Array(buffer.length*2);
+						const tmp = new Uint8Array(buffer.length*2);
 						tmp.set(buffer.subarray(0, buffer_end));
 						buffer = tmp;
 					}
 				}
 				i = buffer_end;
-				let n_read = await reader.read(buffer.subarray(buffer_end));
+				const n_read = await reader.read(buffer.subarray(buffer_end));
 				if (n_read == null)
 				{	is_eof = true;
 					break;
@@ -160,7 +162,7 @@ L:		while (true)
 			}
 
 			// 2. Read param name (if S_NAME) or value (if S_VALUE)
-			let str = decodeURIComponent(decoder.decode(buffer.subarray(buffer_start, i)));
+			const str = decodeURIComponent(decoder.decode(buffer.subarray(buffer_start, i)));
 			buffer_start = i + 1; // after '=' or '&'
 			if (buffer[i] === EQ)
 			{	debug_assert(state == S_NAME); // i didn't look for EQ in S_VALUE state
@@ -235,7 +237,7 @@ L:		while (true)
 		let filename = ''; // param filename (uploaded file)
 		let content_type = ''; // uploaded file type
 		let state = S_HEADER; // parser state
-		let boundary = new TextEncoder().encode(this.formDataBoundary);
+		const boundary = encoder.encode(this.formDataBoundary);
 		let ignored_some_param = false;
 
 		if (boundary.length==0 || boundary.length>MAX_BOUNDARY_LEN)
@@ -244,7 +246,7 @@ L:		while (true)
 
 		// Skip anything before first boundary (it must be ignored according to RFC)
 		while (true)
-		{	let n_read = await reader.read(buffer.subarray(buffer_end));
+		{	const n_read = await reader.read(buffer.subarray(buffer_end));
 			if (n_read == null)
 			{	return false;
 			}
@@ -267,11 +269,11 @@ L:		while (true)
 		while (true)
 		{	//
 			if (buffer_start >= buffer_end) // this can happen, because sometimes i blindly skip assumed delimiters
-			{	let n_skip = buffer_start - buffer_end;
+			{	const n_skip = buffer_start - buffer_end;
 				buffer_start = n_skip;
 				buffer_end = 0;
 				while (buffer_end <= n_skip)
-				{	let n_read = await reader.read(buffer.subarray(buffer_end));
+				{	const n_read = await reader.read(buffer.subarray(buffer_end));
 					if (!n_read)
 					{	return false; // incomplete header
 					}
@@ -298,7 +300,7 @@ L:		while (true)
 					buffer_start = 0;
 				}
 				i = buffer_end;
-				let n_read = await reader.read(buffer.subarray(buffer_end));
+				const n_read = await reader.read(buffer.subarray(buffer_end));
 				if (n_read == null)
 				{	return false; // incomplete header
 				}
@@ -325,7 +327,7 @@ L:		while (true)
 					// at "\r" that hopefully is followed by "\n"
 					i++; // to "\n"
 					if (i >= buffer_end)
-					{	let n_read = await reader.read(buffer);
+					{	const n_read = await reader.read(buffer);
 						if (!n_read)
 						{	return false; // no "\n" follows "\r"
 						}
@@ -347,7 +349,7 @@ L:		while (true)
 					if (filename || !name)
 					{	// is uploaded file or a value to ignore
 						let tmp_name = '';
-						let fh: Deno.File | undefined;
+						let fh: Deno.FsFile | undefined;
 						if (name)
 						{	// is uploaded file
 							tmp_name = await Deno.makeTempFile();
@@ -412,7 +414,7 @@ L:		while (true)
 							buffer.copyWithin(0, i2, buffer_end);
 							buffer_start = 0;
 							buffer_end -= i2;
-							let n_read = await reader.read(buffer.subarray(buffer_end));
+							const n_read = await reader.read(buffer.subarray(buffer_end));
 							if (n_read != null)
 							{	buffer_end += n_read;
 								read_content_length += n_read;
@@ -464,12 +466,12 @@ L:		while (true)
 								}
 								else
 								{	// realloc
-									let tmp = new Uint8Array(buffer.length*2);
+									const tmp = new Uint8Array(buffer.length*2);
 									tmp.set(buffer.subarray(0, buffer_end));
 									buffer = tmp;
 								}
 							}
-							let n_read = await reader.read(buffer.subarray(buffer_end));
+							const n_read = await reader.read(buffer.subarray(buffer_end));
 							if (n_read != null)
 							{	i = Math.max(buffer_start, buffer_end - boundary.length + 1);
 								buffer_end += n_read;
@@ -483,7 +485,7 @@ L:		while (true)
 							}
 						}
 						if (!is_ignored)
-						{	let i2 = buffer.subarray(buffer_start, i).lastIndexOf(CR);
+						{	const i2 = buffer.subarray(buffer_start, i).lastIndexOf(CR);
 							if (i2 == -1)
 							{	return false; // no "\r\n" after value and before boundary
 							}
@@ -521,7 +523,7 @@ L:		while (true)
 						if (i3 == -1)
 						{	break;
 						}
-						let field = decoder.decode(buffer.subarray(i2, i3));
+						const field = decoder.decode(buffer.subarray(i2, i3));
 						i2 = i3 + 1; // after '='
 						if (buffer[i2] !== QT)
 						{	break;
@@ -556,11 +558,11 @@ L:		while (true)
 
 function buffer_index_of(haystack: Uint8Array, haystack_start: number, haystack_end: number, needle: Uint8Array)
 {	// run through all bytes
-	let needle_end = needle.length;
+	const needle_end = needle.length;
 	if (haystack_end-haystack_start < needle_end)
 	{	return -1;
 	}
-L:	for (let i_end=haystack_end-needle_end; haystack_start<=i_end; haystack_start++)
+L:	for (const i_end=haystack_end-needle_end; haystack_start<=i_end; haystack_start++)
 	{	for (let j=haystack_start, k=0; k<needle_end; k++)
 		{	if (haystack[j++] !== needle[k])
 			{	continue L;
@@ -573,12 +575,12 @@ L:	for (let i_end=haystack_end-needle_end; haystack_start<=i_end; haystack_start
 
 function buffer_index_of_nl(haystack: Uint8Array, haystack_len: number, needle: Uint8Array)
 {	// run through all bytes
-	let needle_end = needle.length;
+	const needle_end = needle.length;
 L:	for (let i=needle_end, i_end=haystack_len-2; i<=i_end; i++)
 	{	if (haystack[i]!==CR || haystack[i+1]!==LF)
 		{	continue;
 		}
-		let at = i - needle_end;
+		const at = i - needle_end;
 		for (let j=at, k=0; k<needle_end; k++)
 		{	if (haystack[j++] !== needle[k])
 			{	continue L;
@@ -592,7 +594,7 @@ L:	for (let i=needle_end, i_end=haystack_len-2; i<=i_end; i++)
 function buffer_index_of_one_of_2(buffer: Uint8Array, start: number, end: number, b0: number, b1: number)
 {	// run through all bytes
 	while (start < end)
-	{	let c = buffer[start];
+	{	const c = buffer[start];
 		if (c===b0 || c===b1)
 		{	return start;
 		}
@@ -604,7 +606,7 @@ function buffer_index_of_one_of_2(buffer: Uint8Array, start: number, end: number
 function buffer_index_of_one_of_3(buffer: Uint8Array, start: number, end: number, b0: number, b1: number, b2: number)
 {	// run through all bytes
 	while (start < end)
-	{	let c = buffer[start];
+	{	const c = buffer[start];
 		if (c===b0 || c===b1 || c===b2)
 		{	return start;
 		}

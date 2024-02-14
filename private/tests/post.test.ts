@@ -1,4 +1,4 @@
-import {Post, REALLOC_THRESHOLD} from "../post.ts";
+import {Post} from "../post.ts";
 import {TEST_CHUNK_SIZES, get_random_string, map_to_obj, MockConn} from './mock/mod.ts';
 import {readAll} from '../deps.ts';
 import {exists} from "https://deno.land/std@0.135.0/fs/mod.ts";
@@ -7,8 +7,8 @@ import {assert, assertEquals} from "https://deno.land/std@0.135.0/testing/assert
 Deno.test
 (	'Urlencoded',
 	async () =>
-	{	for (let chunk_size of TEST_CHUNK_SIZES)
-		{	let post = new Post(new MockConn('item[]=v0&item[1]=v1&item[]=v2&item[amount]=10', chunk_size), console.error.bind(console), 'application/x-www-form-urlencoded', '', 0, true);
+	{	for (const chunk_size of TEST_CHUNK_SIZES)
+		{	const post = new Post(new MockConn('item[]=v0&item[1]=v1&item[]=v2&item[amount]=10', chunk_size), console.error.bind(console), 'application/x-www-form-urlencoded', '', 0, true);
 			assert(await post.parse());
 			assertEquals(map_to_obj(post), {item: {'0': 'v0', '1': 'v1', '2': 'v2', amount: '10'}});
 			assertEquals(post.files.size, 0);
@@ -20,8 +20,8 @@ Deno.test
 Deno.test
 (	'Urlencoded long name',
 	async () =>
-	{	for (let chunk_size of TEST_CHUNK_SIZES)
-		{	let post = new Post(new MockConn('123=v0&1234=v1&12345=v2', chunk_size), console.error.bind(console), 'application/x-www-form-urlencoded', '', 0, true, 3);
+	{	for (const chunk_size of TEST_CHUNK_SIZES)
+		{	const post = new Post(new MockConn('123=v0&1234=v1&12345=v2', chunk_size), console.error.bind(console), 'application/x-www-form-urlencoded', '', 0, true, 3);
 			assert(!await post.parse());
 			assertEquals(map_to_obj(post), {'123': 'v0'});
 			assertEquals(post.files.size, 0);
@@ -33,8 +33,8 @@ Deno.test
 Deno.test
 (	'Urlencoded long value',
 	async () =>
-	{	for (let chunk_size of TEST_CHUNK_SIZES)
-		{	let post = new Post(new MockConn('item[]=12345&item[]=123&item[]=1234', chunk_size), console.error.bind(console), 'application/x-www-form-urlencoded', '', 0, true, 100, 4);
+	{	for (const chunk_size of TEST_CHUNK_SIZES)
+		{	const post = new Post(new MockConn('item[]=12345&item[]=123&item[]=1234', chunk_size), console.error.bind(console), 'application/x-www-form-urlencoded', '', 0, true, 100, 4);
 			assert(!await post.parse());
 			assertEquals(map_to_obj(post), {item: {'0': '123', '1': '1234'}});
 			assertEquals(post.files.size, 0);
@@ -46,7 +46,7 @@ Deno.test
 Deno.test
 (	'Form-data',
 	async () =>
-	{	let data =
+	{	const data =
 		(	'------------------------------------IGNORE Line 1\r\n'+
 			'------------------------------------IGNORE Line 2\r\n'+
 			'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
@@ -58,11 +58,11 @@ Deno.test
 			'\r\n'+
 			'0.3\r\n'
 		);
-		let data_arr = [data, data+'------WebKitFormBoundaryAmvtsvCs9WGC03jH--\r\n'];
+		const data_arr = [data, data+'------WebKitFormBoundaryAmvtsvCs9WGC03jH--\r\n'];
 
-		for (let chunk_size of TEST_CHUNK_SIZES)
-		{	for (let data of data_arr)
-			{	let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
+		for (const chunk_size of TEST_CHUNK_SIZES)
+		{	for (const data of data_arr)
+			{	const post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
 				assert(await post.parse());
 				assertEquals(map_to_obj(post), {name: 'Orange', weight: '0.3'});
 				assertEquals(post.files.size, 0);
@@ -75,14 +75,14 @@ Deno.test
 Deno.test
 (	'Incomplete header',
 	async () =>
-	{	let data =
+	{	const data =
 		(	'IGNORE'+
 			'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 			'Content-Disposition: form-data; name="name"\r\n'
 		);
 
-		for (let chunk_size of TEST_CHUNK_SIZES)
-		{	let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
+		for (const chunk_size of TEST_CHUNK_SIZES)
+		{	const post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
 			assert(!await post.parse());
 			assertEquals(post.size, 0);
 			assertEquals(post.files.size, 0);
@@ -94,16 +94,16 @@ Deno.test
 Deno.test
 (	'Form-data file',
 	async () =>
-	{	let weight =
+	{	const weight =
 		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 			'Content-Disposition: form-data; name="weight"\r\n'+
 			'\r\n'+
 			'0.3\r\n'
 		);
-		for (let chunk_size of TEST_CHUNK_SIZES)
+		for (const chunk_size of TEST_CHUNK_SIZES)
 		{	for (let i=0; i<2; i++)
-			{	let file_contents = 'ABC\r\nDEF\nGHI';
-				let data =
+			{	const file_contents = 'ABC\r\nDEF\nGHI';
+				const data =
 				(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 					'Content-Disposition: form-data; name="name"\r\n'+
 					'\r\n'+
@@ -117,16 +117,16 @@ Deno.test
 					'------WebKitFormBoundaryAmvtsvCs9WGC03jH--\r\n'
 				);
 
-				let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
+				const post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
 				assert(await post.parse());
 				assertEquals(map_to_obj(post), i==0 ? {name: 'Orange'} : {name: 'Orange', weight: '0.3'});
 				assertEquals(post.files.size, 1);
-				let uploaded_file = post.files.get('main image');
-				let tmpName = uploaded_file?.tmpName;
+				const uploaded_file = post.files.get('main image');
+				const tmpName = uploaded_file?.tmpName;
 				assert(tmpName);
 				assert(await exists(tmpName));
 				let f = await Deno.open(tmpName, {read: true});
-				let contents = new TextDecoder().decode(await readAll(f));
+				const contents = new TextDecoder().decode(await readAll(f));
 				f.close();
 				assertEquals(contents, file_contents);
 				assertEquals({...uploaded_file}, {error: 0, name: '/tmp/current_file', size: file_contents.length, tmpName: uploaded_file!.tmpName, type: i==0 ? 'text/plain' : 'application/octet-stream'});
@@ -144,7 +144,7 @@ Deno.test
 Deno.test
 (	'Form-data too long name',
 	async () =>
-	{	let data =
+	{	const data =
 		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 			'Content-Disposition: form-data; name="name"\r\n'+
 			'\r\n'+
@@ -154,11 +154,11 @@ Deno.test
 			'\r\n'+
 			'0.3\r\n'
 		);
-		let data_arr = [data, data+'------WebKitFormBoundaryAmvtsvCs9WGC03jH--\r\n'];
+		const data_arr = [data, data+'------WebKitFormBoundaryAmvtsvCs9WGC03jH--\r\n'];
 
-		for (let chunk_size of TEST_CHUNK_SIZES)
-		{	for (let data of data_arr)
-			{	let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 4);
+		for (const chunk_size of TEST_CHUNK_SIZES)
+		{	for (const data of data_arr)
+			{	const post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 4);
 				assert(await post.parse());
 				assertEquals(map_to_obj(post), {name: 'Orange'});
 				assertEquals(post.files.size, 0);
@@ -171,7 +171,7 @@ Deno.test
 Deno.test
 (	'Form-data too long value',
 	async () =>
-	{	let data =
+	{	const data =
 		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 			'Content-Disposition: form-data; name="name"\r\n'+
 			'\r\n'+
@@ -181,12 +181,12 @@ Deno.test
 			'\r\n'+
 			'0.3\r\n'
 		);
-		let data_arr = [data, data+'------WebKitFormBoundaryAmvtsvCs9WGC03jH--\r\n'];
+		const data_arr = [data, data+'------WebKitFormBoundaryAmvtsvCs9WGC03jH--\r\n'];
 
-		for (let chunk_size of TEST_CHUNK_SIZES)
-		{	for (let data of data_arr)
+		for (const chunk_size of TEST_CHUNK_SIZES)
+		{	for (const data of data_arr)
 			{	for (let i of [2, 3, 5, 6])
-				{	let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, i);
+				{	const post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, i);
 					assert(await post.parse());
 					if (i == 2)
 					{	assertEquals(map_to_obj(post), {});
@@ -208,8 +208,8 @@ Deno.test
 Deno.test
 (	'Form-data too long file',
 	async () =>
-	{	let file_contents = 'ABC\r\nDEF\nGHI';
-		let data =
+	{	const file_contents = 'ABC\r\nDEF\nGHI';
+		const data =
 		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 			'Content-Disposition: form-data; name="name"\r\n'+
 			'\r\n'+
@@ -221,20 +221,20 @@ Deno.test
 			file_contents+'\r\n'+
 			'------WebKitFormBoundaryAmvtsvCs9WGC03jH--\r\n'
 		);
-		for (let chunk_size of TEST_CHUNK_SIZES)
+		for (const chunk_size of TEST_CHUNK_SIZES)
 		{	for (let i=0; i<2; i++)
-			{	let post = new Post(new MockConn(data, chunk_size), () => {}, 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100, i==0 ? file_contents.length-1 : file_contents.length);
-				let parse_ok = await post.parse();
+			{	const post = new Post(new MockConn(data, chunk_size), () => {}, 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100, i==0 ? file_contents.length-1 : file_contents.length);
+				const parse_ok = await post.parse();
 				assertEquals(parse_ok, i==1);
 				assertEquals(map_to_obj(post), {name: 'Orange'});
 				assertEquals(post.files.size, 1);
-				let uploaded_file = post.files.get('main image');
-				let tmpName = uploaded_file?.tmpName;
+				const uploaded_file = post.files.get('main image');
+				const tmpName = uploaded_file?.tmpName;
 				assert(i==0 ? !tmpName : tmpName);
 				if (tmpName)
 				{	assert(await exists(tmpName));
-					let f = await Deno.open(tmpName, {read: true});
-					let contents = new TextDecoder().decode(await readAll(f));
+					const f = await Deno.open(tmpName, {read: true});
+					const contents = new TextDecoder().decode(await readAll(f));
 					f.close();
 					assertEquals(contents, file_contents);
 					uploaded_file!.tmpName = '';
@@ -253,8 +253,8 @@ Deno.test
 Deno.test
 (	'Form-data long file',
 	async () =>
-	{	let file_contents = [get_random_string(8*1024 - 300), get_random_string(8*1024 - 300), get_random_string(100)];
-		let data =
+	{	const file_contents = [get_random_string(8*1024 - 300), get_random_string(8*1024 - 300), get_random_string(100)];
+		const data =
 		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 			'Content-Disposition: form-data; name="name"\r\n'+
 			'\r\n'+
@@ -275,19 +275,19 @@ Deno.test
 			file_contents[2]+'\r\n'+
 			'------WebKitFormBoundaryAmvtsvCs9WGC03jH--\r\n'
 		);
-		let post = new Post(new MockConn(data, 10000), () => {}, 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, file_contents[2].length, Math.max(...file_contents.map(v => v.length)));
+		const post = new Post(new MockConn(data, 10000), () => {}, 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, file_contents[2].length, Math.max(...file_contents.map(v => v.length)));
 		assert(await post.parse());
 		assertEquals(map_to_obj(post), {name: 'Orange', 'field 2': file_contents[2]});
 		assertEquals(post.files.size, 2);
-		let tmp_names = [];
+		const tmp_names = [];
 		for (let i=0; i<2; i++)
-		{	let uploaded_file = post.files.get('file '+i);
-			let tmpName = uploaded_file?.tmpName;
+		{	const uploaded_file = post.files.get('file '+i);
+			const tmpName = uploaded_file?.tmpName;
 			assert(tmpName);
 			tmp_names[i] = tmpName;
 			assert(await exists(tmpName));
-			let f = await Deno.open(tmpName, {read: true});
-			let contents = new TextDecoder().decode(await readAll(f));
+			const f = await Deno.open(tmpName, {read: true});
+			const contents = new TextDecoder().decode(await readAll(f));
 			f.close();
 			assertEquals(contents, file_contents[i]);
 			uploaded_file!.tmpName = '';
@@ -303,9 +303,9 @@ Deno.test
 Deno.test
 (	'Form-data long value',
 	async () =>
-	{	let params = {par0: get_random_string(8*1024 - 300), par1: get_random_string(8*1024 - 300), par2: get_random_string(100), par3: ''};
-		let data = `par0=${encodeURIComponent(params.par0)}&par1=${encodeURIComponent(params.par1)}&par2=${encodeURIComponent(params.par2)}&par3`;
-		let post = new Post(new MockConn(data, 10000), () => {}, 'application/x-www-form-urlencoded', '', data.length, true, 100, 8*1024);
+	{	const params = {par0: get_random_string(8*1024 - 300), par1: get_random_string(8*1024 - 300), par2: get_random_string(100), par3: ''};
+		const data = `par0=${encodeURIComponent(params.par0)}&par1=${encodeURIComponent(params.par1)}&par2=${encodeURIComponent(params.par2)}&par3`;
+		const post = new Post(new MockConn(data, 10000), () => {}, 'application/x-www-form-urlencoded', '', data.length, true, 100, 8*1024);
 		assert(await post.parse());
 		assertEquals(map_to_obj(post), params);
 		await post.close();
@@ -315,8 +315,8 @@ Deno.test
 Deno.test
 (	'Invalid',
 	async () =>
-	{	for (let chunk_size of TEST_CHUNK_SIZES)
-		{	let post = new Post(new MockConn('a[=1&b[KEY][...=2&c=3&d[[[', chunk_size), console.error.bind(console), 'application/x-www-form-urlencoded', '', 0, true);
+	{	for (const chunk_size of TEST_CHUNK_SIZES)
+		{	const post = new Post(new MockConn('a[=1&b[KEY][...=2&c=3&d[[[', chunk_size), console.error.bind(console), 'application/x-www-form-urlencoded', '', 0, true);
 			assert(!await post.parse());
 			assertEquals(map_to_obj(post), {a: '1', b: {KEY: '2'}, c: '3', d: ''});
 			assertEquals(post.files.size, 0);
@@ -362,7 +362,7 @@ Deno.test
 Deno.test
 (	'POST form-data header is too long',
 	async () =>
-	{	let data =
+	{	const data =
 		(	'IGNORE'+
 			'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 			'Content-Disposition: form-data; name="'+get_random_string(8*1024-100)+'"\r\n'+
@@ -374,7 +374,7 @@ Deno.test
 			'0.3\r\n'
 		);
 
-		let post = new Post(new MockConn(data, 300), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
+		const post = new Post(new MockConn(data, 300), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
 		assert(!await post.parse());
 		assertEquals(post.size, 0);
 		assertEquals(post.files.size, 0);
@@ -397,7 +397,7 @@ Deno.test
 		);
 
 		for (let i=0; i<2; i++)
-		{	let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
+		{	const post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
 			assert(!await post.parse());
 			assertEquals(map_to_obj(post), {name: 'Orange'});
 			assertEquals(post.files.size, 0);
@@ -410,7 +410,7 @@ Deno.test
 Deno.test
 (	'No CRLF after value and before boundary',
 	async () =>
-	{	let data_set = [];
+	{	const data_set = [];
 		for (let i=0; i<2; i++)
 		{	data_set[i] =
 			(	'IGNORE'+
@@ -422,9 +422,9 @@ Deno.test
 			);
 		}
 
-		for (let chunk_size of TEST_CHUNK_SIZES)
-		{	for (let data of data_set)
-			{	let post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
+		for (const chunk_size of TEST_CHUNK_SIZES)
+		{	for (const data of data_set)
+			{	const post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true);
 				assert(!await post.parse());
 				assertEquals(post.size, 0);
 				assertEquals(post.files.size, 0);
@@ -438,7 +438,7 @@ Deno.test
 (	'No semicolon in Content-Disposition',
 	async () =>
 	{	for (let i=0; i<2; i++)
-		{	let data =
+		{	const data =
 			(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 				'Content-Disposition: form-data; name="name"\r\n'+
 				'\r\n'+
@@ -448,7 +448,7 @@ Deno.test
 				'\r\n'+
 				'0.3\r\n'
 			);
-			let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100);
+			const post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100);
 			assert((await post.parse()) ? i==0 : i==1);
 			assertEquals(map_to_obj(post), i==0 ? {'name': 'Orange', 'weight': '0.3'} : {'name': 'Orange'});
 			assertEquals(post.files.size, 0);
@@ -461,7 +461,7 @@ Deno.test
 (	'No quotes in Content-Disposition',
 	async () =>
 	{	for (let i=0; i<2; i++)
-		{	let data =
+		{	const data =
 			(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 				'Content-Disposition: form-data; name="name"\r\n'+
 				'\r\n'+
@@ -471,7 +471,7 @@ Deno.test
 				'\r\n'+
 				'0.3\r\n'
 			);
-			let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100);
+			const post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100);
 			assert(await post.parse());
 			assertEquals(map_to_obj(post), i==0 ? {'name': 'Orange'} : {'name': 'Orange', 'weight': '0.3'});
 			assertEquals(post.files.size, i==0 ? 1 : 0);
@@ -483,7 +483,7 @@ Deno.test
 Deno.test
 (	'No backslash in Content-Disposition',
 	async () =>
-	{	let data =
+	{	const data =
 		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 			'Content-Disposition: form-data; name="name \\"qt\\""\r\n'+
 			'\r\n'+
@@ -493,7 +493,7 @@ Deno.test
 			'\r\n'+
 			'0.3\r\n'
 		);
-		let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100);
+		const post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100);
 		assert(await post.parse());
 		assertEquals(map_to_obj(post), {'name "qt"': 'Orange'});
 		assertEquals(post.files.size, 1);
@@ -505,7 +505,7 @@ Deno.test
 Deno.test
 (	'Invalid backslash in Content-Disposition',
 	async () =>
-	{	let data =
+	{	const data =
 		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 			'Content-Disposition: form-data; name="name"\r\n'+
 			'\r\n'+
@@ -515,7 +515,7 @@ Deno.test
 			'\r\n'+
 			'0.3\r\n'
 		);
-		let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100);
+		const post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 100);
 		assert(await post.parse());
 		assertEquals(map_to_obj(post), {'name': 'Orange'});
 		assertEquals(post.files.size, 0);
@@ -526,15 +526,15 @@ Deno.test
 Deno.test
 (	'Extremely long value',
 	async () =>
-	{	let LEN = 10000;
-		let data =
+	{	const LEN = 10000;
+		const data =
 		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 			'Content-Disposition: form-data; name="name"\r\n'+
 			'\r\n'+
 			get_random_string(LEN)+'\r\n'
 		);
 		for (let i=0; i<2; i++)
-		{	let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, i==0 ? 1 : LEN);
+		{	const post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, i==0 ? 1 : LEN);
 			assert((await post.parse()) ? i==1 : i==0);
 			assertEquals(post.size, i);
 			assertEquals(post.files.size, 0);
@@ -546,7 +546,7 @@ Deno.test
 Deno.test
 (	'Invalid structured path',
 	async () =>
-	{	let data =
+	{	const data =
 		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 			'Content-Disposition: form-data; name="name["\r\n'+
 			'\r\n'+
@@ -556,7 +556,7 @@ Deno.test
 			'\r\n'+
 			'0.3\r\n'
 		);
-		let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 1000);
+		const post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, 1000);
 		assert(!await post.parse());
 		assertEquals(map_to_obj(post), {'name': 'Orange', 'weight': '0.3'});
 		assertEquals(post.files.size, 0);
@@ -567,14 +567,14 @@ Deno.test
 Deno.test
 (	'Invalid Content-Length',
 	async () =>
-	{	let data =
+	{	const data =
 		(	'------WebKitFormBoundaryAmvtsvCs9WGC03jH\r\n'+
 			'Content-Disposition: form-data; name="name"\r\n'+
 			'\r\n'+
 			'Hello\r\n'
 		);
 		for (let i=0; i<2; i++)
-		{	let post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length+i, true, 100, 100);
+		{	const post = new Post(new MockConn(data, 1000), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length+i, true, 100, 100);
 			assert((await post.parse()) ? i==0 : i==1);
 			assertEquals(map_to_obj(post), {'name': 'Hello'});
 			assertEquals(post.files.size, 0);

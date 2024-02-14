@@ -1,5 +1,3 @@
-// deno-lint-ignore-file
-
 import {debug_assert} from './debug_assert.ts';
 import {Conn} from './deno_ifaces.ts';
 import {faddr_to_addr, addr_to_string} from './addr.ts';
@@ -71,8 +69,8 @@ export class ReadableReadableStream extends ReadableStream<Uint8Array> implement
 							controller.enqueue(new Uint8Array);
 						}
 						else
-						{	let buffer = new Uint8Array(BUFFER_LEN);
-							let n = await reader.read(buffer);
+						{	const buffer = new Uint8Array(BUFFER_LEN);
+							const n = await reader.read(buffer);
 							if (n == null)
 							{	controller.close();
 							}
@@ -96,8 +94,8 @@ export class ReadableReadableStream extends ReadableStream<Uint8Array> implement
 }
 
 class FcgiConns
-{	idle: FcgiConn[] = [];
-	busy: FcgiConn[] = [];
+{	idle = new Array<FcgiConn>;
+	busy = new Array<FcgiConn>;
 	no_reuse_connection_since = 0; // 0 means reusing connection is supported. Set to Date.now() after first unsuccessful attempt.
 }
 
@@ -106,7 +104,7 @@ export class Client
 	private n_idle_all = 0;
 	private n_busy_all = 0;
 	private h_timer: number | undefined;
-	private can_fetch_callbacks: (() => void)[] = [];
+	private can_fetch_callbacks = new Array<() => void>;
 	private onerror: (error: Error) => void = () => {};
 
 	private maxConns: number;
@@ -134,7 +132,7 @@ export class Client
 		this.keepAliveTimeout = options?.keepAliveTimeout ?? this.keepAliveTimeout;
 		this.keepAliveMax = options?.keepAliveMax ?? this.keepAliveMax;
 		this.onLogError = options?.onLogError ?? this.onLogError;
-		let {maxConns, connectTimeout, timeout, keepAliveTimeout, keepAliveMax, onLogError} = this;
+		const {maxConns, connectTimeout, timeout, keepAliveTimeout, keepAliveMax, onLogError} = this;
 		return {maxConns, connectTimeout, timeout, keepAliveTimeout, keepAliveMax, onLogError};
 	}
 
@@ -188,14 +186,14 @@ export class Client
 		if (scriptFilename != undefined)
 		{	params.set('SCRIPT_FILENAME', scriptFilename);
 		}
-		let url_obj = new URL(input.url, 'http://localhost/');
+		const url_obj = new URL(input.url, 'http://localhost/');
 		params.set('REQUEST_METHOD', input.method);
 		params.set('REQUEST_SCHEME', url_obj.protocol.slice(0, -1));
 		params.set('HTTP_HOST', url_obj.hostname);
 		params.set('REQUEST_URI', url_obj.pathname + url_obj.search);
 		params.set('QUERY_STRING', url_obj.search.slice(1));
 		params.set('SERVER_SOFTWARE', SERVER_SOFTWARE);
-		for (let [name, value] of input.headers)
+		for (const [name, value] of input.headers)
 		{	if (name == 'content-type')
 			{	params.set('CONTENT_TYPE', value);
 			}
@@ -204,6 +202,7 @@ export class Client
 			}
 		}
 		// get_conn
+		// deno-lint-ignore no-var
 		var {conn, server_addr_str, conn_type} = await this.get_conn(addr, connectTimeout, timeout, keepAliveTimeout, keepAliveMax);
 		conn.on_log_error = onLogError;
 		// query
@@ -218,8 +217,9 @@ export class Client
 					{	// unset "no_reuse_connection_since" for this "server_addr_str"
 						conn_type = CONN_TYPE_INTERNAL_NO_REUSE;
 						this.return_conn(server_addr_str, conn, conn_type);
-						let conns = this.get_conns(server_addr_str);
+						const conns = this.get_conns(server_addr_str);
 						conns.no_reuse_connection_since = Date.now();
+						// deno-lint-ignore no-inner-declarations no-redeclare no-var
 						var {conn} = await this.get_conn(server_addr_str, connectTimeout, timeout, keepAliveTimeout, keepAliveMax);
 						conn.on_log_error = onLogError;
 						continue;
@@ -228,8 +228,9 @@ export class Client
 				}
 				break;
 			}
+			// deno-lint-ignore no-inner-declarations no-var
 			var response_reader = conn.get_response_reader();
-			let n_read = await response_reader.read(first_buffer); // this reads all the headers before getting to the body
+			const n_read = await response_reader.read(first_buffer); // this reads all the headers before getting to the body
 			first_buffer = !n_read ? undefined : first_buffer.subarray(0, n_read);
 		}
 		catch (e)
@@ -237,20 +238,21 @@ export class Client
 			throw e;
 		}
 		// return
-		let status = conn.headers.get('status');
+		const status = conn.headers.get('status');
 		if (status != null)
 		{	conn.headers.delete('status');
 		}
-		let status_str = status || '';
-		let pos = status_str.indexOf(' ');
-		let headers = conn.headers;
-		let cookies = conn.cookies;
+		const status_str = status || '';
+		const pos = status_str.indexOf(' ');
+		const headers = conn.headers;
+		const cookies = conn.cookies;
 		conn.headers = new Headers;
 		conn.cookies = new SetCookies;
 		if (!first_buffer)
 		{	this.return_conn(server_addr_str, conn, conn_type);
 		}
-		let that = this;
+		// deno-lint-ignore no-this-alias
+		const that = this;
 		return new ResponseWithCookies
 		(	!first_buffer ? null : new ReadableReadableStream
 			(	{	async read(buffer: Uint8Array): Promise<number | null>
@@ -258,13 +260,13 @@ export class Client
 						{	if (first_buffer == EOF_MARK)
 							{	return null;
 							}
-							let n = Math.min(buffer.length, first_buffer.length);
+							const n = Math.min(buffer.length, first_buffer.length);
 							buffer.set(first_buffer.subarray(0, n));
 							first_buffer = n>=first_buffer.length ? undefined : first_buffer.subarray(n);
 							return n;
 						}
 						try
-						{	let n = await response_reader.read(buffer);
+						{	const n = await response_reader.read(buffer);
 							if (n == null)
 							{	first_buffer = EOF_MARK;
 								that.return_conn(server_addr_str, conn, conn_type);
@@ -287,15 +289,15 @@ export class Client
 	}
 
 	async fetchCapabilities(addr: FcgiAddr | Conn)
-	{	let {conn, server_addr_str} = await this.get_conn(addr, DEFAULT_CONNECT_TIMEOUT, DEFAULT_TIMEOUT, 0, 1);
+	{	const {conn, server_addr_str} = await this.get_conn(addr, DEFAULT_CONNECT_TIMEOUT, DEFAULT_TIMEOUT, 0, 1);
 		await conn.write_record_get_values(new Map(Object.entries({FCGI_MAX_CONNS: '', FCGI_MAX_REQS: '', FCGI_MPXS_CONNS: ''})));
-		let header = await conn.read_record_header();
-		let map = await conn.read_record_get_values_result(header.content_length, header.padding_length);
+		const header = await conn.read_record_header();
+		const map = await conn.read_record_get_values_result(header.content_length, header.padding_length);
 		this.return_conn(server_addr_str, conn, CONN_TYPE_INTERNAL_NO_REUSE);
-		let fcgi_max_conns = map.get('FCGI_MAX_CONNS');
-		let fcgi_max_reqs = map.get('FCGI_MAX_REQS');
-		let fcgi_mpxs_conns = map.get('FCGI_MPXS_CONNS');
-		let result: {FCGI_MAX_CONNS?: number, FCGI_MAX_REQS?: number, FCGI_MPXS_CONNS?: number} = {};
+		const fcgi_max_conns = map.get('FCGI_MAX_CONNS');
+		const fcgi_max_reqs = map.get('FCGI_MAX_REQS');
+		const fcgi_mpxs_conns = map.get('FCGI_MPXS_CONNS');
+		const result: {FCGI_MAX_CONNS?: number, FCGI_MAX_REQS?: number, FCGI_MPXS_CONNS?: number} = {};
 		if (fcgi_max_conns != undefined)
 		{	result.FCGI_MAX_CONNS = Number(fcgi_max_conns);
 		}
@@ -352,11 +354,11 @@ export class Client
 		else
 		{	server_addr = faddr_to_addr(addr);
 		}
-		let server_addr_str = addr_to_string(server_addr);
-		let conns = this.get_conns(server_addr_str);
-		let {idle, busy, no_reuse_connection_since} = conns;
+		const server_addr_str = addr_to_string(server_addr);
+		const conns = this.get_conns(server_addr_str);
+		const {idle, busy, no_reuse_connection_since} = conns;
 		let conn_type = no_reuse_connection_since==0 ? CONN_TYPE_INTERNAL_REUSE : CONN_TYPE_INTERNAL_NO_REUSE;
-		let now = Date.now();
+		const now = Date.now();
 		while (true)
 		{	let conn;
 			if (external_conn)
@@ -399,12 +401,12 @@ export class Client
 	/**	Call with CONN_TYPE_INTERNAL_NO_REUSE to close the connection, even if it's external.
 	 **/
 	private return_conn(server_addr_str: string, conn: FcgiConn, conn_type: number)
-	{	let conns = this.conns_pool.get(server_addr_str);
+	{	const conns = this.conns_pool.get(server_addr_str);
 		if (!conns)
 		{	// assume: return_conn() already called for this connection
 			return;
 		}
-		let i = conns.busy.indexOf(conn);
+		const i = conns.busy.indexOf(conn);
 		if (i == -1)
 		{	// assume: return_conn() already called for this connection
 			return;
@@ -444,13 +446,13 @@ export class Client
 	}
 
 	private close_kept_alive_timed_out(close_all_idle=false)
-	{	let {conns_pool} = this;
-		let now = Date.now();
-		for (let [server_addr_str, conns] of conns_pool)
+	{	const {conns_pool} = this;
+		const now = Date.now();
+		for (const [server_addr_str, conns] of conns_pool)
 		{	let {idle, busy, no_reuse_connection_since} = conns;
 			// Some request timed out?
 			for (let i=busy.length-1; i>=0; i--)
-			{	let conn = busy[i];
+			{	const conn = busy[i];
 				debug_assert(conn.request_till > 0);
 				if (conn.request_till <= now)
 				{	this.return_conn(server_addr_str, conn, CONN_TYPE_INTERNAL_NO_REUSE);
@@ -458,7 +460,7 @@ export class Client
 			}
 			// Some idle connection is no longer needed?
 			for (let i=idle.length-1; i>=0; i--)
-			{	let conn = idle[i];
+			{	const conn = idle[i];
 				debug_assert(conn.request_till == 0);
 				if (conn.use_till<=now || close_all_idle)
 				{	idle.splice(i, 1);
@@ -492,7 +494,7 @@ export class Client
 		while (n_close_idle > 0)
 		{	let conn = idle.pop();
 			if (!conn)
-			{	for (let c_conns of this.conns_pool.values())
+			{	for (const c_conns of this.conns_pool.values())
 				{	while (true)
 					{	conn = c_conns.idle.pop();
 						if (!conn)
@@ -528,11 +530,11 @@ export class Client
 }
 
 async function connect(options: Deno.ConnectOptions, connectTimeout: number)
-{	let want_conn = Deno.connect(options);
-	let timer_resolve;
-	let timer_promise = new Promise<undefined>(y => {timer_resolve = y});
-	let timer = setTimeout(timer_resolve as any, connectTimeout);
-	let maybe_conn = await Promise.race([want_conn, timer_promise]);
+{	const want_conn = Deno.connect(options);
+	let timer_resolve: VoidFunction;
+	const timer_promise = new Promise<void>(y => {timer_resolve = y});
+	const timer = setTimeout(timer_resolve!, connectTimeout);
+	const maybe_conn = await Promise.race([want_conn, timer_promise]);
 	if (!maybe_conn)
 	{	want_conn.then(conn => conn.close()).catch(() => {});
 		throw new Error(`Connection timed out to ${JSON.stringify(options)}`);

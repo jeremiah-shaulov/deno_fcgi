@@ -3,7 +3,7 @@ import {assert} from "https://deno.land/std@0.135.0/testing/asserts.ts";
 
 Deno.test
 (	'debug_assert',
-	async () =>
+	() =>
 	{	debug_assert(true);
 		let error;
 		try

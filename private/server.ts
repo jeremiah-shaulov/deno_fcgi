@@ -1,5 +1,3 @@
-// deno-lint-ignore-file
-
 import {debug_assert} from './debug_assert.ts';
 import {Conn, Listener} from './deno_ifaces.ts';
 import {ServerRequest, poll, take_next_request, is_processing} from './server_request.ts';
@@ -29,15 +27,15 @@ export class Server implements Listener
 	readonly rid: number;
 
 	private listeners: Listener[];
-	private active_listeners: Listener[] = [];
-	private removed_listeners: Listener[] = [];
+	private active_listeners = new Array<Listener>;
+	private removed_listeners = new Array<Listener>;
 	private structuredParams: boolean;
 	private maxConns: number;
 	private maxNameLength: number;
 	private maxValueLength: number;
 	private maxFileSize: number;
-	private promises: Promise<Conn | ServerRequest | AcceptError>[] = [];
-	private requests: ServerRequest[] = [];
+	private promises = new Array<Promise<Conn | ServerRequest | AcceptError>>;
+	private requests = new Array<ServerRequest>;
 	private onerror: (error: Error) => void = () => {};
 	private is_accepting = false;
 	private n_processing = 0;
@@ -61,7 +59,7 @@ export class Server implements Listener
 		this.maxNameLength = options?.maxNameLength ?? this.maxNameLength;
 		this.maxValueLength = options?.maxValueLength ?? this.maxValueLength;
 		this.maxFileSize = options?.maxFileSize ?? this.maxFileSize;
-		let {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this;
+		const {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this;
 		return {structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize};
 	}
 
@@ -71,7 +69,10 @@ export class Server implements Listener
 	onError(callback?: (error: Error) => unknown)
 	{	this.onerror = !callback ? () => {} : error =>
 		{	try
-			{	callback(error);
+			{	const result = callback(error);
+				if (result instanceof Promise)
+				{	result.catch(e => console.error(e));
+				}
 			}
 			catch (e)
 			{	console.error(e);
@@ -107,17 +108,22 @@ export class Server implements Listener
 		this.is_accepting = true;
 
 		function find_listener(conn: Conn)
-		{	if (active_listeners.length == 1)
-			{	return 0;
+		{	const {transport} = conn.localAddr;
+			if (transport == 'tcp')
+			{	const {hostname, port} = conn.localAddr;
+				return active_listeners.findIndex
+				(	l => l.addr.transport=='tcp' && l.addr.port===port && (l.addr.hostname===hostname || is_default_route(l.addr.hostname))
+				);
 			}
-			let {transport, hostname, port, path} = conn.localAddr as any;
-			let i = active_listeners.findIndex
-			(	l =>
-				{	let addr = l.addr as any;
-					return addr.port===port && addr.path===path && (addr.hostname===hostname || is_default_route(addr.hostname)) && addr.transport===transport
-				}
-			);
-			return i;
+			else if (transport == 'unix')
+			{	const {path} = conn.localAddr;
+				return active_listeners.findIndex
+				(	l => l.addr.transport=='unix' && l.addr.path===path
+				);
+			}
+			else
+			{	return -1;
+			}
 		}
 
 		while (true)
@@ -147,7 +153,7 @@ export class Server implements Listener
 				{	// shuffle listeners to establish equal rights
 					shuffle_array(listeners);
 				}
-				for (let listener of listeners)
+				for (const listener of listeners)
 				{	if (active_listeners.indexOf(listener) == -1)
 					{	active_listeners.push(listener);
 						promises.push(listener.accept().catch(error => new AcceptError(listener, error)));
@@ -167,7 +173,7 @@ export class Server implements Listener
 			debug_assert(promises.length == requests.length + active_listeners.length);
 			debug_assert(this.n_processing>=0 && this.n_processing<=requests.length);
 
-			let ready = await Promise.race(promises);
+			const ready = await Promise.race(promises);
 			if (ready instanceof AcceptError)
 			{	if (listeners.indexOf(ready.listener) != -1)
 				{	this.onerror(ready.error);
@@ -177,7 +183,7 @@ export class Server implements Listener
 			}
 			else if (!(ready instanceof ServerRequest))
 			{	// Accepted connection
-				let i = find_listener(ready);
+				const i = find_listener(ready);
 				if (i == -1)
 				{	// assume: the listener removed
 					try
@@ -188,12 +194,12 @@ export class Server implements Listener
 					}
 				}
 				else
-				{	let request = new ServerRequest(ready, onerror, null, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize);
-					let j = requests.length;
+				{	const request = new ServerRequest(ready, onerror, null, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize);
+					const j = requests.length;
 					requests[j] = request;
 					promises[j+i] = promises[j];
 					promises[j] = request[poll]();
-					let listener = active_listeners[i];
+					const listener = active_listeners[i];
 					active_listeners[i] = active_listeners[0];
 					active_listeners.shift();
 					if (j+1+listeners.length < maxConns)
@@ -204,7 +210,7 @@ export class Server implements Listener
 			}
 			else
 			{	// Some ServerRequest is ready (params are read)
-				let i = requests.indexOf(ready);
+				const i = requests.indexOf(ready);
 				debug_assert(i != -1);
 				if (!ready.isTerminated())
 				{	promises[i] = ready.complete();
@@ -213,7 +219,7 @@ export class Server implements Listener
 					return ready;
 				}
 				else
-				{	let {next_request, next_request_ready} = ready[take_next_request]();
+				{	const {next_request, next_request_ready} = ready[take_next_request]();
 					if (next_request)
 					{	// update requests[i] with new request
 						debug_assert(next_request_ready);
@@ -223,7 +229,7 @@ export class Server implements Listener
 					}
 					else
 					{	// remove requests[i]
-						let j = requests.length - 1;
+						const j = requests.length - 1;
 						requests[i] = requests[j];
 						promises[i] = promises[j];
 						if (promises.length != requests.length)
@@ -253,58 +259,75 @@ export class Server implements Listener
 	}
 
 	addListener(listener: Listener)
-	{	let {transport, hostname, port, path} = listener.addr as any;
-		// find in "listeners"
-		let i = this.listeners.findIndex
-		(	l =>
-			{	let l_addr = l.addr as any;
-				return l_addr.port===port && l_addr.path===path && l_addr.hostname===hostname && l_addr.transport===transport
-			}
-		);
+	{	let i = -1;
+		// Find in "listeners"
+		const {transport} = listener.addr;
+		if (transport == 'tcp')
+		{	const {hostname, port} = listener.addr;
+			i = this.listeners.findIndex(l => l.addr.transport==='tcp' && l.addr.port===port && l.addr.hostname===hostname);
+		}
+		else if (transport == 'unix')
+		{	const {path} = listener.addr;
+			i = this.listeners.findIndex(l => l.addr.transport==='unix' && l.addr.path===path);
+		}
+		else
+		{	throw new Error(`Must be TCP or UNIX-socket listener`);
+		}
+		// Already added?
 		if (i != -1)
-		{	// already added
+		{	// Yes
 			return false;
 		}
+		// Add
 		this.listeners.push(listener);
 		return true;
 	}
 
 	getListener(addr: Deno.Addr)
-	{	let {transport, hostname, port, path} = addr as any;
-		return this.listeners.find
-		(	l =>
-			{	let l_addr = l.addr as any;
-				return l_addr.port===port && l_addr.path===path && l_addr.hostname===hostname && l_addr.transport===transport
-			}
-		);
+	{	const {transport} = addr;
+		if (transport == 'tcp')
+		{	const {hostname, port} = addr;
+			return this.listeners.find(l => l.addr.transport==='tcp' && l.addr.port===port && l.addr.hostname===hostname);
+		}
+		else if (transport == 'unix')
+		{	const {path} = addr;
+			return this.listeners.find(l => l.addr.transport==='unix' && l.addr.path===path);
+		}
 	}
 
 	removeListener(addr: Deno.Addr)
-	{	let {transport, hostname, port, path} = addr as any;
-		// find in "listeners"
-		let i = this.listeners.findIndex
-		(	l =>
-			{	let l_addr = l.addr as any;
-				return l_addr.port===port && l_addr.path===path && l_addr.hostname===hostname && l_addr.transport===transport
-			}
-		);
+	{	let i = -1;
+		// Find in "listeners"
+		const {transport} = addr;
+		if (transport == 'tcp')
+		{	const {hostname, port} = addr;
+			i = this.listeners.findIndex(l => l.addr.transport==='tcp' && l.addr.port===port && l.addr.hostname===hostname);
+		}
+		else if (transport == 'unix')
+		{	const {path} = addr;
+			i = this.listeners.findIndex(l => l.addr.transport==='unix' && l.addr.path===path);
+		}
+		// Not found?
 		if (i == -1)
-		{	// not found
+		{	// Yes
 			return false;
 		}
-		// found
-		let listener = this.listeners[i];
-		// remove from "listeners"
+		// Found
+		const listener = this.listeners[i];
+		// Remove from "listeners"
 		this.listeners.splice(i, 1);
-		// find in "active_listeners"
-		i = this.active_listeners.findIndex
-		(	l =>
-			{	let l_addr = l.addr as any;
-				return l_addr.port===port && l_addr.path===path && l_addr.hostname===hostname && l_addr.transport===transport
-			}
-		);
+		// Find in "active_listeners"
+		i = -1;
+		if (transport == 'tcp')
+		{	const {hostname, port} = addr;
+			i = this.active_listeners.findIndex(l => l.addr.transport==='tcp' && l.addr.port===port && l.addr.hostname===hostname);
+		}
+		else if (transport == 'unix')
+		{	const {path} = addr;
+			i = this.active_listeners.findIndex(l => l.addr.transport==='unix' && l.addr.path===path);
+		}
 		if (i != -1)
-		{	// found, so remove from "active_listeners" and corresponding "promises"
+		{	// Found, so remove from "active_listeners" and corresponding "promises"
 			this.active_listeners.splice(i, 1);
 			this.promises.splice(this.requests.length+i, 1);
 		}
@@ -320,16 +343,25 @@ export class Server implements Listener
 	}
 
 	clear_removed_listeners()
-	{	let {removed_listeners, requests} = this;
+	{	const {removed_listeners, requests} = this;
 		for (let i=0; i<removed_listeners.length; i++)
-		{	let {transport, hostname, port, path} = removed_listeners[i].addr as any;
-			let is_def = is_default_route(hostname);
-			let j = requests.findIndex
-			(	l =>
-				{	let l_addr = l.localAddr as any;
-					return l_addr.port===port && l_addr.path===path && (is_def || l_addr.hostname===hostname) && l_addr.transport===transport
-				}
-			);
+		{	const {addr} = removed_listeners[i];
+			const {transport} = addr;
+			let is_def = false;
+			let j = -1;
+			if (transport == 'tcp')
+			{	const {hostname, port} =addr;
+				is_def = is_default_route(hostname);
+				j = requests.findIndex
+				(	l => l.localAddr.transport==='tcp' && l.localAddr.port===port && (is_def || l.localAddr.hostname===hostname)
+				);
+			}
+			else if (transport == 'unix')
+			{	const {path} = addr;
+				j = requests.findIndex
+				(	l => l.localAddr.transport==='unix' && l.localAddr.path===path
+				);
+			}
 			if (j == -1)
 			{	removed_listeners[i].close();
 				removed_listeners[i--] = removed_listeners[removed_listeners.length - 1];
@@ -340,7 +372,7 @@ export class Server implements Listener
 
 	close()
 	{	this.removeListeners();
-		for (let request of this.requests)
+		for (const request of this.requests)
 		{	if (request[is_processing]())
 			{	request.respond({status: 503, body: '', headers: new Headers}).catch(this.onerror).then(() => {request.close()});
 			}
@@ -353,8 +385,8 @@ export class Server implements Listener
 
 function shuffle_array<T>(arr: T[])
 {	for (let i=arr.length-1; i>0; i--)
-	{	let j = Math.floor(Math.random() * (i + 1));
-		let tmp = arr[i];
+	{	const j = Math.floor(Math.random() * (i + 1));
+		const tmp = arr[i];
 		arr[i] = arr[j];
 		arr[j] = tmp;
 	}

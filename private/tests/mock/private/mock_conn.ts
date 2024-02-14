@@ -1,5 +1,3 @@
-// deno-lint-ignore-file
-
 import {Conn} from '../../../deno_ifaces.ts';
 
 /**	Data can be passed to constructor, and then it can be added with `pend_read()`.
@@ -35,12 +33,13 @@ export class MockConn implements Conn
 	}
 
 	pend_read(data: Uint8Array)
-	{	let tmp = new Uint8Array(this.read_data.length + data.length);
+	{	const tmp = new Uint8Array(this.read_data.length + data.length);
 		tmp.set(this.read_data);
 		tmp.set(data, this.read_data.length);
 		this.read_data = tmp;
 	}
 
+	// deno-lint-ignore require-await
 	async read(buffer: Uint8Array): Promise<number|null>
 	{	if (this.is_closed)
 		{	throw new Error('Connection closed');
@@ -48,8 +47,8 @@ export class MockConn implements Conn
 		if (this.read_pos == this.read_data.length)
 		{	return null;
 		}
-		let go = () =>
-		{	let chunk_size = Math.min(this.read_data.length-this.read_pos, buffer.length, this.chunk_size);
+		const go = () =>
+		{	const chunk_size = Math.min(this.read_data.length-this.read_pos, buffer.length, this.chunk_size);
 			buffer.set(this.read_data.subarray(this.read_pos, this.read_pos+chunk_size));
 			this.read_pos += chunk_size;
 			return chunk_size;
@@ -57,6 +56,7 @@ export class MockConn implements Conn
 		return this.read_pos%2 ? go() : Promise.resolve().then(go);
 	}
 
+	// deno-lint-ignore require-await
 	async write(buffer: Uint8Array): Promise<number>
 	{	if (this.is_closed)
 		{	throw new Error('Connection closed');
@@ -64,10 +64,10 @@ export class MockConn implements Conn
 		if (this.is_closed_write)
 		{	throw new Error('Connection closed for write');
 		}
-		let chunk_size = Math.min(buffer.length, this.chunk_size);
+		const chunk_size = Math.min(buffer.length, this.chunk_size);
 		if (this.write_data.length-this.write_pos < chunk_size)
 		{	// realloc
-			let tmp = new Uint8Array(Math.max(this.write_data.length+chunk_size, this.write_data.length * 2));
+			const tmp = new Uint8Array(Math.max(this.write_data.length+chunk_size, this.write_data.length * 2));
 			tmp.set(this.write_data);
 			this.write_data = tmp;
 		}
@@ -80,6 +80,7 @@ export class MockConn implements Conn
 	{	this.is_closed = true;
 	}
 
+	// deno-lint-ignore require-await
 	async closeWrite(): Promise<void>
 	{	this.is_closed_write = true;
 	}

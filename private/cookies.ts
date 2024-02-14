@@ -81,7 +81,7 @@ export class Cookies extends Map<string, string>
 	private init()
 	{	if (!this.is_inited)
 		{	this.is_inited = true;
-			let {cookie_header} = this;
+			const {cookie_header} = this;
 			this.cookie_header = ''; // free memory
 			let i = 0;
 			while (i < cookie_header.length)
@@ -89,13 +89,13 @@ export class Cookies extends Map<string, string>
 				if (i_end == -1)
 				{	break;
 				}
-				let name = cookie_header.slice(i, i_end);
+				const name = cookie_header.slice(i, i_end);
 				i = i_end + 1;
 				i_end = cookie_header.indexOf(';', i);
 				if (i_end == -1)
 				{	i_end = cookie_header.length;
 				}
-				let value = decodeURIComponent(cookie_header.slice(i, i_end));
+				const value = decodeURIComponent(cookie_header.slice(i, i_end));
 				super.set(name, value);
 				i = i_end + 2; // skip the '; ' delimiter
 			}
@@ -163,7 +163,7 @@ export class Cookies extends Map<string, string>
 
 	delete(name: string)
 	{	this.init();
-		let str = encode_cookie(name, COOKIE_NAME_MASK)+'=deleted; Expires=Sat, 01 Jan 2000 00:00:00 GMT; Max-Age=0';
+		const str = encode_cookie(name, COOKIE_NAME_MASK)+'=deleted; Expires=Sat, 01 Jan 2000 00:00:00 GMT; Max-Age=0';
 		this.headers.set(name, str);
 		return super.delete(name);
 	}

@@ -4,12 +4,13 @@ import {AbortedError, TerminatedError, ProtocolError} from '../error.ts';
 import {TEST_CHUNK_SIZES, get_random_bytes, get_random_string, map_to_obj, MockListener, MockFcgiConn, MockConn} from './mock/mod.ts';
 import {writeAll, readAll} from '../deps.ts';
 import {assert, assertEquals} from "https://deno.land/std@0.135.0/testing/asserts.ts";
-import {sleep} from "https://deno.land/x/sleep@v1.2.0/mod.ts";
 
-function *test_connections(only_chunk_sizes?: number[], full_split_stream_records=false): Generator<MockFcgiConn>
-{	for (let chunk_size of only_chunk_sizes || TEST_CHUNK_SIZES)
+function *test_connections(only_chunk_sizes?: number[], full_split_stream_records=false): Generator<[MockListener, MockFcgiConn]>
+{	for (const chunk_size of only_chunk_sizes || TEST_CHUNK_SIZES)
 	{	for (let i=0; i<4; i++)
-		{	yield new MockFcgiConn(chunk_size, i%2==0 ? chunk_size%9 : -1, i<2 ? 'no' : full_split_stream_records ? 'full' : 'yes');
+		{	const listener = new MockListener;
+			const conn = listener.pend_accept(chunk_size, i%2==0 ? chunk_size%9 : -1, i<2 ? 'no' : full_split_stream_records ? 'full' : 'yes')
+			yield [listener, conn];
 		}
 	}
 }
@@ -21,9 +22,8 @@ Deno.test
 		{	HELLO: 'all',
 			SERVER_PROTOCOL: 'HTTP/2'
 		};
-		for (let conn of test_connections())
-		{	let listener = new MockListener([conn]);
-			let server = new Server(listener);
+		for (const [listener, conn] of test_connections())
+		{	const server = new Server(listener);
 			let server_error;
 			server.onError(e => {console.error(e); server_error = e});
 			// write
@@ -31,7 +31,7 @@ Deno.test
 			conn.pend_read_fcgi_params(1, PARAMS);
 			conn.pend_read_fcgi_stdin(1, 'Body');
 			// accept
-			for await (let req of server)
+			for await (const req of server)
 			{	assertEquals(map_to_obj(req.params), PARAMS);
 				assertEquals(req.proto, 'HTTP/2');
 				assertEquals(req.protoMajor, 2);
@@ -68,20 +68,19 @@ Deno.test
 Deno.test
 (	'Basic request 2, no params',
 	async () =>
-	{	for (let conn of test_connections())
-		{	let listener = new MockListener([conn]);
-			let server = new Server(listener);
+	{	for (const [listener, conn] of test_connections())
+		{	const server = new Server(listener);
 			let server_error;
 			server.onError(e => {console.error(e); server_error = e});
 			// write
 			conn.pend_read_fcgi_begin_request(1, 'responder', true);
 			conn.pend_read_fcgi_stdin(1, 'Body');
 			// accept
-			for await (let req of server)
+			for await (const req of server)
 			{	assertEquals(req.params.size, 0);
 				assertEquals(server.nConnections(), 1);
 				assertEquals(server.nRequests(), 1);
-				let body = new TextEncoder().encode('Response body');
+				const body = new TextEncoder().encode('Response body');
 				req.responseStatus = 500;
 				await req.respond({body});
 				server.removeListeners();
@@ -105,9 +104,8 @@ Deno.test
 		{	HELLO: 'all',
 			SERVER_PROTOCOL: 'HTTP/3.4'
 		};
-		for (let conn of test_connections())
-		{	let listener = new MockListener([conn]);
-			let server = new Server(listener);
+		for (const [listener, conn] of test_connections())
+		{	const server = new Server(listener);
 			let server_error;
 			server.onError(e => {console.error(e); server_error = e});
 			// write
@@ -115,14 +113,14 @@ Deno.test
 			conn.pend_read_fcgi_params(1, PARAMS);
 			conn.pend_read_fcgi_stdin(1, '\r\n');
 			// accept
-			for await (let req of server)
+			for await (const req of server)
 			{	assertEquals(map_to_obj(req.params), PARAMS);
 				assertEquals(req.proto, 'HTTP/3.4');
 				assertEquals(req.protoMajor, 3);
 				assertEquals(req.protoMinor, 4);
 				assertEquals(new TextDecoder().decode(await readAll(req.body)), '\r\n');
 				assertEquals(server.nConnections(), 1);
-				let body = new MockConn('Response body');
+				const body = new MockConn('Response body');
 				await req.respond({body, status: 404});
 				server.removeListeners();
 			}
@@ -156,9 +154,8 @@ Deno.test
 			`World\r\n`+
 			`--------------------------bb61988d15b5a62e--\r\n`
 		);
-		for (let conn of test_connections())
-		{	let listener = new MockListener([conn]);
-			let server = new Server(listener);
+		for (const [listener, conn] of test_connections())
+		{	const server = new Server(listener);
 			let server_error;
 			server.onError(e => {console.error(e); server_error = e});
 			// write
@@ -166,7 +163,7 @@ Deno.test
 			conn.pend_read_fcgi_params(1, PARAMS);
 			conn.pend_read_fcgi_stdin(1, POST);
 			// accept
-			for await (let req of server)
+			for await (const req of server)
 			{	assertEquals(map_to_obj(req.params), PARAMS);
 				assertEquals(req.proto, '');
 				assertEquals(req.protoMajor, 0);
@@ -176,7 +173,7 @@ Deno.test
 				assertEquals([...req.get.entries()], [['a', '1'], ['b', '2'], ['c', '']]);
 				assertEquals([...req.get.keys()], ['a', 'b', 'c']);
 				assertEquals([...req.get.values()], ['1', '2', '']);
-				let get_entries: [string, PathNode][] = [];
+				const get_entries = new Array<[string, PathNode]>;
 				req.get.forEach
 				(	(v: PathNode, k: string, map: Map<string, PathNode>) =>
 					{	assertEquals(map, req.get);
@@ -223,9 +220,8 @@ Deno.test
 		{	HELLO: 'all',
 			SERVER_PROTOCOL: 'HELLO.'
 		};
-		for (let conn of test_connections())
-		{	let listener = new MockListener([conn]);
-			let server = new Server(listener);
+		for (const [listener, conn] of test_connections())
+		{	const server = new Server(listener);
 			let server_error;
 			server.onError(e => {console.error(e); server_error = e});
 			// write
@@ -233,7 +229,7 @@ Deno.test
 			conn.pend_read_fcgi_params(1, PARAMS);
 			conn.pend_read_fcgi_stdin(1, 'Body');
 			// accept
-			for await (let req of server)
+			for await (const req of server)
 			{	assertEquals(map_to_obj(req.params), PARAMS);
 				assertEquals(req.proto, 'HELLO.');
 				assertEquals(req.protoMajor, 0);
@@ -257,9 +253,8 @@ Deno.test
 Deno.test
 (	'Cookies',
 	async () =>
-	{	for (let conn of test_connections())
-		{	let listener = new MockListener([conn]);
-			let server = new Server(listener);
+	{	for (const [listener, conn] of test_connections())
+		{	const server = new Server(listener);
 			let server_error;
 			server.onError(e => {console.error(e); server_error = e});
 			// write
@@ -267,7 +262,7 @@ Deno.test
 			conn.pend_read_fcgi_params(1, {HTTP_COOKIE: 'coo-1= val <1> ; coo-2=val <2>.'});
 			conn.pend_read_fcgi_stdin(1, '');
 			// accept
-			for await (let req of server)
+			for await (const req of server)
 			{	assertEquals(req.cookies.size, 2);
 				assertEquals(req.cookies.get('coo-1'), ' val <1> ');
 				assertEquals(req.cookies.get('coo-2'), 'val <2>.');
@@ -293,9 +288,8 @@ Deno.test
 Deno.test
 (	'Reuse connection',
 	async () =>
-	{	for (let conn of test_connections())
-		{	let listener = new MockListener([conn]);
-			let server = new Server(listener);
+	{	for (const [listener, conn] of test_connections())
+		{	const server = new Server(listener);
 			let server_error;
 			server.onError(e => {console.error(e); server_error = e});
 			// write request 1
@@ -308,7 +302,7 @@ Deno.test
 			conn.pend_read_fcgi_stdin(2, 'Body 2');
 			// accept
 			let i = 1;
-			for await (let req of server)
+			for await (const req of server)
 			{	assertEquals(map_to_obj(req.params), {id: 'req '+i});
 				assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body '+i);
 				assertEquals(server.nConnections(), 1);
@@ -336,9 +330,9 @@ Deno.test
 Deno.test
 (	'Accept',
 	async () =>
-	{	let conn = new MockFcgiConn(1024, -1, 'full');
-		let listener = new MockListener([conn]);
-		let server = new Server(listener);
+	{	const listener = new MockListener;
+		const conn = listener.pend_accept(1024, -1, 'full');
+		const server = new Server(listener);
 		let server_error;
 		server.onError(e => {console.error(e); server_error = e});
 		// write request 1
@@ -350,7 +344,7 @@ Deno.test
 		conn.pend_read_fcgi_params(2, {id: 'req 2'});
 		conn.pend_read_fcgi_stdin(2, 'Body 2');
 		// accept 1
-		let req_promise = server.accept();
+		const req_promise = server.accept();
 		// try accepting simultaneously
 		let error;
 		try
@@ -404,9 +398,8 @@ Deno.test
 Deno.test
 (	'User read error',
 	async () =>
-	{	for (let conn of test_connections())
-		{	let listener = new MockListener([conn]);
-			let server = new Server(listener);
+	{	for (const [listener, conn] of test_connections())
+		{	const server = new Server(listener);
 			let server_error;
 			server.onError(e => {console.error(e); server_error = e});
 			// write request 1
@@ -419,13 +412,13 @@ Deno.test
 			conn.pend_read_fcgi_stdin(2, 'Body 2');
 			// accept
 			let i = 1;
-			for await (let req of server)
+			for await (const req of server)
 			{	assertEquals(map_to_obj(req.params), {id: 'req '+i});
 				assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body '+i);
 				assertEquals(server.nConnections(), 1);
 				assertEquals(server.nRequests(), 1);
 				if (i == 1)
-				{	let body = new MockConn;
+				{	const body = new MockConn;
 					body.close();
 					let error;
 					try
@@ -464,9 +457,8 @@ Deno.test
 	async () =>
 	{	let was_write_error = false;
 		let was_log_error = false;
-		for (let conn of test_connections())
-		{	let listener = new MockListener([conn]);
-			let server = new Server(listener);
+		for (const [listener, conn] of test_connections())
+		{	const server = new Server(listener);
 			let server_error;
 			server.onError(e => {console.error(e); server_error = e});
 			// write request 1 (abort after PARAMS)
@@ -488,7 +480,7 @@ Deno.test
 			conn.pend_read_fcgi_stdin(4, 'Body 4');
 			// accept
 			let i = 1;
-			for await (let req of server)
+			for await (const req of server)
 			{	assertEquals(map_to_obj(req.params), {id: 'req '+i});
 				if (i < 4)
 				{	// try to read POST body
@@ -574,7 +566,7 @@ Deno.test
 			let end_3 = false;
 			while ((rec = conn.take_written_fcgi(3)))
 			{	if (rec.record_type_name == 'STDOUT')
-				{	let tmp = new Uint8Array(stdout_3.length + rec.payload.length);
+				{	const tmp = new Uint8Array(stdout_3.length + rec.payload.length);
 					tmp.set(stdout_3);
 					tmp.set(rec.payload, stdout_3.length);
 					stdout_3 = tmp;
@@ -584,7 +576,7 @@ Deno.test
 					end_3 = true;
 				}
 			}
-			let stdout_3_str = new TextDecoder().decode();
+			const stdout_3_str = new TextDecoder().decode();
 			if (stdout_3_str)
 			{	assertEquals(stdout_3_str, 'status: 200\r\n\r\nResponse body');
 			}
@@ -603,15 +595,15 @@ Deno.test
 Deno.test
 (	'Broken connection',
 	async () =>
-	{	let conn = new MockFcgiConn(21, 0, 'no');
-		let listener = new MockListener([conn]);
-		let server = new Server(listener);
+	{	const listener = new MockListener;
+		const conn = listener.pend_accept(21, 0, 'no');
+		const server = new Server(listener);
 		// write
 		conn.pend_read_fcgi_begin_request(1, 'responder', true);
 		conn.pend_read_fcgi_params(1, {a: '1'});
 		conn.pend_read_fcgi_stdin(1, 'Body 1');
 		// accept
-		for await (let req of server)
+		for await (const req of server)
 		{	assertEquals(map_to_obj(req.params), {a: '1'});
 			conn.close();
 			let error;
@@ -633,15 +625,15 @@ Deno.test
 Deno.test
 (	'Broken connection 2',
 	async () =>
-	{	let conn = new MockFcgiConn(999, 0, 'no');
-		let listener = new MockListener([conn]);
-		let server = new Server(listener);
+	{	const listener = new MockListener;
+		const conn = listener.pend_accept(999, 0, 'no');
+		const server = new Server(listener);
 		// write
 		conn.pend_read_fcgi_begin_request(1, 'responder', true);
 		conn.pend_read_fcgi_params(1, {a: '1'});
 		conn.pend_read_fcgi_stdin(1, '');
 		// accept
-		for await (let req of server)
+		for await (const req of server)
 		{	assertEquals(map_to_obj(req.params), {a: '1'});
 			conn.close();
 			let error;
@@ -663,14 +655,14 @@ Deno.test
 Deno.test
 (	'Broken connection 3',
 	async () =>
-	{	let conn = new MockFcgiConn(999, 0, 'no');
-		let listener = new MockListener([conn]);
-		let server = new Server(listener);
+	{	const listener = new MockListener;
+		const conn = listener.pend_accept(999, 0, 'no');
+		const server = new Server(listener);
 		// write (no stdin)
 		conn.pend_read_fcgi_begin_request(1, 'responder', true);
 		conn.pend_read_fcgi_params(1, {a: '1'});
 		// accept
-		for await (let req of server)
+		for await (const req of server)
 		{	assertEquals(map_to_obj(req.params), {a: '1'});
 			let error;
 			try
@@ -691,15 +683,15 @@ Deno.test
 Deno.test
 (	'Close server',
 	async () =>
-	{	let conn = new MockFcgiConn(999, 0, 'no');
-		let listener = new MockListener([conn]);
-		let server = new Server(listener);
+	{	const listener = new MockListener;
+		const conn = listener.pend_accept(999, 0, 'no');
+		const server = new Server(listener);
 		// write
 		conn.pend_read_fcgi_begin_request(1, 'responder', true);
 		conn.pend_read_fcgi_params(1, {a: '1'});
 		conn.pend_read_fcgi_stdin(1, 'Body 1');
 		// accept
-		for await (let req of server)
+		for await (const req of server)
 		{	assertEquals(map_to_obj(req.params), {a: '1'});
 			server.close();
 			let error;
@@ -728,15 +720,15 @@ Deno.test
 Deno.test
 (	'Close server before yielding a request',
 	async () =>
-	{	let conn = new MockFcgiConn(999, 0, 'no');
-		let listener = new MockListener([conn]);
-		let server = new Server(listener);
+	{	const listener = new MockListener;
+		const conn = listener.pend_accept(999, 0, 'no');
+		const server = new Server(listener);
 		// write
 		conn.pend_read_fcgi_begin_request(1, 'responder', true);
 		conn.pend_read_fcgi_params(1, {a: '1'});
 		conn.pend_read_fcgi_stdin(1, 'Body 1');
 		// accept
-		let promise = server.accept();
+		const promise = server.accept();
 		server.close();
 		let error;
 		try
@@ -755,9 +747,8 @@ Deno.test
 Deno.test
 (	'Write body when terminated',
 	async () =>
-	{	for (let conn of test_connections())
-		{	let listener = new MockListener([conn]);
-			let server = new Server(listener);
+	{	for (const [listener, conn] of test_connections())
+		{	const server = new Server(listener);
 			let server_error;
 			server.onError(e => {console.error(e); server_error = e});
 			// write
@@ -765,7 +756,7 @@ Deno.test
 			conn.pend_read_fcgi_params(2, {});
 			conn.pend_read_fcgi_stdin(2, '');
 			// accept
-			for await (let req of server)
+			for await (const req of server)
 			{	await req.respond();
 				let error;
 				try
@@ -788,9 +779,8 @@ Deno.test
 Deno.test
 (	'Test closeWrite()',
 	async () =>
-	{	for (let conn of test_connections())
-		{	let listener = new MockListener([conn]);
-			let server = new Server(listener);
+	{	for (const [listener, conn] of test_connections())
+		{	const server = new Server(listener);
 			let server_error;
 			server.onError(e => {console.error(e); server_error = e});
 			// write
@@ -798,7 +788,7 @@ Deno.test
 			conn.pend_read_fcgi_params(3, {a: '1'});
 			conn.pend_read_fcgi_stdin(3, 'Hello');
 			// accept
-			for await (let req of server)
+			for await (const req of server)
 			{	req.closeWrite();
 				assertEquals(map_to_obj(req.params), {a: '1'});
 				assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Hello');
@@ -823,10 +813,10 @@ Deno.test
 Deno.test
 (	'Protocol error',
 	async () =>
-	{	let conn_1 = new MockFcgiConn(999, 0, 'no');
-		let conn_2 = new MockFcgiConn(999, 0, 'no');
-		let listener = new MockListener([conn_1, conn_2]);
-		let server = new Server(listener);
+	{	const listener = new MockListener;
+		const conn_1 = listener.pend_accept(999, 0, 'no');
+		const conn_2 = listener.pend_accept(999, 0, 'no');
+		const server = new Server(listener);
 		let server_error: Error | undefined;
 		server.onError(e => {server_error = e});
 		// write request 1 (protocol error)
@@ -837,7 +827,7 @@ Deno.test
 		conn_2.pend_read_fcgi_params(1, {id: 'req 2'});
 		conn_2.pend_read_fcgi_stdin(1, 'Body 2');
 		// accept
-		for await (let req of server)
+		for await (const req of server)
 		{	assert(server_error instanceof ProtocolError);
 			server_error = undefined;
 			assertEquals(map_to_obj(req.params), {id: 'req 2'});
@@ -859,10 +849,10 @@ Deno.test
 Deno.test
 (	'Protocol error + onerror throws Error',
 	async () =>
-	{	let conn_1 = new MockFcgiConn(999, 0, 'no');
-		let conn_2 = new MockFcgiConn(999, 0, 'no');
-		let listener = new MockListener([conn_1, conn_2]);
-		let server = new Server(listener);
+	{	const listener = new MockListener;
+		const conn_1 = listener.pend_accept(999, 0, 'no');
+		const conn_2 = listener.pend_accept(999, 0, 'no');
+		const server = new Server(listener);
 		let server_error: Error | undefined;
 		server.onError(e => {server_error = e});
 		// write request 1 (protocol error)
@@ -873,7 +863,7 @@ Deno.test
 		conn_2.pend_read_fcgi_params(1, {id: 'req 2'});
 		conn_2.pend_read_fcgi_stdin(1, 'Body 2');
 		// accept
-		for await (let req of server)
+		for await (const req of server)
 		{	assertEquals(map_to_obj(req.params), {id: 'req 2'});
 			assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body 2');
 			await req.respond({body: 'Hello'});
@@ -893,12 +883,11 @@ Deno.test
 Deno.test
 (	'Params: maxNameLength',
 	async () =>
-	{	for (let maxNameLength of [1, 2, 3, 8*1024, 0xFFF8, 0xFFFF])
-		{	for (let conn of test_connections([2, 12, 13]))
-			{	let str_err = get_random_string(maxNameLength+1);
-				let str_ok = str_err.slice(0, -1);
-				let listener = new MockListener([conn]);
-				let server = new Server(listener, {maxNameLength});
+	{	for (const maxNameLength of [1, 2, 3, 8*1024, 0xFFF8, 0xFFFF])
+		{	for (const [listener, conn] of test_connections([2, 12, 13]))
+			{	const str_err = get_random_string(maxNameLength+1);
+				const str_ok = str_err.slice(0, -1);
+				const server = new Server(listener, {maxNameLength});
 				let server_error;
 				server.onError(e => {console.error(e); server_error = e});
 				// write
@@ -906,7 +895,7 @@ Deno.test
 				conn.pend_read_fcgi_params(1, {[str_ok]: 'ok', [str_err]: 'err'});
 				conn.pend_read_fcgi_stdin(1, '');
 				// accept
-				for await (let req of server)
+				for await (const req of server)
 				{	assertEquals(req.params.size, 1);
 					assertEquals(req.params.get(str_ok), 'ok');
 					assertEquals((await readAll(req.body)).length, 0);
@@ -929,12 +918,11 @@ Deno.test
 Deno.test
 (	'Params: maxValueLength',
 	async () =>
-	{	for (let maxValueLength of [1, 2, 3, 8*1024, 0xFFF8, 0xFFFF])
-		{	for (let conn of test_connections([2, 12, 13]))
-			{	let str_err = get_random_string(maxValueLength+1);
-				let str_ok = str_err.slice(0, -1);
-				let listener = new MockListener([conn]);
-				let server = new Server(listener, {maxValueLength});
+	{	for (const maxValueLength of [1, 2, 3, 8*1024, 0xFFF8, 0xFFFF])
+		{	for (const [listener, conn] of test_connections([2, 12, 13]))
+			{	const str_err = get_random_string(maxValueLength+1);
+				const str_ok = str_err.slice(0, -1);
+				const server = new Server(listener, {maxValueLength});
 				let server_error;
 				server.onError(e => {console.error(e); server_error = e});
 				// write
@@ -942,7 +930,7 @@ Deno.test
 				conn.pend_read_fcgi_params(1, {'ok': str_ok, 'err': str_err});
 				conn.pend_read_fcgi_stdin(1, '');
 				// accept
-				for await (let req of server)
+				for await (const req of server)
 				{	assertEquals(req.params.size, 1);
 					assertEquals(req.params.get('ok'), str_ok);
 					assertEquals((await readAll(req.body)).length, 0);
@@ -965,12 +953,11 @@ Deno.test
 Deno.test
 (	'Long body',
 	async () =>
-	{	for (let len of [1, 2, 3, 8*1024, 8*1024+1, 0xFFF8, 0xFFFF])
-		{	for (let conn of test_connections([2, 12, 13]))
-			{	let str_request = get_random_bytes(len);
-				let str_response = get_random_string(len);
-				let listener = new MockListener([conn]);
-				let server = new Server(listener);
+	{	for (const len of [1, 2, 3, 8*1024, 8*1024+1, 0xFFF8, 0xFFFF])
+		{	for (const [listener, conn] of test_connections([2, 12, 13]))
+			{	const str_request = get_random_bytes(len);
+				const str_response = get_random_string(len);
+				const server = new Server(listener);
 				let server_error;
 				server.onError(e => {console.error(e); server_error = e});
 				// write
@@ -978,7 +965,7 @@ Deno.test
 				conn.pend_read_fcgi_params(1, {});
 				conn.pend_read_fcgi_stdin(1, new TextDecoder().decode(str_request));
 				// accept
-				for await (let req of server)
+				for await (const req of server)
 				{	assertEquals((await readAll(req.body)), str_request);
 					if (len==1 || len==0xFFF8)
 					{	req.logError('Hello');
@@ -1008,12 +995,12 @@ Deno.test
 Deno.test
 (	'Long body write',
 	async () =>
-	{	let len = 8*1024+1;
-		for (let padding of [-1, 1])
-		{	let conn = new MockFcgiConn(999, padding, 'no');
-			let str_response = get_random_string(len);
-			let listener = new MockListener([conn]);
-			let server = new Server(listener);
+	{	const len = 8*1024+1;
+		for (const padding of [-1, 1])
+		{	const str_response = get_random_string(len);
+			const listener = new MockListener;
+			const conn = listener.pend_accept(999, padding, 'no');
+			const server = new Server(listener);
 			let server_error;
 			server.onError(e => {console.error(e); server_error = e});
 			// write
@@ -1021,7 +1008,7 @@ Deno.test
 			conn.pend_read_fcgi_params(1, {});
 			conn.pend_read_fcgi_stdin(1, '');
 			// accept
-			for await (let req of server)
+			for await (const req of server)
 			{	writeAll(req, new TextEncoder().encode(str_response));
 				await req.respond();
 				server.removeListeners();
@@ -1041,9 +1028,8 @@ Deno.test
 Deno.test
 (	'Log error',
 	async () =>
-	{	for (let conn of test_connections())
-		{	let listener = new MockListener([conn]);
-			let server = new Server(listener);
+	{	for (const [listener, conn] of test_connections())
+		{	const server = new Server(listener);
 			let server_error;
 			server.onError(e => {console.error(e); server_error = e});
 			// write
@@ -1051,7 +1037,7 @@ Deno.test
 			conn.pend_read_fcgi_params(2, {});
 			conn.pend_read_fcgi_stdin(2, '');
 			// accept
-			for await (let req of server)
+			for await (const req of server)
 			{	assertEquals(req.params.size, 0);
 				req.logError('Hello');
 				await req.respond();
@@ -1075,9 +1061,8 @@ Deno.test
 (	'Get values',
 	async () =>
 	{	const maxConns = 10;
-		for (let conn of test_connections())
-		{	let listener = new MockListener([conn]);
-			let server = new Server(listener, {maxConns});
+		for (const [listener, conn] of test_connections())
+		{	const server = new Server(listener, {maxConns});
 			let server_error;
 			server.onError(e => {console.error(e); server_error = e});
 			// write
@@ -1086,7 +1071,7 @@ Deno.test
 			conn.pend_read_fcgi_params(1, {a: '1'});
 			conn.pend_read_fcgi_stdin(1, 'Body');
 			// accept
-			for await (let req of server)
+			for await (const req of server)
 			{	assertEquals(map_to_obj(req.params), {a: '1'});
 				await req.respond();
 				server.removeListeners();
@@ -1107,9 +1092,9 @@ Deno.test
 Deno.test
 (	'Roles',
 	async () =>
-	{	let conn = new MockFcgiConn(999, 0, 'no');
-		let listener = new MockListener([conn]);
-		let server = new Server(listener);
+	{	const listener = new MockListener;
+		const conn = listener.pend_accept(999, 0, 'no');
+		const server = new Server(listener);
 		// write
 		conn.pend_read_fcgi_begin_request(1, 'authorizer', true);
 		conn.pend_read_fcgi_params(1, {a: '1'});
@@ -1118,7 +1103,7 @@ Deno.test
 		conn.pend_read_fcgi_params(2, {a: '2'});
 		conn.pend_read_fcgi_stdin(2, 'Body 2');
 		// accept
-		for await (let req of server)
+		for await (const req of server)
 		{	assertEquals(map_to_obj(req.params), {a: '2'});
 			assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body 2');
 			await req.respond();
@@ -1138,9 +1123,9 @@ Deno.test
 Deno.test
 (	'Try mux, abort unexisting and unknown type',
 	async () =>
-	{	let conn = new MockFcgiConn(999, 0, 'no');
-		let listener = new MockListener([conn]);
-		let server = new Server(listener);
+	{	const listener = new MockListener;
+		const conn = listener.pend_accept(999, 0, 'no');
+		const server = new Server(listener);
 		// write
 		conn.pend_read_fcgi_begin_request(1, 'responder', true);
 		conn.pend_read_fcgi_begin_request(2, 'responder', true);
@@ -1149,7 +1134,7 @@ Deno.test
 		conn.pend_read_fcgi_params(1, {a: '1'});
 		conn.pend_read_fcgi_stdin(1, 'Body 1');
 		// accept
-		for await (let req of server)
+		for await (const req of server)
 		{	assertEquals(map_to_obj(req.params), {a: '1'});
 			assertEquals(new TextDecoder().decode(await readAll(req.body)), 'Body 1');
 			await req.respond();
@@ -1176,20 +1161,20 @@ Deno.test
 		const multiplier = 10;
 		const multiplier_2 = 2;
 		assert(maxConns*multiplier*multiplier_2 < 0xFFFF); // request id is 16-bit unsigned, starts from 1 (0 is reserved)
-		let listeners: {listener: MockListener, conns: MockFcgiConn[]}[] = [{listener: new MockListener, conns: []}];
-		let server = new Server(listeners[0].listener, {maxConns});
+		const listeners: {listener: MockListener, conns: MockFcgiConn[]}[] = [{listener: new MockListener, conns: []}];
+		const server = new Server(listeners[0].listener, {maxConns});
 		// write
 		for (let l=0; l<n_listeners; l++)
 		{	if (!listeners[l])
 			{	listeners[l] = {listener: new MockListener, conns: []};
 				server.addListener(listeners[l].listener);
 			}
-			let {listener, conns} = listeners[l];
+			const {listener, conns} = listeners[l];
 			for (let i=0; i<maxConns*multiplier; i++)
-			{	let conn = listener.pend_accept(1024, -1, 'full');
+			{	const conn = listener.pend_accept(1024, -1, 'full');
 				conns[i] = conn;
 				for (let j=0; j<multiplier_2; j++)
-				{	let req_id = 1 + j*maxConns*multiplier + i;
+				{	const req_id = 1 + j*maxConns*multiplier + i;
 					conn.pend_read_fcgi_begin_request(req_id, 'responder', true);
 					conn.pend_read_fcgi_params(req_id, {l: l+'', id: `req ${req_id}`});
 					conn.pend_read_fcgi_stdin(req_id, `Body ${l}.${req_id}`);
@@ -1200,16 +1185,16 @@ Deno.test
 		assert(!server.addListener(listeners[0].listener));
 		// accept
 		let i = 0;
-		for await (let req of server)
+		for await (const req of server)
 		{	readAll(req.body).then
 			(	async body =>
 				{	assertEquals(req.params.size, 2);
-					let l = req.params.get('l');
+					const l = req.params.get('l');
 					let req_id = req.params.get('id');
 					assertEquals(req_id?.slice(0, 4), 'req ');
 					req_id = req_id!.slice(4);
 					assertEquals(new TextDecoder().decode(body), `Body ${l}.${req_id}`);
-					await sleep(0);
+					await new Promise(y => setTimeout(y, 0));
 					await req.respond({body: `Response ${l}.${req_id}`});
 					assert(server.nConnections() <= Math.max(maxConns, n_listeners));
 					assert(server.nRequests() <= Math.max(maxConns, n_listeners));
@@ -1224,9 +1209,9 @@ Deno.test
 		// read
 		for (let l=0; l<n_listeners; l++)
 		{	for (let i=0; i<maxConns*multiplier; i++)
-			{	let conn = listeners[l].conns[i];
+			{	const conn = listeners[l].conns[i];
 				for (let j=0; j<multiplier_2; j++)
-				{	let req_id = 1 + j*maxConns*multiplier + i;
+				{	const req_id = 1 + j*maxConns*multiplier + i;
 					assertEquals(conn.take_written_fcgi_stdout(req_id), `status: 200\r\n\r\nResponse ${l}.${req_id}`);
 					assertEquals(conn.take_written_fcgi_end_request(req_id), 'request_complete');
 				}

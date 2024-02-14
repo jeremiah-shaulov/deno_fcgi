@@ -1,16 +1,16 @@
 export class EventPromises<T>
-{	private events: EventPromise<T>[] = [];
+{	private events = new Array<EventPromise<T>>;
 
 	add(callback?: (arg: T) => unknown)
 	{	let resolve, reject;
-		let promise = new Promise<void>((y, n) => {resolve=y; reject=n});
+		const promise = new Promise<void>((y, n) => {resolve=y; reject=n});
 		this.events.push(new EventPromise(callback, resolve, reject));
 		return promise;
 	}
 
 	remove(callback: (arg: T) => unknown)
 	{	for (let i=0, i_end=this.events.length; i<i_end; i++)
-		{	let event = this.events[i];
+		{	const event = this.events[i];
 			if (event.callback == callback)
 			{	this.events.splice(i, 1);
 				event.resolve?.();
@@ -21,8 +21,8 @@ export class EventPromises<T>
 
 	trigger(arg: T)
 	{	for (let i=0, i_end=this.events.length; i<i_end; i++)
-		{	let event = this.events[i];
-			let {callback, resolve, reject} = event;
+		{	const event = this.events[i];
+			const {callback, resolve, reject} = event;
 			event.resolve = undefined;
 			event.reject = undefined;
 			if (!callback)
@@ -32,7 +32,7 @@ export class EventPromises<T>
 			}
 			else
 			{	try
-				{	let result = callback(arg);
+				{	const result = callback(arg);
 					if (resolve)
 					{	if (result instanceof Promise)
 						{	result.then(resolve, reject);
@@ -51,7 +51,7 @@ export class EventPromises<T>
 	}
 
 	clear()
-	{	for (let event of this.events)
+	{	for (const event of this.events)
 		{	event.resolve?.();
 		}
 		this.events.length = 0;
