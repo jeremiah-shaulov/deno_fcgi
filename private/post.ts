@@ -164,7 +164,7 @@ L:		while (true)
 			// 2. Read param name (if S_NAME) or value (if S_VALUE)
 			const str = decodeURIComponent(decoder.decode(buffer.subarray(buffer_start, i)));
 			buffer_start = i + 1; // after '=' or '&'
-			if (buffer[i] === EQ)
+			if (i<buffer_end && buffer[i]===EQ)
 			{	debug_assert(state == S_NAME); // i didn't look for EQ in S_VALUE state
 				name = str;
 				state = S_VALUE;
