@@ -187,6 +187,9 @@ export class Client
 		{	if (name == 'content-type')
 			{	params.set('CONTENT_TYPE', value);
 			}
+			else if (name == 'content-length')
+			{	params.set('CONTENT_LENGTH', value);
+			}
 			else
 			{	params.set('HTTP_'+name.replaceAll('-', '_').toUpperCase(), value);
 			}
