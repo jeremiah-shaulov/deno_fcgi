@@ -24,6 +24,9 @@ const EOF_MARK = new Uint8Array;
 
 const RE_CHARSET = /;\s*charset\s*=\s*\"?([^";]+)/;
 
+// deno-lint-ignore no-explicit-any
+type Any = any;
+
 export interface ClientOptions
 {	maxConns?: number,
 	connectTimeout?: number,
@@ -56,7 +59,7 @@ export interface RequestOptions
 export class ResponseWithCookies extends Response
 {	#charset: string|undefined;
 
-	constructor(public body: RdStream|null, init?: ResponseInit|undefined, public cookies = new SetCookies)
+	constructor(public override body: RdStream|null, init?: ResponseInit|undefined, public cookies = new SetCookies)
 	{	super(body, init);
 	}
 
@@ -74,7 +77,7 @@ export class ResponseWithCookies extends Response
 		return this.#charset;
 	}
 
-	text()
+	override text()
 	{	return !this.body ? Promise.resolve('') : this.body.text(this.charset || undefined);
 	}
 
@@ -206,7 +209,7 @@ export class Client
 				{	await conn.write_request(params, input.body, conn_type!=CONN_TYPE_INTERNAL_NO_REUSE);
 				}
 				catch (e)
-				{	if (conn_type==CONN_TYPE_INTERNAL_REUSE && e.name=='BrokenPipe')
+				{	if (conn_type==CONN_TYPE_INTERNAL_REUSE && (e instanceof Error) && e.name=='BrokenPipe')
 					{	// unset "no_reuse_connection_since" for this "server_addr_str"
 						conn_type = CONN_TYPE_INTERNAL_NO_REUSE;
 						this.return_conn(server_addr_str, conn, conn_type);
@@ -361,7 +364,7 @@ export class Client
 			else
 			{	conn = idle.pop();
 				if (!conn)
-				{	conn = new FcgiConn(await connect(server_addr as any, connectTimeout));
+				{	conn = new FcgiConn(await connect(server_addr as Any, connectTimeout));
 				}
 				else if (conn.use_till <= now)
 				{	this.n_idle_all--;
@@ -369,7 +372,7 @@ export class Client
 					{	conn.close();
 					}
 					catch (e)
-					{	this.onerror(e);
+					{	this.onerror(e instanceof Error ? e : new Error(e+''));
 					}
 					continue;
 				}
@@ -414,7 +417,7 @@ export class Client
 			{	conn.close();
 			}
 			catch (e)
-			{	this.onerror(e);
+			{	this.onerror(e instanceof Error ? e : new Error(e+''));
 			}
 		}
 		else
@@ -462,7 +465,7 @@ export class Client
 					{	conn.close();
 					}
 					catch (e)
-					{	this.onerror(e);
+					{	this.onerror(e instanceof Error ? e : new Error(e+''));
 					}
 				}
 			}
@@ -499,7 +502,7 @@ export class Client
 						{	conn.close();
 						}
 						catch (e)
-						{	this.onerror(e);
+						{	this.onerror(e instanceof Error ? e : new Error(e+''));
 						}
 						debug_assert(this.n_idle_all >= 0);
 						if (n_close_idle == 0)
@@ -515,7 +518,7 @@ export class Client
 			{	conn.close();
 			}
 			catch (e)
-			{	this.onerror(e);
+			{	this.onerror(e instanceof Error ? e : new Error(e+''));
 			}
 			debug_assert(this.n_idle_all >= 0);
 		}

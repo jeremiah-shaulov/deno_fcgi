@@ -1,7 +1,7 @@
 import {Client, ResponseWithCookies} from '../client.ts';
 import {RdStream} from '../deps.ts';
 import {MockConn, get_random_string} from './mock/mod.ts';
-import {assertEquals} from 'https://deno.land/std@0.135.0/testing/asserts.ts';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 // deno-lint-ignore require-await
 async function get_mock_response(body: string, chunk_size=10)

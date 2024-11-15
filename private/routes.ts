@@ -1,7 +1,10 @@
 import {ServerRequest} from './server_request.ts';
 import {pathToRegexp} from './deps.ts';
 
-export type Callback = (request: ServerRequest, params: any) => Promise<unknown>;
+// deno-lint-ignore no-explicit-any
+type Any = any;
+
+export type Callback = (request: ServerRequest, params: Any) => Promise<unknown>;
 export type PathPattern = string | string[] | RegExp;
 type Route = {addr_str: string, regexp: RegExp | undefined, param_names: string[], callback: Callback};
 
@@ -13,7 +16,7 @@ export class Routes extends Map<string, Map<string, Route[]>>
 		let param_names = new Array<string>;
 		if (path_pattern)
 		{	const params = new Array<{name: string}>;
-			regexp = pathToRegexp(path_pattern, params as any);
+			regexp = pathToRegexp(path_pattern, params as Any);
 			param_names = params.map(v => v.name);
 			let {source} = regexp;
 			const re_prefix = source.match(/^(?:[^\\\[\](){}<>^$|?+*]|\\[\S\s])*/)![0];
@@ -50,7 +53,7 @@ export class Routes extends Map<string, Map<string, Route[]>>
 								else
 								{	const m = path.match(regexp);
 									if (m)
-									{	const params: any = {};
+									{	const params: Any = {};
 										for (let i=0, i_end=param_names.length; i<i_end; i++)
 										{	params[param_names[i]] = m[i+1];
 										}

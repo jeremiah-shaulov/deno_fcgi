@@ -6,7 +6,7 @@
 	I'll try to update this file to keep them compatible.
  **/
 
-interface Reader
+export interface Reader
 {	/** Reads up to `p.byteLength` bytes into `p`. It resolves to the number of
 	 * bytes read (`0` < `n` <= `p.byteLength`) and rejects if any error
 	 * encountered. Even if `read()` resolves to `n` < `p.byteLength`, it may
@@ -74,7 +74,7 @@ export interface Conn extends Reader, Writer, Closer, Disposable
 	 * {@link https://docs.deno.com/runtime/manual/advanced/migrate_deprecations | Deno 1.x to 2.x Migration Guide}
 	 * for migration instructions.
 	 */
-	readonly rid: number;
+	readonly rid?: number;
 	/** Shuts down (`shutdown(2)`) the write side of the connection. Most
 	 * callers should just use `close()`. */
 	closeWrite(): Promise<void>;
@@ -104,7 +104,7 @@ export interface Listener extends AsyncIterable<Conn>
 	readonly addr: Deno.Addr;
 
 	/** Return the rid of the `Listener`. */
-	readonly rid: number;
+	readonly rid?: number;
 
 	[Symbol.asyncIterator](): AsyncIterableIterator<Conn>;
 }

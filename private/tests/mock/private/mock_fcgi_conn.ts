@@ -1,8 +1,8 @@
 import {MockConn} from './mock_conn.ts';
 import {MockListener} from './mock_listener.ts';
-import {Server} from "../../../server.ts";
-import {pack_nvp} from "../../../server_request.ts";
-import {assertEquals} from "https://deno.land/std@0.135.0/testing/asserts.ts";
+import {Server} from '../../../server.ts';
+import {pack_nvp} from '../../../server_request.ts';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 const FCGI_BEGIN_REQUEST      =  1;
 const FCGI_ABORT_REQUEST      =  2;
@@ -29,6 +29,9 @@ const FCGI_KEEP_CONN          =  1;
 
 const RECORD_TYPE_NAMES = ['', 'BEGIN_REQUEST', 'ABORT_REQUEST', 'END_REQUEST', 'PARAMS', 'STDIN', 'STDOUT', 'STDERR', 'DATA', 'GET_VALUES', 'GET_VALUES_RESULT', 'UNKNOWN_TYPE'];
 const PROTOCOL_STATUSES = ['request_complete', 'cant_mpx_conn', 'overloaded', 'unknown_role'];
+
+// deno-lint-ignore no-explicit-any
+type Any = any;
 
 export class MockFcgiConn extends MockConn
 {	private written_pos = new Map<number, number>();
@@ -81,7 +84,7 @@ export class MockFcgiConn extends MockConn
 		this.pend_read_fcgi(FCGI_BEGIN_REQUEST, request_id, payload);
 	}
 
-	pend_read_fcgi_params(request_id: number, params: any, is_get_values=false)
+	pend_read_fcgi_params(request_id: number, params: Any, is_get_values=false)
 	{	const record_type = is_get_values ? FCGI_GET_VALUES : FCGI_PARAMS;
 		const data = pack_nvp(record_type, request_id, new Map(Object.entries(params)), 0x7FFF_FFFF, 0x7FFF_FFFF);
 		if (data.length > 8)
@@ -125,7 +128,7 @@ export class MockFcgiConn extends MockConn
 		}
 	}
 
-	pend_read_fcgi_get_values(params: any)
+	pend_read_fcgi_get_values(params: Any)
 	{	this.pend_read_fcgi_params(0, params, true);
 	}
 
@@ -293,7 +296,7 @@ export class MockFcgiConn extends MockConn
 		return params;
 	}
 
-	toString()
+	override toString()
 	{	let str = '';
 		for (const data of [this.read_data, this.get_written()])
 		{	if (data!=this.read_data && data.length)

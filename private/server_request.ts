@@ -171,7 +171,7 @@ export class ServerRequest implements Conn
 	)
 	{	this.localAddr = conn.localAddr;
 		this.remoteAddr = conn.remoteAddr;
-		this.rid = conn.rid;
+		this.rid = conn.rid ?? 0;
 		this.buffer = buffer ?? new Uint8Array(BUFFER_LEN);
 		this.post = new Post(this, onerror);
 	}
@@ -283,7 +283,7 @@ export class ServerRequest implements Conn
 						{	await copy(body, this);
 						}
 						catch (e)
-						{	read_error = e; // if it was write error, it is expected to happen again when writing the final packet (at `await ongoing_write`)
+						{	read_error = e instanceof Error ? e : new Error(e+''); // if it was write error, it is expected to happen again when writing the final packet (at `await ongoing_write`)
 						}
 						this.write_stdout(this.buffer.subarray(0, 0), FCGI_STDOUT, true);
 					}
@@ -370,7 +370,7 @@ export class ServerRequest implements Conn
 				}
 				catch (e)
 				{	if (!ignore_error)
-					{	this.onerror(e);
+					{	this.onerror(e instanceof Error ? e : new Error(e+''));
 					}
 				}
 				cur.ongoing_write = undefined;
@@ -439,7 +439,7 @@ export class ServerRequest implements Conn
 				{	throw e;
 				}
 				if (!this.is_terminated)
-				{	this.onerror(e);
+				{	this.onerror(e instanceof Error ? e : new Error(e+''));
 				}
 				n_read = null;
 			}
@@ -583,7 +583,7 @@ export class ServerRequest implements Conn
 							{	headers_and_cookies.headers.set(name.slice(5).replaceAll('_', '-'), str);
 							}
 							catch (e)
-							{	this.onerror(e);
+							{	this.onerror(e instanceof Error ? e : new Error(e+''));
 							}
 							if (name == 'HTTP_COOKIE')
 							{	headers_and_cookies.cookies.setHeader(str);
@@ -993,10 +993,10 @@ export class ServerRequest implements Conn
 		}
 		catch (e)
 		{	if (store_error_dont_print)
-			{	this.last_error = e;
+			{	this.last_error = e instanceof Error ? e : new Error(e+'');
 			}
 			else
-			{	this.onerror(e);
+			{	this.onerror(e instanceof Error ? e : new Error(e+''));
 			}
 			await this.do_close(true);
 			this.is_polling_request = false;
@@ -1052,7 +1052,7 @@ function set_record_stdout(buffer: Uint8Array, offset: number, record_type: numb
 	return buffer;
 }
 
-export function pack_nvp(record_type: number, request_id: number, value: Map<string, string>, maxNameLength: number, maxValueLength: number): Uint8Array
+export function pack_nvp(record_type: number, request_id: number, value: Map<string, string>, _maxNameLength: number, _maxValueLength: number): Uint8Array
 {	debug_assert(record_type==FCGI_GET_VALUES_RESULT || record_type==FCGI_GET_VALUES || record_type==FCGI_PARAMS);
 
 	let all = new Uint8Array(BUFFER_LEN/2);

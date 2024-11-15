@@ -10,6 +10,9 @@ import {EventPromises} from './event_promises.ts';
 
 const DEFAULT_404_PAGE = 'Resource not found';
 
+// deno-lint-ignore no-explicit-any
+type Any = any;
+
 /**	If the default instance of this class (`fcgi`) is not enough, you can create another `Fcgi` instance with it's own connection pool and maybe with different configuration.
  **/
 export class Fcgi
@@ -83,7 +86,7 @@ export class Fcgi
 			{	listener = Deno.listen({transport: 'tcp', port: addr.port, hostname: addr.hostname});
 			}
 			else if (addr.transport == 'unix')
-			{	listener = Deno.listen({transport: 'unix', path: addr.path} as any); // "as any" in order to avoid requireing --unstable
+			{	listener = Deno.listen({transport: 'unix', path: addr.path} as Any); // "as any" in order to avoid requireing --unstable
 			}
 			else
 			{	throw new Error('Can only listen to tcp/unix');
@@ -109,13 +112,13 @@ export class Fcgi
 										{	await callback(request, params);
 										}
 										catch (e)
-										{	this.onerror.trigger(e);
+										{	this.onerror.trigger(e instanceof Error ? e : new Error(e+''));
 											if (!request.isTerminated())
 											{	try
 												{	await request.respond({status: 500, body: ''});
 												}
 												catch (e2)
-												{	this.onerror.trigger(e2);
+												{	this.onerror.trigger(e2 instanceof Error ? e2 : new Error(e2+''));
 												}
 											}
 										}
@@ -129,7 +132,7 @@ export class Fcgi
 						}
 					}
 					catch (e)
-					{	this.onerror.trigger(e);
+					{	this.onerror.trigger(e instanceof Error ? e : new Error(e+''));
 					}
 					server.removeListeners();
 					this.routes.clear();

@@ -4,7 +4,11 @@ import {ProtocolError} from '../error.ts';
 import {map_to_obj, MockListener, MockFcgiConn, get_random_string} from './mock/mod.ts';
 import {SERVER_SOFTWARE, RequestOptions} from '../client.ts';
 import {RECYCLE_REQUEST_ID_AFTER} from '../fcgi_conn.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.135.0/testing/asserts.ts";
+import {assert} from 'jsr:@std/assert@1.0.7/assert';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
+
+// deno-lint-ignore no-explicit-any
+type Any = any;
 
 Deno.test
 (	'Basic',
@@ -359,7 +363,7 @@ Deno.test
 	{	const N_REQUESTS = 4;
 		const SET_COOKIE_OPTIONS = {domain: 'example.com', path: '/', httpOnly: true, secure: true, sameSite: 'None'};
 		let server_error;
-		const onerror = (e: any) => {console.error(e); server_error = e};
+		const onerror = (e: Any) => {console.error(e); server_error = e};
 		fcgi.onError(onerror);
 		// accept
 		let n_accepted = 0;

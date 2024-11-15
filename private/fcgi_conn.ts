@@ -1,5 +1,5 @@
 import {debug_assert} from './debug_assert.ts';
-import {Conn} from './deno_ifaces.ts';
+import {Conn, Reader} from './deno_ifaces.ts';
 import {pack_nvp} from "./server_request.ts";
 import {Server} from "./server.ts";
 import {SetCookies} from "./set_cookies.ts";
@@ -84,7 +84,7 @@ export class FcgiConn
 		await this.write_record_stdin(this.request_id, this.buffer_8.subarray(0, 0), true);
 	}
 
-	get_response_reader(): Deno.Reader
+	get_response_reader(): Reader
 	{	let headers_read = false;
 		let headers_buffer: Uint8Array | undefined;
 		let headers_buffer_len = 0;

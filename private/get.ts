@@ -1,12 +1,15 @@
 import {StructuredMap, PathNode} from "./structured_map.ts";
 
+// deno-lint-ignore no-explicit-any
+type Any = any;
+
 export class Get extends StructuredMap
 {	private is_inited = false;
 
 	constructor
 	(	private query_string='',
 		/// Parse params like "items[]=a&items[]=b" and "items[a][b]=c" to Map objects, like PHP does.
-		public structuredParams = false,
+		public override structuredParams = false,
 	)
 	{	super(structuredParams);
 	}
@@ -17,12 +20,12 @@ export class Get extends StructuredMap
 		super.clear();
 	}
 
-	get size()
+	override get size()
 	{	this.init();
 		return super.size;
 	}
 
-	clear()
+	override clear()
 	{	this.setQueryString('');
 	}
 
@@ -53,47 +56,47 @@ export class Get extends StructuredMap
 		}
 	}
 
-	has(name: string)
+	override has(name: string)
 	{	this.init();
 		return super.has(name);
 	}
 
-	get(name: string)
+	override get(name: string)
 	{	this.init();
 		return super.get(name);
 	}
 
-	set(name: string, value: string)
+	override set(name: string, value: string)
 	{	this.init();
 		return super.set(name, value);
 	}
 
-	delete(name: string)
+	override delete(name: string)
 	{	this.init();
 		return super.delete(name);
 	}
 
-	entries()
+	override entries()
 	{	this.init();
 		return super.entries();
 	}
 
-	keys()
+	override keys()
 	{	this.init();
 		return super.keys();
 	}
 
-	values()
+	override values()
 	{	this.init();
 		return super.values();
 	}
 
-	forEach(callback: (value: PathNode, key: string, map: Map<string, PathNode>) => void, thisArg?: any)
+	override forEach(callback: (value: PathNode, key: string, map: Map<string, PathNode>) => void, thisArg?: Any)
 	{	this.init();
 		return super.forEach(callback, thisArg);
 	}
 
-	[Symbol.iterator]()
+	override [Symbol.iterator]()
 	{	this.init();
 		return super[Symbol.iterator]();
 	}

@@ -1,7 +1,20 @@
-import {Post} from "../post.ts";
+import {Post} from '../post.ts';
 import {TEST_CHUNK_SIZES, get_random_string, map_to_obj, MockConn} from './mock/mod.ts';
-import {exists} from "https://deno.land/std@0.135.0/fs/mod.ts";
-import {assert, assertEquals} from "https://deno.land/std@0.135.0/testing/asserts.ts";
+import {assert} from 'jsr:@std/assert@1.0.7/assert';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
+
+/**	File exists? If yes, return it's `stat`.
+ **/
+export async function exists(filespec: string|URL)
+{	try
+	{	return await Deno.stat(filespec);
+	}
+	catch (e)
+	{	if (!(e instanceof Deno.errors.NotFound))
+		{	throw e;
+		}
+	}
+}
 
 Deno.test
 (	'Urlencoded',
@@ -181,7 +194,7 @@ Deno.test
 
 		for (const chunk_size of TEST_CHUNK_SIZES)
 		{	for (const data of data_arr)
-			{	for (let i of [2, 3, 5, 6])
+			{	for (const i of [2, 3, 5, 6])
 				{	const post = new Post(new MockConn(data, chunk_size), console.error.bind(console), 'multipart/form-data', '----WebKitFormBoundaryAmvtsvCs9WGC03jH', data.length, true, 100, i);
 					assert(await post.parse());
 					if (i == 2)

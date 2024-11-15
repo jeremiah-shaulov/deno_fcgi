@@ -190,7 +190,7 @@ export class Server implements Listener
 					{	ready.close();
 					}
 					catch (e)
-					{	this.onerror(e);
+					{	this.onerror(e instanceof Error ? e : new Error(e+''));
 					}
 				}
 				else

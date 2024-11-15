@@ -1,9 +1,10 @@
-import {PathNode} from "../structured_map.ts";
+import {PathNode} from '../structured_map.ts';
 import {Server} from '../server.ts';
 import {AbortedError, TerminatedError, ProtocolError} from '../error.ts';
 import {TEST_CHUNK_SIZES, get_random_bytes, get_random_string, map_to_obj, MockListener, MockFcgiConn, MockConn} from './mock/mod.ts';
 import {writeAll} from '../deps.ts';
-import {assert, assertEquals} from "https://deno.land/std@0.135.0/testing/asserts.ts";
+import {assert} from 'jsr:@std/assert@1.0.7/assert';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 function *test_connections(only_chunk_sizes?: number[], full_split_stream_records=false): Generator<[MockListener, MockFcgiConn]>
 {	for (const chunk_size of only_chunk_sizes || TEST_CHUNK_SIZES)
@@ -346,12 +347,12 @@ Deno.test
 		// accept 1
 		const req_promise = server.accept();
 		// try accepting simultaneously
-		let error;
+		let error: Error|undefined;
 		try
 		{	await server.accept();
 		}
 		catch (e)
-		{	error = e;
+		{	error = e instanceof Error ? e : new Error(e+'');
 		}
 		assertEquals(error?.message, 'Busy: Another accept task is ongoing');
 		assertEquals(server.nConnections(), 0);
@@ -379,7 +380,7 @@ Deno.test
 		{	await server.accept();
 		}
 		catch (e)
-		{	error = e;
+		{	error = e instanceof Error ? e : new Error(e+'');
 		}
 		assertEquals(error?.message, 'Server shut down');
 		// read
@@ -606,12 +607,12 @@ Deno.test
 		for await (const req of server)
 		{	assertEquals(map_to_obj(req.params), {a: '1'});
 			conn.close();
-			let error;
+			let error: Error|undefined;
 			try
 			{	await req.readable.cancel();
 			}
 			catch (e)
-			{	error = e;
+			{	error = e instanceof Error ? e : new Error(e+'');
 			}
 			assertEquals(error?.message, 'Connection closed');
 			server.removeListeners();
@@ -636,12 +637,12 @@ Deno.test
 		for await (const req of server)
 		{	assertEquals(map_to_obj(req.params), {a: '1'});
 			conn.close();
-			let error;
+			let error: Error|undefined;
 			try
 			{	await req.respond();
 			}
 			catch (e)
-			{	error = e;
+			{	error = e instanceof Error ? e : new Error(e+'');
 			}
 			assertEquals(error?.message, 'Connection closed');
 			server.removeListeners();
@@ -664,12 +665,12 @@ Deno.test
 		// accept
 		for await (const req of server)
 		{	assertEquals(map_to_obj(req.params), {a: '1'});
-			let error;
+			let error: Error|undefined;
 			try
 			{	await req.respond();
 			}
 			catch (e)
-			{	error = e;
+			{	error = e instanceof Error ? e : new Error(e+'');
 			}
 			assertEquals(error?.message, 'Unexpected end of input');
 			server.removeListeners();
@@ -730,12 +731,12 @@ Deno.test
 		// accept
 		const promise = server.accept();
 		server.close();
-		let error;
+		let error: Error|undefined;
 		try
 		{	await promise;
 		}
 		catch (e)
-		{	error = e;
+		{	error = e instanceof Error ? e : new Error(e+'');
 		}
 		assertEquals(error?.message, 'Server shut down');
 		// check
@@ -792,12 +793,12 @@ Deno.test
 			{	req.closeWrite();
 				assertEquals(map_to_obj(req.params), {a: '1'});
 				assertEquals(await req.readable.text(), 'Hello');
-				let error;
+				let error: Error|undefined;
 				try
 				{	await req.respond();
 				}
 				catch (e)
-				{	error = e;
+				{	error = e instanceof Error ? e : new Error(e+'');
 				}
 				assertEquals(error?.message, 'Connection closed for write');
 				server.removeListeners();

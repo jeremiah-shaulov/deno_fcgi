@@ -1,6 +1,7 @@
-import type {FcgiAddr} from "../addr.ts";
-import {faddr_to_addr, addr_to_string} from "../addr.ts";
-import {assert, assertEquals} from "https://deno.land/std@0.135.0/testing/asserts.ts";
+import type {FcgiAddr} from '../addr.ts';
+import {faddr_to_addr, addr_to_string} from '../addr.ts';
+import {assert} from 'jsr:@std/assert@1.0.7/assert';
+import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 
 Deno.test
 (	'faddr_to_addr()',

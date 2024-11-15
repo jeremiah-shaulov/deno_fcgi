@@ -1,6 +1,7 @@
-import {debug_assert} from "./debug_assert.ts";
-import {StructuredMap} from "./structured_map.ts";
+import {debug_assert} from './debug_assert.ts';
+import {StructuredMap} from './structured_map.ts';
 import {writeAll} from './deps.ts';
+import {Reader} from './deno_ifaces.ts';
 
 const BUFFER_LEN = 8*1024;
 export const REALLOC_THRESHOLD = 512; // max length for header line like `Content-Disposition: form-data; name="image"; filename="/tmp/current_file"` is BUFFER_LEN-REALLOC_THRESHOLD
@@ -40,7 +41,7 @@ export class Post extends StructuredMap
 	private uploaded_files = new Array<string>;
 
 	constructor
-	(	private reader: Deno.Reader,
+	(	private reader: Reader,
 		private onerror: (error: Error) => void,
 		/// Post body "Content-Type". Lowercased, and part starting with ';' is cut (if any)
 		public contentType = '',
@@ -49,7 +50,7 @@ export class Post extends StructuredMap
 		/// the "Content-Length" HTTP header
 		public contentLength = -1,
 		/// Parse params like "items[]=a&items[]=b" and "items[a][b]=c" to Map objects, like PHP does.
-		public structuredParams = false,
+		public override structuredParams = false,
 		/// Parameters with longer names will be ignored.
 		public maxNameLength = 256,
 		/// Parameters with longer values will be ignored.
@@ -369,7 +370,7 @@ L:		while (true)
 												await Deno.remove(tmp_name);
 											}
 											catch (e)
-											{	this.onerror(e);
+											{	this.onerror(e instanceof Error ? e : new Error(e+''));
 											}
 										}
 										return false; // no "\r\n" after value and before boundary
@@ -394,7 +395,7 @@ L:		while (true)
 								}
 								catch (e)
 								{	// maybe disk full
-									this.onerror(e);
+									this.onerror(e instanceof Error ? e : new Error(e+''));
 									ignored_some_param = true;
 									fh.close();
 									fh = undefined;
@@ -403,7 +404,7 @@ L:		while (true)
 										await Deno.remove(tmp_name);
 									}
 									catch (e2)
-									{	this.onerror(e2);
+									{	this.onerror(e2 instanceof Error ? e2 : new Error(e2+''));
 									}
 									tmp_name = '';
 								}

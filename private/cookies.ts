@@ -1,5 +1,8 @@
 import {CookieError} from './error.ts';
 
+// deno-lint-ignore no-explicit-any
+type Any = any;
+
 const COOKIE_NAME_MASK = get_cookie_name_mask();
 const COOKIE_VALUE_MASK = get_cookie_value_mask();
 
@@ -68,12 +71,12 @@ export class Cookies extends Map<string, string>
 		this.headers.clear();
 	}
 
-	get size()
+	override get size()
 	{	this.init();
 		return super.size;
 	}
 
-	clear()
+	override clear()
 	{	this.setHeader('');
 	}
 
@@ -102,17 +105,17 @@ export class Cookies extends Map<string, string>
 		}
 	}
 
-	has(name: string)
+	override has(name: string)
 	{	this.init();
 		return super.has(name);
 	}
 
-	get(name: string)
+	override get(name: string)
 	{	this.init();
 		return super.get(name);
 	}
 
-	set(name: string, value: string, options?: CookieOptions)
+	override set(name: string, value: string, options?: CookieOptions)
 	{	if (value.length == 0)
 		{	this.delete(name);
 		}
@@ -161,34 +164,34 @@ export class Cookies extends Map<string, string>
 		return this;
 	}
 
-	delete(name: string)
+	override delete(name: string)
 	{	this.init();
 		const str = encode_cookie(name, COOKIE_NAME_MASK)+'=deleted; Expires=Sat, 01 Jan 2000 00:00:00 GMT; Max-Age=0';
 		this.headers.set(name, str);
 		return super.delete(name);
 	}
 
-	entries()
+	override entries()
 	{	this.init();
 		return super.entries();
 	}
 
-	keys()
+	override keys()
 	{	this.init();
 		return super.keys();
 	}
 
-	values()
+	override values()
 	{	this.init();
 		return super.values();
 	}
 
-	forEach(callback: (value: string, key: string, map: Map<string, string>) => void, thisArg?: any)
+	override forEach(callback: (value: string, key: string, map: Map<string, string>) => void, thisArg?: Any)
 	{	this.init();
 		return super.forEach(callback, thisArg);
 	}
 
-	[Symbol.iterator]()
+	override [Symbol.iterator]()
 	{	this.init();
 		return super[Symbol.iterator]();
 	}
