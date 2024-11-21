@@ -5,6 +5,6 @@ export interface ServerResponse
 {	status?: number;
 	headers?: Headers;
 	setCookies?: SetCookies,
-	body?: Uint8Array | Reader | string;
+	body?: Uint8Array | ReadableStream<Uint8Array> | Reader | string;
 	trailers?: () => Promise<Headers> | Headers;
 }

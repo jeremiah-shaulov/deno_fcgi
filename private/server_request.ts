@@ -98,7 +98,7 @@ export class ServerRequest implements Conn
 	 **/
 	responseHeaders = new Headers;
 
-	/** True if headers have been sent to client. They will be sent if you write some response data to this request object (it implements `Deno.Writer`).
+	/** True if headers have been sent to client. They will be sent if you write some response data to `writable` of this request object.
 	 **/
 	headersSent = false;
 
@@ -280,7 +280,12 @@ export class ServerRequest implements Conn
 					}
 					else
 					{	try
-						{	await copy(body, this);
+						{	if ('getReader' in body)
+							{	await body.pipeTo(this.writable, {preventClose: true, preventAbort: true});
+							}
+							else
+							{	await copy(body, this);
+							}
 						}
 						catch (e)
 						{	read_error = e instanceof Error ? e : new Error(e+''); // if it was write error, it is expected to happen again when writing the final packet (at `await ongoing_write`)
