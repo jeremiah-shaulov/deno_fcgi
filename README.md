@@ -16,7 +16,7 @@ Having master HTTP server is convenient. It allows to have confuguration that co
 ```ts
 // File: backend.ts
 
-import {fcgi} from 'https://deno.land/x/fcgi@v2.0.5/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v2.0.6/mod.ts';
 
 const listener = fcgi.listen
 (	'localhost:9988', // FastCGI service will listen on this address
@@ -44,7 +44,7 @@ In the following example i'll use [x/oak](https://deno.land/x/oak) to create HTT
 // File: frontend.ts
 
 import {Application} from 'https://deno.land/x/oak@v9.0.1/mod.ts';
-import {fcgi} from 'https://deno.land/x/fcgi@v2.0.5/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v2.0.6/mod.ts';
 
 const app = new Application;
 
@@ -92,15 +92,15 @@ Now HTTP requests on `http://localhost:8123` will be forwarded to `fcgi://localh
 
 This library provides first-class object through which you can do all the supported FastCGI operations: starting FastCGI server, and making queries to FastCGI services.
 
-This object is called [fcgi](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.5/mod.ts/~/Fcgi).
+This object is called [fcgi](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi).
 
 ```ts
-import {fcgi} from 'https://deno.land/x/fcgi@v2.0.5/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v2.0.6/mod.ts';
 ```
 
 Methods:
 
-1. `fcgi.`[listen](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/Fcgi#listen)`(addrOrListener: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.5/mod.ts/~/FcgiAddr)` | `[Deno.Listener](https://doc.deno.land/deno/stable/~/Deno.Listener)`, pathPattern: PathPattern, callback: Callback)`
+1. `fcgi.`[listen](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#listen)`(addrOrListener: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/FcgiAddr)` | `[Deno.Listener](https://doc.deno.land/deno/stable/~/Deno.Listener)`, pathPattern: PathPattern, callback: Callback)`
 
 Registers a FastCGI server on specified network address. The address can be given as:
 * a port number (`8000`),
@@ -116,7 +116,7 @@ Calling with different address creates another FastCGI server.
 Second argument allows to filter arriving requests.
 It uses [x/path_to_regexp](https://deno.land/x/path_to_regexp) library, just like [x/oak](https://deno.land/x/oak) does.
 
-Third argument is callback function with signature `(request: `[ServerRequest](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/ServerRequest)`, params: any) => Promise<unknown>` that will be called for incoming requests that match filters.
+Third argument is callback function with signature `(request: `[ServerRequest](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/ServerRequest)`, params: any) => Promise<unknown>` that will be called for incoming requests that match filters.
 `params` contains regexp groups from the path filter.
 
 "callback" can handle the request and call it's `req.respond()` method (awaiting for it's result), or it can decide not to handle this request,
@@ -150,23 +150,23 @@ fcgi.listen
 );
 ```
 
-2. `fcgi.`[unlisten](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/Fcgi#unlisten)`(addr?: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.5/mod.ts/~/FcgiAddr)`)`
+2. `fcgi.`[unlisten](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#unlisten)`(addr?: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/FcgiAddr)`)`
 
 Stop serving requests on specified address, or on all addresses (if the addr parameter was undefined). Removing all listeners will trigger "end" event.
 
-3. `fcgi.`[onError](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/Fcgi#onError)`(callback)` - catch FastCGI server errors. Multiple event handlers can be added.
+3. `fcgi.`[onError](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#onError)`(callback)` - catch FastCGI server errors. Multiple event handlers can be added.
 
-4. `fcgi.`[onEnd](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/Fcgi#onEnd)`(callback)` or `await onEnd()` - catch the moment when FastCGI server stops accepting connections (when all listeners removed, and ongoing requests completed).
+4. `fcgi.`[onEnd](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#onEnd)`(callback)` or `await onEnd()` - catch the moment when FastCGI server stops accepting connections (when all listeners removed, and ongoing requests completed).
 
-5. `fcgi.`[offError](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/Fcgi#offError)`(callback)` - remove this callback that was added through `onError(callback)`.
+5. `fcgi.`[offError](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#offError)`(callback)` - remove this callback that was added through `onError(callback)`.
 
 `fcgi.offError()` - remove all callbacks.
 
-6. `fcgi.`[offEnd](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/Fcgi#offEnd)`(callback)` - remove this callback that was added through `onEnd(callback)`.
+6. `fcgi.`[offEnd](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#offEnd)`(callback)` - remove this callback that was added through `onEnd(callback)`.
 
 `fcgi.offEnd()` - remove all callbacks.
 
-7. `fcgi.`[options](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/Fcgi#options)`(options?: `[ServerOptions](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.5/mod.ts/~/ServerOptions)` & `[ClientOptions](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.5/mod.ts/~/ClientOptions)`): ServerOptions & ClientOptions`
+7. `fcgi.`[options](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#options)`(options?: `[ServerOptions](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/ServerOptions)` & `[ClientOptions](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/ClientOptions)`): ServerOptions & ClientOptions`
 
 Allows to modify `Server` and/or `Client` options. Not specified options will retain their previous values.
 This function can be called at any time, even after server started running, and new option values will take effect when possible.
@@ -178,7 +178,7 @@ fcgi.options({maxConns: 123});
 console.log(`Now maxConns=${fcgi.options().maxConns}`);
 ```
 
-8. `fcgi.`[fetch](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/Fcgi#fetch)`(request_options: `[RequestOptions](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.5/mod.ts/~/RequestOptions)`, input: `[Request](https://doc.deno.land/deno/stable/~/Request)` | `[URL](https://doc.deno.land/deno/stable/~/URL)` | string, init?: RequestInit): Promise<`[ResponseWithCookies](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.5/mod.ts/~/ResponseWithCookies)`>`
+8. `fcgi.`[fetch](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#fetch)`(request_options: `[RequestOptions](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/RequestOptions)`, input: `[Request](https://doc.deno.land/deno/stable/~/Request)` | `[URL](https://doc.deno.land/deno/stable/~/URL)` | string, init?: RequestInit): Promise<`[ResponseWithCookies](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/ResponseWithCookies)`>`
 
 Send request to a FastCGI service, such as PHP, just like Apache and Nginx do.
 
@@ -196,11 +196,11 @@ Each not closed connection counts towards `ClientOptions.maxConns`. After `respo
 
 Idle connections will be closed after `request_options.keepAliveTimeout` milliseconds, and after `request_options.keepAliveMax` times used.
 
-9. `fcgi.`[fetchCapabilities](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/Fcgi#fetchCapabilities)`(addr: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.5/mod.ts/~/FcgiAddr)` | Deno.Conn): Promise<{ FCGI_MAX_CONNS: number, FCGI_MAX_REQS: number, FCGI_MPXS_CONNS: number }>`
+9. `fcgi.`[fetchCapabilities](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#fetchCapabilities)`(addr: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/FcgiAddr)` | Deno.Conn): Promise<{ FCGI_MAX_CONNS: number, FCGI_MAX_REQS: number, FCGI_MPXS_CONNS: number }>`
 
 Ask a FastCGI service (like PHP) for it's protocol capabilities. This is not so useful information. Only for those who curious. As i know, Apache and Nginx don't even ask for this during protocol usage.
 
-10. `fcgi.`[canFetch](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/Fcgi#canFetch)`(): boolean`
+10. `fcgi.`[canFetch](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#canFetch)`(): boolean`
 
 When number of ongoing requests is more than the configured value (`maxConns`), `fetch()` and `fetchCapabilities()` will wait.
 `canFetch()` checks whether there are free slots, and returns true if so.
@@ -214,9 +214,9 @@ if (!fcgi.canFetch())
 await fcgi.fetch(...);
 ```
 
-11. `fcgi.`[waitCanFetch](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/Fcgi#waitCanFetch)`(): Promise<void>`
+11. `fcgi.`[waitCanFetch](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#waitCanFetch)`(): Promise<void>`
 
-12. `fcgi.`[closeIdle](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/Fcgi#closeIdle)`()`
+12. `fcgi.`[closeIdle](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#closeIdle)`()`
 
 If `keepAliveTimeout` option was > 0, `fcgi.fetch()` will reuse connections. After each fetch, connection will wait for specified number of milliseconds for next fetch. Idle connections don't let Deno application from exiting naturally.
 You can call `fcgi.closeIdle()` to close all idle connections.
@@ -226,7 +226,7 @@ You can call `fcgi.closeIdle()` to close all idle connections.
 The mentioned `fcgi` object is just a wrapper around low-level functions and classes. It's possible to use them directly.
 
 ```ts
-import {Server} from 'https://deno.land/x/fcgi@v2.0.5/mod.ts';
+import {Server} from 'https://deno.land/x/fcgi@v2.0.6/mod.ts';
 
 const listener = Deno.listen({hostname: "::1", port: 9988});
 const server = new Server(listener);
@@ -245,7 +245,7 @@ for await (let req of server)
 
 ## `ServerRequest` object
 
-Callback given to `fcgi.`[listen](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/Fcgi#listen) receives incoming request as [ServerRequest](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.5/mod.ts/~/ServerRequest) object. Also asynchronous iteration over `Server` yields such objects. `ServerRequest` contains information sent from FastCGI server.
+Callback given to `fcgi.`[listen](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#listen) receives incoming request as [ServerRequest](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/ServerRequest) object. Also asynchronous iteration over `Server` yields such objects. `ServerRequest` contains information sent from FastCGI server.
 
 - `url` (string) - REQUEST_URI of the request, like '/path/index.html?a=1'
 - `method` (string) - Like `GET`.
@@ -272,7 +272,7 @@ Response body can be given to `respond()`, or it can be written to `ServerReques
 ```ts
 // test like this: curl --data 'INPUT DATA' http://deno-server.loc/test.ts
 
-import {fcgi} from 'https://deno.land/x/fcgi@v2.0.5/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v2.0.6/mod.ts';
 import {writeAll} from 'https://deno.land/std@0.135.0/streams/conversion.ts';
 
 console.log(`Started on [::1]:9988`);

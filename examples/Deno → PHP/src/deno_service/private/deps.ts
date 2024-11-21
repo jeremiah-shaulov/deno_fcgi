@@ -1,2 +1,2 @@
 export {Application} from 'https://deno.land/x/oak@v9.0.1/mod.ts';
-export {fcgi} from 'https://deno.land/x/fcgi@v2.0.5/mod.ts';
+export {fcgi} from 'https://deno.land/x/fcgi@v2.0.6/mod.ts';
