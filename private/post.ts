@@ -1,6 +1,6 @@
 import {debug_assert} from './debug_assert.ts';
 import {StructuredMap} from './structured_map.ts';
-import {writeAll} from './deps.ts';
+import {writeAll} from './util.ts';
 import {Reader} from './deno_ifaces.ts';
 
 const BUFFER_LEN = 8*1024;
@@ -43,21 +43,21 @@ export class Post extends StructuredMap
 	constructor
 	(	private reader: Reader,
 		private onerror: (error: Error) => void,
-		/// Post body "Content-Type". Lowercased, and part starting with ';' is cut (if any)
+		/** Post body "Content-Type". Lowercased, and part starting with ';' is cut (if any) */
 		public contentType = '',
-		/// If contentType is 'multipart/form-data', this will be data boundary.
+		/** If contentType is 'multipart/form-data', this will be data boundary. */
 		public formDataBoundary = '',
-		/// the "Content-Length" HTTP header
+		/** the "Content-Length" HTTP header */
 		public contentLength = -1,
-		/// Parse params like "items[]=a&items[]=b" and "items[a][b]=c" to Map objects, like PHP does.
+		/** Parse params like "items[]=a&items[]=b" and "items[a][b]=c" to Map objects, like PHP does. */
 		public override structuredParams = false,
-		/// Parameters with longer names will be ignored.
+		/** Parameters with longer names will be ignored. */
 		public maxNameLength = 256,
-		/// Parameters with longer values will be ignored.
+		/** Parameters with longer values will be ignored. */
 		public maxValueLength = 10*1024,
-		/// Uploaded files bigger than this will be ignored.
+		/** Uploaded files bigger than this will be ignored. */
 		public maxFileSize = 10*1024*1024,
-		/// What decoder to use to decode bytes of the post data (not for uploaded files - they are written binary as is)
+		/** What decoder to use to decode bytes of the post data (not for uploaded files - they are written binary as is) */
 		public decoder = new TextDecoder
 	)
 	{	super(structuredParams);
@@ -82,7 +82,8 @@ export class Post extends StructuredMap
 		The following content types are supported: `application/x-www-form-urlencoded`, `multipart/form-data`.
 		The object is empty before this method called. It can be called many times (next calls do nothing).
 		`isParsed` is set regardless of errors.
-		Returns true if parsed successfully, and false if invalid format, or some name/value was too long. On I/O errors throws exception.
+
+		@returns Returns true if parsed successfully, and false if invalid format, or some name/value was too long. On I/O errors throws exception.
 	 **/
 	async parse()
 	{	if (!this.isParsed)

@@ -35,7 +35,7 @@ export interface Reader
 	read(p: Uint8Array): Promise<number | null>;
 }
 
-interface Writer
+export interface Writer
 {	/** Writes `p.byteLength` bytes from `p` to the underlying data stream. It
 	 * resolves to the number of bytes written from `p` (`0` <= `n` <=
 	 * `p.byteLength`) or reject with the error encountered that caused the

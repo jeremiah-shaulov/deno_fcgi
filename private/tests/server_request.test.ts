@@ -2,7 +2,7 @@ import {PathNode} from '../structured_map.ts';
 import {Server} from '../server.ts';
 import {AbortedError, TerminatedError, ProtocolError} from '../error.ts';
 import {TEST_CHUNK_SIZES, get_random_bytes, get_random_string, map_to_obj, MockListener, MockFcgiConn, MockConn} from './mock/mod.ts';
-import {writeAll} from '../deps.ts';
+import {writeAll} from '../util.ts';
 import {assert} from 'jsr:@std/assert@1.0.7/assert';
 import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
 

@@ -1,9 +1,9 @@
 import {debug_assert} from './debug_assert.ts';
 import {Conn, Reader} from './deno_ifaces.ts';
-import {pack_nvp} from "./server_request.ts";
-import {Server} from "./server.ts";
-import {SetCookies} from "./set_cookies.ts";
-import {writeAll} from './deps.ts';
+import {pack_nvp} from './server_request.ts';
+import {Server} from './server.ts';
+import {SetCookies} from './set_cookies.ts';
+import {writeAll} from './util.ts';
 
 export const RECYCLE_REQUEST_ID_AFTER = 1024; // max: 0xFFFF. big number slows down unit testing
 

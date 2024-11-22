@@ -1,11 +1,11 @@
 import {debug_assert} from './debug_assert.ts';
 import {Conn} from './deno_ifaces.ts';
-import {Get} from "./get.ts";
-import {Post} from "./post.ts";
-import {Cookies} from "./cookies.ts";
+import {Get} from './get.ts';
+import {Post} from './post.ts';
+import {Cookies} from './cookies.ts';
 import {ServerResponse} from './server_response.ts';
 import {AbortedError, TerminatedError, ProtocolError} from './error.ts';
-import {writeAll} from './deps.ts';
+import {writeAll} from './util.ts';
 import {RdStream, WrStream} from './deps.ts';
 
 export const is_processing = Symbol('is_processing');
