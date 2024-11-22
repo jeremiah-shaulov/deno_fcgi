@@ -5,7 +5,7 @@ import {Post} from "./post.ts";
 import {Cookies} from "./cookies.ts";
 import {ServerResponse} from './server_response.ts';
 import {AbortedError, TerminatedError, ProtocolError} from './error.ts';
-import {writeAll, copy} from './deps.ts';
+import {writeAll} from './deps.ts';
 import {RdStream, WrStream} from './deps.ts';
 
 export const is_processing = Symbol('is_processing');
@@ -280,12 +280,9 @@ export class ServerRequest implements Conn
 					}
 					else
 					{	try
-						{	if ('getReader' in body)
-							{	await body.pipeTo(this.writable, {preventClose: true, preventAbort: true});
-							}
-							else
-							{	await copy(body, this);
-							}
+						{	const body2 = body;
+							const body3 = 'getReader' in body2 ? body2 : new RdStream({read: b => body2.read(b)});
+							await body3.pipeTo(this.writable, {preventClose: true, preventAbort: true});
 						}
 						catch (e)
 						{	read_error = e instanceof Error ? e : new Error(e+''); // if it was write error, it is expected to happen again when writing the final packet (at `await ongoing_write`)
@@ -742,6 +739,7 @@ export class ServerRequest implements Conn
 
 	/**	This function doesn't throw exceptions. It always returns "this".
 		Before returning it sets one of the following:
+
 		- params (all FCGI_PARAMS records received)
 		- stdin_length (a FCGI_STDIN record received, and there're "stdin_length" bytes in buffer available to read)
 		- stdin_complete (all FCGI_STDIN records received)
