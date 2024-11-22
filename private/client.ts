@@ -309,8 +309,10 @@ export class Client
 	/**	When number of ongoing requests is more than the configured value (`maxConns`), `fetch()` and `fetchCapabilities()` will wait.
 		`canFetch()` checks whether there are free slots, and returns true if so.
 		It's recommended not to call `fetch()` untill `canFetch()` grants a green light.
+
 		Example:
-		```
+
+		```ts
 		if (!fcgi.canFetch())
 		{	await fcgi.waitCanFetch();
 		}

@@ -13,7 +13,7 @@ const DEFAULT_404_PAGE = 'Resource not found';
 // deno-lint-ignore no-explicit-any
 type Any = any;
 
-/**	If the default instance of this class (`fcgi`) is not enough, you can create another `Fcgi` instance with it's own connection pool and maybe with different configuration.
+/**	If the default instance of this class ({@link fcgi}) is not enough, you can create another `Fcgi` instance with it's own connection pool and maybe with different configuration.
  **/
 export class Fcgi
 {	private server = new Server;
@@ -29,23 +29,31 @@ export class Fcgi
 	}
 
 	/**	Registers a FastCGI server on specified network address.
+
 		The address can be given as:
+
 		- a port number (`8000`),
 		- a hostname with optional port (`localhost:8000`, `0.0.0.0:8000`, `[::1]:8000`, `::1`),
 		- a unix-domain socket file name (`/run/deno-fcgi-server.sock`),
 		- a `Deno.Addr` (`{transport: 'tcp', hostname: '127.0.0.1', port: 8000}`),
 		- or a ready `Deno.Listener` object can also be given.
+
 		This function can be called multiple times with the same or different addresses.
 		Calling with the same address adds another handler callback that will be tried to handle matching requests.
 		Calling with different address creates another FastCGI server.
+
 		Second argument allows to filter arriving requests.
-		It uses [x/path_to_regexp](https://deno.land/x/path_to_regexp) library, just like [x/oak](https://deno.land/x/oak) does.
+		It uses [x/path_to_regexp]{@link https://deno.land/x/path_to_regexp} library, just like [x/oak]{@link https://deno.land/x/oak} does.
+
 		Third argument is callback function with signature `(request: ServerRequest, params: any) => Promise<unknown>` that will be called for incoming requests that match filters.
 		`params` contains regexp groups from the path filter.
+
 		"callback" can handle the request and call it's `req.respond()` method (not returning from the callback till this happens), or it can decide not to handle this request,
 		and return without awaiting, so other handlers (registered with `listen()`) will take chance to handle this request. If none handled, 404 response will be returned.
+
 		Example:
 
+		```ts
 		fcgi.listen
 		(	8989,
 			'/page-1.html',
@@ -69,6 +77,7 @@ export class Fcgi
 			{	await req.respond({body: 'Something else'});
 			}
 		);
+		```
 	 **/
 	listen(addr_or_listener: FcgiAddr | Listener, path_pattern: PathPattern, callback: Callback)
 	{	const {server} = this;
@@ -166,9 +175,11 @@ export class Fcgi
 
 	/**	Catch the moment when FastCGI server stops accepting connections (when all listeners removed, and ongoing requests completed).
 
+		```ts
 		fcgi.onEnd(callback);
 		// or
 		await fcgi.onEnd();
+		```
 	 **/
 	onEnd(callback?: () => unknown)
 	{	const promise = this.onend.add(callback);
@@ -206,9 +217,11 @@ export class Fcgi
 		This function can be called at any time, even after server started running, and new option values will take effect when possible.
 		This function returns all the options after modification.
 
+		```ts
 		console.log(`maxConns=${fcgi.options().maxConns}`);
 		fcgi.options({maxConns: 123});
 		console.log(`Now maxConns=${fcgi.options().maxConns}`);
+		```
 	 **/
 	options(options?: ServerOptions & ClientOptions): ServerOptions & ClientOptions
 	{	const server_options = this.server.options(options);
@@ -217,14 +230,19 @@ export class Fcgi
 	}
 
 	/**	Send request to a FastCGI service, such as PHP, just like Apache and Nginx do.
+
 		First argument (`request_options`) specifies how to connect to the service, and what parameters to send to it.
 		2 most important parameters are `request_options.addr` (service socket address), and `request_options.scriptFilename` (path to script file that the service must execute).
+
 		Second (`input`) and 3rd (`init`) arguments are the same as in built-in `fetch()` function.
+
 		Returned response object extends built-in `Response` (that regular `fetch()` returns) by adding `cookies` property, that contains all `Set-Cookie` headers.
 		Also `response.body` object extends regular `ReadableStream<Uint8Array>` by adding `Deno.Reader` implementation.
+
 		The response body must be explicitly read, before specified `request_options.timeout` period elapses. After this period, the connection will be forced to close.
-		Each not closed connection counts towards `ClientOptions.maxConns`. After `response.body` read to the end, the connection returns to pool, and can be reused
+		Each not closed connection counts towards {@link ClientOptions.maxConns}. After `response.body` read to the end, the connection returns to pool, and can be reused
 		(except the case where existing `Deno.Conn` was given to `request_options.addr` - in this case the creator of this object decides what to do with this object then).
+
 		Idle connections will be closed after `request_options.keepAliveTimeout` milliseconds, and after `request_options.keepAliveMax` times used.
 	 **/
 	fetch(request_options: RequestOptions, input: Request|URL|string, init?: RequestInit)
@@ -237,15 +255,18 @@ export class Fcgi
 	{	return this.client.fetchCapabilities(addr);
 	}
 
-	/**	`fetch()` and `fetchCapabilities()` throw Error if number of ongoing requests is more than the configured value (`maxConns`).
+	/**	{@link fetch()} and {@link fetchCapabilities()} throw Error if number of ongoing requests is more than the configured value ([maxConns]{@link ClientOptions.maxConns}).
 		`canFetch()` checks whether there are free slots, and returns true if so.
 		It's recommended not to call `fetch()` untill `canFetch()` grants a green light.
+
 		Example:
 
+		```ts
 		if (!fcgi.canFetch())
 		{	await fcgi.waitCanFetch();
 		}
 		await fcgi.fetch(...);
+		```
 	 **/
 	canFetch()
 	{	return this.client.canFetch();
@@ -265,6 +286,7 @@ export class Fcgi
 
 /**	`Fcgi` class provides top-level API, above `Server` and `Client`, and `fcgi` is the default instance of `Fcgi` to be used most of the time.
 
+	```ts
 	// Create FastCGI backend server (another HTTP server will send requests to us)
 
 	fcgi.listen
@@ -274,11 +296,11 @@ export class Fcgi
 		{	await req.respond({body: 'Hello world'});
 		}
 	);
+	```
 
+	Another example:
 
-	// ANOTHER EXAMPLE:
-
-
+	```ts
 	// Create FastCGI client for PHP.
 	// Stop your existing PHP-FPM service, setup `PHP_POOL_CONFIG_FILE` and `DOCUMENT_ROOT` variables, and run this code.
 	// This code creates PHP-FPM capable HTTP server.
@@ -338,5 +360,6 @@ export class Fcgi
 			}
 		);
 	}
+	```
  **/
 export const fcgi = new Fcgi;

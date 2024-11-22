@@ -1,5 +1,11 @@
-# fcgi
-FastCGI protocol implementation for Deno.
+<!--
+	This file is generated with the following command:
+	deno run --allow-all https://raw.githubusercontent.com/jeremiah-shaulov/tsa/v0.0.47/tsa.ts doc-md --outFile=README.md mod.ts --importUrl https://deno.land/x/fcgi@v2.0.7/mod.ts --outUrl https://raw.githubusercontent.com/jeremiah-shaulov/deno_fcgi/v2.0.7/README.md
+-->
+
+# fcgi - FastCGI protocol implementation for Deno
+
+[Documentation Index](generated-doc/README.md)
 
 This library allows the following:
 
@@ -16,7 +22,7 @@ Having master HTTP server is convenient. It allows to have confuguration that co
 ```ts
 // File: backend.ts
 
-import {fcgi} from 'https://deno.land/x/fcgi@v2.0.6/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v2.0.7/mod.ts';
 
 const listener = fcgi.listen
 (	'localhost:9988', // FastCGI service will listen on this address
@@ -44,7 +50,7 @@ In the following example i'll use [x/oak](https://deno.land/x/oak) to create HTT
 // File: frontend.ts
 
 import {Application} from 'https://deno.land/x/oak@v9.0.1/mod.ts';
-import {fcgi} from 'https://deno.land/x/fcgi@v2.0.6/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v2.0.7/mod.ts';
 
 const app = new Application;
 
@@ -83,44 +89,47 @@ Now HTTP requests on `http://localhost:8123` will be forwarded to `fcgi://localh
 
 ## Setup examples:
 
-- [Nginx → Deno](./examples/Nginx%20→%20Deno): how to set up Nginx HTTP server.
-- [Apache → Deno](./examples/Apache%20→%20Deno): how to set up Apache HTTP server.
-- [Deno → PHP](./examples/Deno%20→%20PHP): how to set up PHP-FPM and forward requests to it.
-- [Deno → spawn-fcgi + Perl](./examples/Deno%20→%20spawn-fcgi%20%2B%20Perl): how to set up Perl FastCGI and make requests to it.
+- `Nginx → Deno`: how to set up Nginx HTTP server.
+- `Apache → Deno`: how to set up Apache HTTP server.
+- `Deno → PHP`: how to set up PHP-FPM and forward requests to it.
+- `Deno → spawn-fcgi + Perl`: how to set up Perl FastCGI and make requests to it.
 
 ## Using the API
 
 This library provides first-class object through which you can do all the supported FastCGI operations: starting FastCGI server, and making queries to FastCGI services.
 
-This object is called [fcgi](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi).
+This object is called [fcgi](generated-doc/variable.fcgi/README.md).
 
 ```ts
-import {fcgi} from 'https://deno.land/x/fcgi@v2.0.6/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v2.0.7/mod.ts';
 ```
 
 Methods:
 
-1. `fcgi.`[listen](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#listen)`(addrOrListener: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/FcgiAddr)` | `[Deno.Listener](https://doc.deno.land/deno/stable/~/Deno.Listener)`, pathPattern: PathPattern, callback: Callback)`
+### listen()
+
+> ⚙ Fcgi.[listen](generated-doc/class.Fcgi/README.md#-listenaddr_or_listener-fcgiaddr--listener-path_pattern-pathpattern-callback-callback-listener)(addr\_or\_listener: [FcgiAddr](generated-doc/type.FcgiAddr/README.md) | [Listener](generated-doc/interface.Listener/README.md), path\_pattern: [PathPattern](generated-doc/type.PathPattern/README.md), callback: [Callback](generated-doc/type.Callback/README.md)): [Listener](generated-doc/interface.Listener/README.md)
 
 Registers a FastCGI server on specified network address. The address can be given as:
-* a port number (`8000`),
-* a hostname with optional port (`localhost:8000`, `0.0.0.0:8000`, `[::1]:8000`, `::1`),
-* a unix-domain socket file name (`/run/deno-fcgi-server.sock`),
-* a [Deno.Addr](https://doc.deno.land/deno/stable/~/Deno.Addr) (`{transport: 'tcp', hostname: '127.0.0.1', port: 8000}`),
-* or a ready [Deno.Listener](https://doc.deno.land/deno/stable/~/Deno.Listener) object can also be given.
+
+- a port number (`8000`),
+- a hostname with optional port (`localhost:8000`, `0.0.0.0:8000`, `[::1]:8000`, `::1`),
+- a unix-domain socket file name (`/run/deno-fcgi-server.sock`),
+- a `Deno.Addr` (`{transport: 'tcp', hostname: '127.0.0.1', port: 8000}`),
+- or a ready `Deno.Listener` object can also be given.
 
 This function can be called multiple times with the same or different addresses.
 Calling with the same address adds another handler callback that will be tried to handle matching requests.
 Calling with different address creates another FastCGI server.
 
 Second argument allows to filter arriving requests.
-It uses [x/path_to_regexp](https://deno.land/x/path_to_regexp) library, just like [x/oak](https://deno.land/x/oak) does.
+It uses [x/path\_to\_regexp](https://deno.land/x/path_to_regexp) library, just like [x/oak](https://deno.land/x/oak) does.
 
-Third argument is callback function with signature `(request: `[ServerRequest](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/ServerRequest)`, params: any) => Promise<unknown>` that will be called for incoming requests that match filters.
+Third argument is callback function with signature `(request: ServerRequest, params: any) => Promise<unknown>` that will be called for incoming requests that match filters.
 `params` contains regexp groups from the path filter.
 
 "callback" can handle the request and call it's `req.respond()` method (awaiting for it's result), or it can decide not to handle this request,
-and return without calling `req.respond()`, so other handlers (registered with `fcgi.listen()`) will take chance to handle this request. If none handled, 404 response will be returned.
+and return without calling `req.respond()`, so other handlers (registered with [Fcgi.listen()](generated-doc/class.Fcgi/README.md#-listenaddr_or_listener-fcgiaddr--listener-path_pattern-pathpattern-callback-callback-listener)) will take chance to handle this request. If none handled, 404 response will be returned.
 
 Example:
 
@@ -150,25 +159,45 @@ fcgi.listen
 );
 ```
 
-2. `fcgi.`[unlisten](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#unlisten)`(addr?: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/FcgiAddr)`)`
+### unlisten()
+
+> ⚙ Fcgi.[unlisten](generated-doc/class.Fcgi/README.md#-unlistenaddr-fcgiaddr-void)(addr?: [FcgiAddr](generated-doc/type.FcgiAddr/README.md)): `void`
 
 Stop serving requests on specified address, or on all addresses (if the addr parameter was undefined). Removing all listeners will trigger "end" event.
 
-3. `fcgi.`[onError](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#onError)`(callback)` - catch FastCGI server errors. Multiple event handlers can be added.
+### onError()
 
-4. `fcgi.`[onEnd](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#onEnd)`(callback)` or `await onEnd()` - catch the moment when FastCGI server stops accepting connections (when all listeners removed, and ongoing requests completed).
+> ⚙ Fcgi.[onError](generated-doc/class.Fcgi/README.md#-onerrorcallback-error-error--unknown-promisevoid)(callback?: (error: Error) => `unknown`): Promise\<`void`>
 
-5. `fcgi.`[offError](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#offError)`(callback)` - remove this callback that was added through `onError(callback)`.
+Catch FastCGI server errors. Multiple event handlers can be added.
+
+### onEnd()
+
+> ⚙ Fcgi.[onEnd](generated-doc/class.Fcgi/README.md#-onendcallback---unknown-promisevoid)(callback?: () => `unknown`): Promise\<`void`>
+
+Or `await onEnd()` - catch the moment when FastCGI server stops accepting connections (when all listeners removed, and ongoing requests completed).
+
+### offError()
+
+> ⚙ Fcgi.[offError](generated-doc/class.Fcgi/README.md#-offerrorcallback-error-error--unknown-void)(callback?: (error: Error) => `unknown`): `void`
+
+Remove this callback that was added through `onError(callback)`.
 
 `fcgi.offError()` - remove all callbacks.
 
-6. `fcgi.`[offEnd](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#offEnd)`(callback)` - remove this callback that was added through `onEnd(callback)`.
+### offEnd()
+
+> ⚙ Fcgi.[offEnd](generated-doc/class.Fcgi/README.md#-offendcallback---unknown-void)(callback?: () => `unknown`): `void`
+
+Remove this callback that was added through `onEnd(callback)`.
 
 `fcgi.offEnd()` - remove all callbacks.
 
-7. `fcgi.`[options](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#options)`(options?: `[ServerOptions](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/ServerOptions)` & `[ClientOptions](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/ClientOptions)`): ServerOptions & ClientOptions`
+### options()
 
-Allows to modify `Server` and/or `Client` options. Not specified options will retain their previous values.
+> ⚙ Fcgi.[options](generated-doc/class.Fcgi/README.md#-optionsoptions-serveroptions--clientoptions-serveroptions--clientoptions)(options?: [ServerOptions](generated-doc/interface.ServerOptions/README.md) \& [ClientOptions](generated-doc/interface.ClientOptions/README.md)): ServerOptions \& ClientOptions
+
+Allows to modify [Server](generated-doc/class.Server/README.md) and/or `Client` options. Not specified options will retain their previous values.
 This function can be called at any time, even after server started running, and new option values will take effect when possible.
 This function returns all the options after modification.
 
@@ -178,7 +207,9 @@ fcgi.options({maxConns: 123});
 console.log(`Now maxConns=${fcgi.options().maxConns}`);
 ```
 
-8. `fcgi.`[fetch](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#fetch)`(request_options: `[RequestOptions](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/RequestOptions)`, input: `[Request](https://doc.deno.land/deno/stable/~/Request)` | `[URL](https://doc.deno.land/deno/stable/~/URL)` | string, init?: RequestInit): Promise<`[ResponseWithCookies](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/ResponseWithCookies)`>`
+### fetch()
+
+> ⚙ Fcgi.[fetch](generated-doc/class.Fcgi/README.md#-fetchrequest_options-requestoptions-input-request--url--string-init-requestinit-promiseresponsewithcookies)(request\_options: [RequestOptions](generated-doc/interface.RequestOptions/README.md), input: Request | URL | `string`, init?: RequestInit): Promise\<[ResponseWithCookies](generated-doc/class.ResponseWithCookies/README.md)>
 
 Send request to a FastCGI service, such as PHP, just like Apache and Nginx do.
 
@@ -191,18 +222,22 @@ Returned response object extends built-in `Response` (that regular `fetch()` ret
 Also `response.body` object extends regular `ReadableStream<Uint8Array>` by adding `Deno.Reader` implementation.
 
 The response body must be explicitly read, before specified `request_options.timeout` period elapses. After this period, the connection will be forced to close.
-Each not closed connection counts towards `ClientOptions.maxConns`. After `response.body` read to the end, the connection returns to pool, and can be reused
+Each not closed connection counts towards [ClientOptions.maxConns](generated-doc/interface.ClientOptions/README.md#-maxconns-number). After `response.body` read to the end, the connection returns to pool, and can be reused
 (except the case where existing `Deno.Conn` was given to `request_options.addr` - in this case the creator of this object decides what to do with this object then).
 
 Idle connections will be closed after `request_options.keepAliveTimeout` milliseconds, and after `request_options.keepAliveMax` times used.
 
-9. `fcgi.`[fetchCapabilities](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#fetchCapabilities)`(addr: `[FcgiAddr](https://doc.deno.land/https/deno.land/x/fcgi@v2.0.6/mod.ts/~/FcgiAddr)` | Deno.Conn): Promise<{ FCGI_MAX_CONNS: number, FCGI_MAX_REQS: number, FCGI_MPXS_CONNS: number }>`
+### fetchCapabilities()
+
+> ⚙ Fcgi.[fetchCapabilities](generated-doc/class.Fcgi/README.md#-fetchcapabilitiesaddr-fcgiaddr--conn-promisefcgi_max_conns-number-fcgi_max_reqs-number-fcgi_mpxs_conns-number)(addr: [FcgiAddr](generated-doc/type.FcgiAddr/README.md) | [Conn](generated-doc/interface.Conn/README.md)): Promise\<\{FCGI\_MAX\_CONNS?: `number`, FCGI\_MAX\_REQS?: `number`, FCGI\_MPXS\_CONNS?: `number`}>
 
 Ask a FastCGI service (like PHP) for it's protocol capabilities. This is not so useful information. Only for those who curious. As i know, Apache and Nginx don't even ask for this during protocol usage.
 
-10. `fcgi.`[canFetch](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#canFetch)`(): boolean`
+### canFetch()
 
-When number of ongoing requests is more than the configured value (`maxConns`), `fetch()` and `fetchCapabilities()` will wait.
+> ⚙ Fcgi.[canFetch](generated-doc/class.Fcgi/README.md#-canfetch-boolean)(): `boolean`
+
+When number of ongoing requests is more than the configured value ([maxConns](generated-doc/interface.ClientOptions/README.md#-maxconns-number)), [fetch()](generated-doc/class.Fcgi/README.md#-fetchrequest_options-requestoptions-input-request--url--string-init-requestinit-promiseresponsewithcookies) and [fetchCapabilities()](generated-doc/class.Fcgi/README.md#-fetchcapabilitiesaddr-fcgiaddr--conn-promisefcgi_max_conns-number-fcgi_max_reqs-number-fcgi_mpxs_conns-number) will wait.
 `canFetch()` checks whether there are free slots, and returns true if so.
 It's recommended not to call `fetch()` untill `canFetch()` grants a green light.
 Example:
@@ -214,19 +249,23 @@ if (!fcgi.canFetch())
 await fcgi.fetch(...);
 ```
 
-11. `fcgi.`[waitCanFetch](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#waitCanFetch)`(): Promise<void>`
+### waitCanFetch()
 
-12. `fcgi.`[closeIdle](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#closeIdle)`()`
+> ⚙ Fcgi.[waitCanFetch](generated-doc/class.Fcgi/README.md#-waitcanfetch-promisevoid)(): Promise\<`void`>
 
-If `keepAliveTimeout` option was > 0, `fcgi.fetch()` will reuse connections. After each fetch, connection will wait for specified number of milliseconds for next fetch. Idle connections don't let Deno application from exiting naturally.
+### closeIdle()
+
+> ⚙ Fcgi.[closeIdle](generated-doc/class.Fcgi/README.md#-closeidle-void)(): `void`
+
+If `keepAliveTimeout` option was > 0, [Fcgi.fetch()](generated-doc/class.Fcgi/README.md#-fetchrequest_options-requestoptions-input-request--url--string-init-requestinit-promiseresponsewithcookies) will reuse connections. After each fetch, connection will wait for specified number of milliseconds for next fetch. Idle connections don't let Deno application from exiting naturally.
 You can call `fcgi.closeIdle()` to close all idle connections.
 
 ## Using low-level API
 
-The mentioned `fcgi` object is just a wrapper around low-level functions and classes. It's possible to use them directly.
+The mentioned [fcgi](generated-doc/variable.fcgi/README.md) object is just a wrapper around low-level functions and classes. It's possible to use them directly.
 
 ```ts
-import {Server} from 'https://deno.land/x/fcgi@v2.0.6/mod.ts';
+import {Server} from 'https://deno.land/x/fcgi@v2.0.7/mod.ts';
 
 const listener = Deno.listen({hostname: "::1", port: 9988});
 const server = new Server(listener);
@@ -245,7 +284,7 @@ for await (let req of server)
 
 ## `ServerRequest` object
 
-Callback given to `fcgi.`[listen](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/Fcgi#listen) receives incoming request as [ServerRequest](https://doc.deno.land/https://deno.land/x/fcgi@v2.0.6/mod.ts/~/ServerRequest) object. Also asynchronous iteration over `Server` yields such objects. `ServerRequest` contains information sent from FastCGI server.
+Callback given to [Fcgi.listen()](generated-doc/class.Fcgi/README.md#-listenaddr_or_listener-fcgiaddr--listener-path_pattern-pathpattern-callback-callback-listener) receives incoming request as [ServerRequest](generated-doc/class.ServerRequest/README.md) object. Also asynchronous iteration over [Server](generated-doc/class.Server/README.md) yields such objects. [ServerRequest](generated-doc/class.ServerRequest/README.md) contains information sent from FastCGI server.
 
 - `url` (string) - REQUEST_URI of the request, like '/path/index.html?a=1'
 - `method` (string) - Like `GET`.
@@ -257,22 +296,22 @@ Callback given to `fcgi.`[listen](https://doc.deno.land/https://deno.land/x/fcgi
 - `get` (Map) - Query string parameters.
 - `post` (Map) - POST parameters, that can contain uploaded files. To initialize this property, call `await req.post.parse()`.
 - `cookies` (Map) - Request cookies. Adding and deleting them adds corresponding response HTTP headers.
-- `body` (Deno.Reader) - Allows to read raw POST body if `req.post.parse()` was not called. The body can be also read from `ServerRequest` object itself, as it implements `Deno.Reader` (`req.body == req`).
+- `body` (Deno.Reader) - Allows to read raw POST body if `req.post.parse()` was not called. The body can be also read from [ServerRequest](generated-doc/class.ServerRequest/README.md) object itself, as it implements `Deno.Reader` (`req.body == req`).
 - `responseStatus` (number) - Set this to HTTP status code before calling `respond()`. However status given to `respond()` (if given) overrides this one.
 - `responseHeaders` (Headers) - Set response HTTP headers here, before calling `respond()`, and/or pass them to `respond()` (the latter has precedence).
-- `headersSent` (boolean) - Indicates that response headers are already sent. They will be sent by `respond()` or earlier if you write data to the `ServerRequest` object (it implements `Deno.Writer`).
+- `headersSent` (boolean) - Indicates that response headers are already sent. They will be sent by `respond()` or earlier if you write data to the [ServerRequest](generated-doc/class.ServerRequest/README.md) object (it implements `Deno.Writer`).
 
 To respond to the request, you need to call `req.respond()` method, that sends all pending data to FastCGI server, and terminates the request, freeing all the resources, and deleting all the uploaded files (you need to move them to different location to keep them). The object will be not usable after calling `respond()`.
 
-If using `Server` object, it's your responsibility to call `respond()` when you're finished with this request. `fcgi.listen()` API will call `respond()` automatically with 404 status, if you don't call it in any of registered request handlers.
+If using [Server](generated-doc/class.Server/README.md) object, it's your responsibility to call `respond()` when you're finished with this request. [Fcgi.listen()](generated-doc/class.Fcgi/README.md#-listenaddr_or_listener-fcgiaddr--listener-path_pattern-pathpattern-callback-callback-listener) API will call `respond()` automatically with 404 status, if you don't call it in any of registered request handlers.
 
 Response headers and data can be set before calling `respond()`, or they can be given to the `response()`.
-Response body can be given to `respond()`, or it can be written to `ServerRequest` object.
+Response body can be given to `respond()`, or it can be written to [ServerRequest](generated-doc/class.ServerRequest/README.md) object.
 
 ```ts
 // test like this: curl --data 'INPUT DATA' http://deno-server.loc/test.ts
 
-import {fcgi} from 'https://deno.land/x/fcgi@v2.0.6/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v2.0.7/mod.ts';
 import {writeAll} from 'https://deno.land/std@0.135.0/streams/conversion.ts';
 
 console.log(`Started on [::1]:9988`);
