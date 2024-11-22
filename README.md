@@ -1,6 +1,6 @@
 <!--
 	This file is generated with the following command:
-	deno run --allow-all https://raw.githubusercontent.com/jeremiah-shaulov/tsa/v0.0.47/tsa.ts doc-md --outFile=README.md mod.ts --importUrl https://deno.land/x/fcgi@v2.0.7/mod.ts --outUrl https://raw.githubusercontent.com/jeremiah-shaulov/deno_fcgi/v2.0.7/README.md
+	deno run --allow-all https://raw.githubusercontent.com/jeremiah-shaulov/tsa/v0.0.48/tsa.ts doc-md --outFile=README.md mod.ts --importUrl https://deno.land/x/fcgi@v2.0.7/mod.ts --outUrl https://raw.githubusercontent.com/jeremiah-shaulov/deno_fcgi/v2.0.7/README.md
 -->
 
 # fcgi - FastCGI protocol implementation for Deno

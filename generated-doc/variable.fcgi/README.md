@@ -15,10 +15,10 @@ import {fcgi} from "https://deno.land/x/fcgi@v2.0.7/mod.ts"
 
 fcgi.listen
 (	8989,
-'/page-1.html',
-async req =>
-{	await req.respond({body: 'Hello world'});
-}
+	'/page-1.html',
+	async req =>
+	{	await req.respond({body: 'Hello world'});
+	}
 );
 ```
 
@@ -41,48 +41,48 @@ const PHP_LISTEN = CONF.match(/(?:^|\r|\n)\s{0,}listen\s{0,}=\s{0,}(\S+)/)?.[1];
 
 if (PHP_LISTEN)
 {	listenAndServe
-(	HTTTP_LISTEN,
-async (request) =>
-{	console.log(`Request: ${request.url}`);
-let url = new URL(request.url);
-if (url.pathname.endsWith('.php'))
-{	try
-	{	// Fetch from PHP
-		let response = await fcgi.fetch
-		(	{	addr: PHP_LISTEN,
-				params: new Map
-				(	Object.entries
-					(	{	DOCUMENT_ROOT,
-							SCRIPT_FILENAME: DOCUMENT_ROOT+url.pathname, // response will be successful if such file exists
+	(	HTTTP_LISTEN,
+		async (request) =>
+		{	console.log(`Request: ${request.url}`);
+			let url = new URL(request.url);
+			if (url.pathname.endsWith('.php'))
+			{	try
+				{	// Fetch from PHP
+					let response = await fcgi.fetch
+					(	{	addr: PHP_LISTEN,
+							params: new Map
+							(	Object.entries
+								(	{	DOCUMENT_ROOT,
+										SCRIPT_FILENAME: DOCUMENT_ROOT+url.pathname, // response will be successful if such file exists
+									}
+								)
+							),
+						},
+						url, // URL of the request that PHP will see
+						{	method: request.method,
+							body: request.body,
 						}
-					)
-				),
-			},
-			url, // URL of the request that PHP will see
-			{	method: request.method,
-				body: request.body,
-			}
-		);
-		console.log(response);
+					);
+					console.log(response);
 
-		// Pass the response to deno server
-		return new Response
-		(	response.body,
-			{	status: response.status,
-				headers: response.headers,
+					// Pass the response to deno server
+					return new Response
+					(	response.body,
+						{	status: response.status,
+							headers: response.headers,
+						}
+					);
+				}
+				catch (e)
+				{	console.error(e);
+					return new Response('', {status: 500});
+				}
 			}
-		);
-	}
-	catch (e)
-	{	console.error(e);
-		return new Response('', {status: 500});
-	}
-}
-else
-{	return new Response('Resource not found', {status: 404});
-}
-}
-);
+			else
+			{	return new Response('Resource not found', {status: 404});
+			}
+		}
+	);
 }
 ```
 
