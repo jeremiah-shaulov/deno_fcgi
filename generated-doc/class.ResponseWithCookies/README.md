@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ResponseWithCookies} from "https://deno.land/x/fcgi@v2.0.7/mod.ts"
+import {ResponseWithCookies} from "https://deno.land/x/fcgi@v2.0.8/mod.ts"
 ```
 
 ## This class has

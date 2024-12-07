@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {Fcgi} from "https://deno.land/x/fcgi@v2.0.7/mod.ts"
+import {Fcgi} from "https://deno.land/x/fcgi@v2.0.8/mod.ts"
 ```
 
 If the default instance of this class ([fcgi](../variable.fcgi/README.md)) is not enough, you can create another `Fcgi` instance with it's own connection pool and maybe with different configuration.

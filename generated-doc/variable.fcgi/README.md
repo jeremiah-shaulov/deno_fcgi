@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {fcgi} from "https://deno.land/x/fcgi@v2.0.7/mod.ts"
+import {fcgi} from "https://deno.land/x/fcgi@v2.0.8/mod.ts"
 ```
 
 `const` fcgi: [Fcgi](../class.Fcgi/README.md)

@@ -1,6 +1,6 @@
 <!--
 	This file is generated with the following command:
-	deno run --allow-all https://raw.githubusercontent.com/jeremiah-shaulov/tsa/v0.0.48/tsa.ts doc-md --outFile=README.md mod.ts --importUrl https://deno.land/x/fcgi@v2.0.7/mod.ts --outUrl https://raw.githubusercontent.com/jeremiah-shaulov/deno_fcgi/v2.0.7/README.md
+	deno run --allow-all https://raw.githubusercontent.com/jeremiah-shaulov/tsa/v0.0.49/tsa.ts doc-md --outFile=README.md --outUrl=https://raw.githubusercontent.com/jeremiah-shaulov/deno_fcgi/v2.0.8/README.md --importUrl=https://deno.land/x/fcgi@v2.0.8/mod.ts mod.ts
 -->
 
 # fcgi - FastCGI protocol implementation for Deno
@@ -22,7 +22,7 @@ Having master HTTP server is convenient. It allows to have confuguration that co
 ```ts
 // File: backend.ts
 
-import {fcgi} from 'https://deno.land/x/fcgi@v2.0.7/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v2.0.8/mod.ts';
 
 const listener = fcgi.listen
 (	'localhost:9988', // FastCGI service will listen on this address
@@ -50,7 +50,7 @@ In the following example i'll use [x/oak](https://deno.land/x/oak) to create HTT
 // File: frontend.ts
 
 import {Application} from 'https://deno.land/x/oak@v9.0.1/mod.ts';
-import {fcgi} from 'https://deno.land/x/fcgi@v2.0.7/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v2.0.8/mod.ts';
 
 const app = new Application;
 
@@ -101,7 +101,7 @@ This library provides first-class object through which you can do all the suppor
 This object is called [fcgi](generated-doc/variable.fcgi/README.md).
 
 ```ts
-import {fcgi} from 'https://deno.land/x/fcgi@v2.0.7/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v2.0.8/mod.ts';
 ```
 
 Methods:
@@ -265,7 +265,7 @@ You can call `fcgi.closeIdle()` to close all idle connections.
 The mentioned [fcgi](generated-doc/variable.fcgi/README.md) object is just a wrapper around low-level functions and classes. It's possible to use them directly.
 
 ```ts
-import {Server} from 'https://deno.land/x/fcgi@v2.0.7/mod.ts';
+import {Server} from 'https://deno.land/x/fcgi@v2.0.8/mod.ts';
 
 const listener = Deno.listen({hostname: "::1", port: 9988});
 const server = new Server(listener);
@@ -311,8 +311,7 @@ Response body can be given to `respond()`, or it can be written to [ServerReques
 ```ts
 // test like this: curl --data 'INPUT DATA' http://deno-server.loc/test.ts
 
-import {fcgi} from 'https://deno.land/x/fcgi@v2.0.7/mod.ts';
-import {writeAll} from 'https://deno.land/std@0.135.0/streams/conversion.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v2.0.8/mod.ts';
 
 console.log(`Started on [::1]:9988`);
 fcgi.listen
@@ -321,11 +320,11 @@ fcgi.listen
 	async req =>
 	{	console.log(req.url);
 		// read raw POST input
-		let raw_input = await req.body.uint8Array();
+		const raw_input = await req.readable.uint8Array();
 		// write response
 		req.responseHeaders.set('Content-Type', 'text/plain');
-		await writeAll(req, new TextEncoder().encode('The POST input was:\n'));
-		await writeAll(req, raw_input);
+		await req.writable.write('The POST input was:\n');
+		await req.writable.write(raw_input);
 		await req.respond();
 	}
 );
