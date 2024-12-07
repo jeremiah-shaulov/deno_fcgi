@@ -303,7 +303,6 @@
 	// test like this: curl --data 'INPUT DATA' http://deno-server.loc/test.ts
 
 	import {fcgi} from './mod.ts';
-	import {writeAll} from 'https://deno.land/std@0.135.0/streams/conversion.ts';
 
 	console.log(`Started on [::1]:9988`);
 	fcgi.listen
@@ -312,11 +311,11 @@
 		async req =>
 		{	console.log(req.url);
 			// read raw POST input
-			let raw_input = await req.body.uint8Array();
+			const raw_input = await req.readable.uint8Array();
 			// write response
 			req.responseHeaders.set('Content-Type', 'text/plain');
-			await writeAll(req, new TextEncoder().encode('The POST input was:\n'));
-			await writeAll(req, raw_input);
+			await req.writable.write('The POST input was:\n');
+			await req.writable.write(raw_input);
 			await req.respond();
 		}
 	);

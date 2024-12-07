@@ -14,11 +14,13 @@ const DEFAULT_TIMEOUT = 10000;
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 10000;
 const DEFAULT_KEEP_ALIVE_MAX = Number.MAX_SAFE_INTEGER;
 const KEEPALIVE_CHECK_EACH = 1000;
-const FORGET_CONNECTION_STATE_AFTER = 10*60*60*1000;
 
-const CONN_TYPE_INTERNAL_NO_REUSE = 0;
-const CONN_TYPE_INTERNAL_REUSE = 1;
-const CONN_TYPE_EXTERNAL = 2;
+const enum ConnType
+{	NEW = 0,
+	FROM_POOL = 1,
+	EXTERNAL = 2,
+	WANT_CLOSE = 4, // can be ored to other value (e.g. `ConnType.NEW | ConnType.WANT_CLOSE`)
+}
 
 const EOF_MARK = new Uint8Array;
 
@@ -89,7 +91,6 @@ export class ResponseWithCookies extends Response
 class FcgiConns
 {	idle = new Array<FcgiConn>;
 	busy = new Array<FcgiConn>;
-	no_reuse_connection_since = 0; // 0 means reusing connection is supported. Set to Date.now() after first unsuccessful attempt.
 }
 
 export class Client
@@ -151,7 +152,7 @@ export class Client
 		debug_assert(this.n_idle_all == 0);
 	}
 
-	async fetch(request_options: RequestOptions, input: Request|URL|string, init?: RequestInit): Promise<ResponseWithCookies>
+	async fetch(request_options: RequestOptions, input: Request|URL|string, init?: RequestInit)
 	{	let {addr, scriptFilename, params, connectTimeout, timeout, keepAliveTimeout, keepAliveMax, onLogError} = request_options;
 		if (connectTimeout == undefined)
 		{	connectTimeout = this.connectTimeout;
@@ -206,17 +207,13 @@ export class Client
 		try
 		{	while (true)
 			{	try
-				{	await conn.write_request(params, input.body, conn_type!=CONN_TYPE_INTERNAL_NO_REUSE);
+				{	await conn.write_request(params, input.body, true);
 				}
 				catch (e)
-				{	if (conn_type==CONN_TYPE_INTERNAL_REUSE && (e instanceof Error) && e.name=='BrokenPipe')
-					{	// unset "no_reuse_connection_since" for this "server_addr_str"
-						conn_type = CONN_TYPE_INTERNAL_NO_REUSE;
-						this.return_conn(server_addr_str, conn, conn_type);
-						const conns = this.get_conns(server_addr_str);
-						conns.no_reuse_connection_since = Date.now();
+				{	if (conn_type==ConnType.FROM_POOL && (e instanceof Error) && e.name=='BrokenPipe')
+					{	this.return_conn(server_addr_str, conn, conn_type|ConnType.WANT_CLOSE);
 						// deno-lint-ignore no-inner-declarations no-redeclare no-var
-						var {conn} = await this.get_conn(server_addr_str, connectTimeout, timeout, keepAliveTimeout, keepAliveMax);
+						var {conn, conn_type} = await this.get_conn(server_addr_str, connectTimeout, timeout, keepAliveTimeout, keepAliveMax);
 						conn.on_log_error = onLogError;
 						continue;
 					}
@@ -230,7 +227,7 @@ export class Client
 			first_buffer = !n_read ? undefined : first_buffer.subarray(0, n_read);
 		}
 		catch (e)
-		{	this.return_conn(server_addr_str, conn, CONN_TYPE_INTERNAL_NO_REUSE);
+		{	this.return_conn(server_addr_str, conn, conn_type|ConnType.WANT_CLOSE);
 			throw e;
 		}
 		// return
@@ -285,11 +282,11 @@ export class Client
 	}
 
 	async fetchCapabilities(addr: FcgiAddr | Conn)
-	{	const {conn, server_addr_str} = await this.get_conn(addr, DEFAULT_CONNECT_TIMEOUT, DEFAULT_TIMEOUT, 0, 1);
+	{	const {conn, server_addr_str, conn_type} = await this.get_conn(addr, DEFAULT_CONNECT_TIMEOUT, DEFAULT_TIMEOUT, 0, 1);
 		await conn.write_record_get_values(new Map(Object.entries({FCGI_MAX_CONNS: '', FCGI_MAX_REQS: '', FCGI_MPXS_CONNS: ''})));
 		const header = await conn.read_record_header();
 		const map = await conn.read_record_get_values_result(header.content_length, header.padding_length);
-		this.return_conn(server_addr_str, conn, CONN_TYPE_INTERNAL_NO_REUSE);
+		this.return_conn(server_addr_str, conn, conn_type|ConnType.WANT_CLOSE);
 		const fcgi_max_conns = map.get('FCGI_MAX_CONNS');
 		const fcgi_max_reqs = map.get('FCGI_MAX_REQS');
 		const fcgi_mpxs_conns = map.get('FCGI_MPXS_CONNS');
@@ -338,7 +335,7 @@ export class Client
 		return conns;
 	}
 
-	private async get_conn(addr: FcgiAddr | Conn, connectTimeout: number, timeout: number, keepAliveTimeout: number, keepAliveMax: number): Promise<{conn: FcgiConn, server_addr_str: string, conn_type: number}>
+	private async get_conn(addr: FcgiAddr | Conn, connectTimeout: number, timeout: number, keepAliveTimeout: number, keepAliveMax: number)
 	{	debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
 		while (this.n_busy_all >= this.maxConns)
 		{	await new Promise<void>(y => {this.can_fetch_callbacks.push(y)});
@@ -354,19 +351,20 @@ export class Client
 		}
 		const server_addr_str = addr_to_string(server_addr);
 		const conns = this.get_conns(server_addr_str);
-		const {idle, busy, no_reuse_connection_since} = conns;
-		let conn_type = no_reuse_connection_since==0 ? CONN_TYPE_INTERNAL_REUSE : CONN_TYPE_INTERNAL_NO_REUSE;
+		const {idle, busy} = conns;
+		let conn_type = ConnType.FROM_POOL;
 		const now = Date.now();
 		while (true)
 		{	let conn;
 			if (external_conn)
 			{	conn = new FcgiConn(external_conn);
-				conn_type = CONN_TYPE_EXTERNAL;
+				conn_type = ConnType.EXTERNAL;
 			}
 			else
 			{	conn = idle.pop();
 				if (!conn)
 				{	conn = new FcgiConn(await connect(server_addr as Any, connectTimeout));
+					conn_type = ConnType.NEW;
 				}
 				else if (conn.use_till <= now)
 				{	this.n_idle_all--;
@@ -396,9 +394,9 @@ export class Client
 		}
 	}
 
-	/**	Call with CONN_TYPE_INTERNAL_NO_REUSE to close the connection, even if it's external.
+	/**	Call with ConnType.INTERNAL_NO_REUSE to close the connection, even if it's external.
 	 **/
-	private return_conn(server_addr_str: string, conn: FcgiConn, conn_type: number)
+	private return_conn(server_addr_str: string, conn: FcgiConn, conn_type: ConnType)
 	{	const conns = this.conns_pool.get(server_addr_str);
 		if (!conns)
 		{	// assume: return_conn() already called for this connection
@@ -414,7 +412,7 @@ export class Client
 		debug_assert(this.n_idle_all>=0 && this.n_busy_all>=0);
 		conns.busy[i] = conns.busy[conns.busy.length - 1];
 		conns.busy.length--;
-		if (conn_type==CONN_TYPE_INTERNAL_NO_REUSE || --conn.use_n_times<=0 || conn.use_till<=Date.now())
+		if ((conn_type&ConnType.WANT_CLOSE) || --conn.use_n_times<=0 || conn.use_till<=Date.now())
 		{	try
 			{	conn.close();
 			}
@@ -424,7 +422,7 @@ export class Client
 		}
 		else
 		{	conn.request_till = 0;
-			if (conn_type != CONN_TYPE_EXTERNAL)
+			if (conn_type != ConnType.EXTERNAL)
 			{	conns.idle.push(conn);
 				this.n_idle_all++;
 			}
@@ -447,13 +445,13 @@ export class Client
 	{	const {conns_pool} = this;
 		const now = Date.now();
 		for (const [server_addr_str, conns] of conns_pool)
-		{	let {idle, busy, no_reuse_connection_since} = conns;
+		{	const {idle, busy} = conns;
 			// Some request timed out?
 			for (let i=busy.length-1; i>=0; i--)
 			{	const conn = busy[i];
 				debug_assert(conn.request_till > 0);
 				if (conn.request_till <= now)
-				{	this.return_conn(server_addr_str, conn, CONN_TYPE_INTERNAL_NO_REUSE);
+				{	this.return_conn(server_addr_str, conn, ConnType.WANT_CLOSE);
 				}
 			}
 			// Some idle connection is no longer needed?
@@ -472,11 +470,7 @@ export class Client
 				}
 			}
 			//
-			if (no_reuse_connection_since && no_reuse_connection_since+FORGET_CONNECTION_STATE_AFTER < now)
-			{	no_reuse_connection_since = 0;
-				conns.no_reuse_connection_since = 0;
-			}
-			if (busy.length+idle.length==0 && !no_reuse_connection_since)
+			if (busy.length+idle.length == 0)
 			{	conns_pool.delete(server_addr_str);
 			}
 		}
