@@ -429,7 +429,7 @@ Deno.test
 					{	error = e;
 					}
 					assert(error);
-					assert(req.isTerminated());
+					assert(req.terminated);
 				}
 				else
 				{	await req.respond();

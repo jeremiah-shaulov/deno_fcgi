@@ -122,7 +122,7 @@ export class Fcgi
 										}
 										catch (e)
 										{	this.onerror.trigger(e instanceof Error ? e : new Error(e+''));
-											if (!request.isTerminated())
+											if (!request.responded && !request.terminated)
 											{	try
 												{	await request.respond({status: 500, body: ''});
 												}
@@ -131,7 +131,7 @@ export class Fcgi
 												}
 											}
 										}
-										if (request.isTerminated())
+										if (request.terminated)
 										{	return;
 										}
 									}

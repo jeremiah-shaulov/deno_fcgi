@@ -212,7 +212,7 @@ export class Server implements Listener
 			{	// Some ServerRequest is ready (params are read)
 				const i = requests.indexOf(ready);
 				debug_assert(i != -1);
-				if (!ready.isTerminated())
+				if (!ready.terminated)
 				{	promises[i] = ready.complete();
 					this.n_processing++;
 					this.is_accepting = false;

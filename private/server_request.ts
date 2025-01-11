@@ -163,6 +163,10 @@ export class ServerRequest implements Conn
 	 **/
 	private next_request_ready: Promise<ServerRequest> | undefined;
 
+	get terminated()
+	{	return this.is_terminated;
+	}
+
 	/**	Returns `true` after calling {@link respond()}.
 	 **/
 	get responded()
@@ -414,6 +418,8 @@ export class ServerRequest implements Conn
 		);
 	}
 
+	/**	@deprecated Use {@link terminated} instead.
+	 **/
 	isTerminated()
 	{	return this.is_terminated;
 	}
