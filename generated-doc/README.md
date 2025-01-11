@@ -25,6 +25,6 @@
 
 
 
-| Classes                                      |                                                    |                                                |                                            |
-| -------------------------------------------- | -------------------------------------------------- | ---------------------------------------------- | ------------------------------------------ |
-| [AbortedError](class.AbortedError/README.md) | [TerminatedError](class.TerminatedError/README.md) | [ProtocolError](class.ProtocolError/README.md) | [CookieError](class.CookieError/README.md) |
+| Classes                                                        |                                              |                                                    |                                                |                                            |
+| -------------------------------------------------------------- | -------------------------------------------- | -------------------------------------------------- | ---------------------------------------------- | ------------------------------------------ |
+| [AlreadyRespondedError](class.AlreadyRespondedError/README.md) | [AbortedError](class.AbortedError/README.md) | [TerminatedError](class.TerminatedError/README.md) | [ProtocolError](class.ProtocolError/README.md) | [CookieError](class.CookieError/README.md) |

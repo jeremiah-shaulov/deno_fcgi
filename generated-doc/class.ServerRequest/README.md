@@ -3,14 +3,14 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ServerRequest} from "https://deno.land/x/fcgi@v2.0.8/mod.ts"
+import {ServerRequest} from "https://deno.land/x/fcgi@v2.1.0/mod.ts"
 ```
 
 ## This class has
 
 - [constructor](#-constructorconn-conn-onerror-error-error--void-buffer-uint8array--null-structuredparams-boolean-maxconns-number-maxnamelength-number-maxvaluelength-number-maxfilesize-number)
 - [destructor](#-symboldispose-void)
-- 19 properties:
+- 20 properties:
 [localAddr](#-readonly-localaddr-denoaddr),
 [remoteAddr](#-readonly-remoteaddr-denoaddr),
 [rid](#-readonly-rid-number),
@@ -29,6 +29,7 @@ import {ServerRequest} from "https://deno.land/x/fcgi@v2.0.8/mod.ts"
 [responseStatus](#-responsestatus-number),
 [responseHeaders](#-responseheaders-headers),
 [headersSent](#-headerssent-boolean),
+[responded](#-get-responded-boolean),
 [conn](#-conn-conn)
 - 10 methods:
 [ref](#-ref-void),
@@ -152,6 +153,12 @@ import {ServerRequest} from "https://deno.land/x/fcgi@v2.0.8/mod.ts"
 #### 📄 headersSent: `boolean`
 
 > True if headers have been sent to client. They will be sent if you write some response data to `writable` of this request object.
+
+
+
+#### 📄 `get` responded(): `boolean`
+
+> Returns `true` after calling [respond()](../class.ServerRequest/README.md#-respondresponse-serverresponse-promisevoid).
 
 
 

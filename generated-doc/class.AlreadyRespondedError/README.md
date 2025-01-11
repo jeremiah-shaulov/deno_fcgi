@@ -1,9 +1,9 @@
-# `class` TerminatedError `extends` Error
+# `class` AlreadyRespondedError `extends` Error
 
 [Documentation Index](../README.md)
 
 ```ts
-import {TerminatedError} from "https://deno.land/x/fcgi@v2.1.0/mod.ts"
+import {AlreadyRespondedError} from "https://deno.land/x/fcgi@v2.1.0/mod.ts"
 ```
 
 ## This class has

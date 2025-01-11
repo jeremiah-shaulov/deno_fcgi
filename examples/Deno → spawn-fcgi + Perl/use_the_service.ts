@@ -1,4 +1,4 @@
-import {fcgi} from 'https://deno.land/x/fcgi@v2.0.8/mod.ts';
+import {fcgi} from 'https://deno.land/x/fcgi@v2.1.0/mod.ts';
 
 for (let i=0; i<3; i++)
 {	queueMicrotask
