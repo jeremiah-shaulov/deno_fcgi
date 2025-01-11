@@ -1,5 +1,11 @@
 /**	@category Errors
  **/
+export class AlreadyRespondedError extends Error
+{
+}
+
+/**	@category Errors
+ **/
 export class AbortedError extends Error
 {
 }

@@ -4,7 +4,7 @@ import {Get} from './get.ts';
 import {Post} from './post.ts';
 import {Cookies} from './cookies.ts';
 import {ServerResponse} from './server_response.ts';
-import {AbortedError, TerminatedError, ProtocolError} from './error.ts';
+import {AlreadyRespondedError, AbortedError, TerminatedError, ProtocolError} from './error.ts';
 import {writeAll} from './util.ts';
 import {RdStream, WrStream} from './deps.ts';
 
@@ -122,6 +122,10 @@ export class ServerRequest implements Conn
 	 **/
 	private is_terminated = false;
 
+	/** {@link respond()} called.
+	 **/
+	private is_responded = false;
+
 	/** poll() sets this (together with is_terminated) if error occures
 	 **/
 	private last_error: Error|undefined;
@@ -158,6 +162,12 @@ export class ServerRequest implements Conn
 	/** Result of "next_request.poll()"
 	 **/
 	private next_request_ready: Promise<ServerRequest> | undefined;
+
+	/**	Returns `true` after calling {@link respond()}.
+	 **/
+	get responded()
+	{	return this.is_responded;
+	}
 
 	constructor
 	(	public conn: Conn,
@@ -245,7 +255,11 @@ export class ServerRequest implements Conn
 	}
 
 	private async do_respond(response?: ServerResponse, is_for_abort=false)
-	{	const was_terminated = this.is_terminated;
+	{	if (this.is_responded)
+		{	throw this.is_aborted ? new AbortedError('Request aborted') : new AlreadyRespondedError(`respond() already called`);
+		}
+		this.is_responded = true;
+		const was_terminated = this.is_terminated;
 		while (!this.stdin_complete)
 		{	await this.poll(true);
 		}

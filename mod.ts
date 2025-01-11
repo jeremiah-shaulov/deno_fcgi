@@ -333,5 +333,5 @@ export {Client, ResponseWithCookies} from './private/client.ts';
 export type {ClientOptions, RequestOptions} from './private/client.ts';
 export {ServerRequest} from './private/server_request.ts';
 export type {ServerResponse} from './private/server_response.ts';
-export {AbortedError, TerminatedError, ProtocolError, CookieError} from './private/error.ts';
+export {AlreadyRespondedError, AbortedError, TerminatedError, ProtocolError, CookieError} from './private/error.ts';
 export type {PathNode} from './private/structured_map.ts';

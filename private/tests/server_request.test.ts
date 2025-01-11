@@ -1,6 +1,6 @@
 import {PathNode} from '../structured_map.ts';
 import {Server} from '../server.ts';
-import {AbortedError, TerminatedError, ProtocolError} from '../error.ts';
+import {AlreadyRespondedError, AbortedError, TerminatedError, ProtocolError} from '../error.ts';
 import {TEST_CHUNK_SIZES, get_random_bytes, get_random_string, map_to_obj, MockListener, MockFcgiConn, MockConn} from './mock/mod.ts';
 import {writeAll} from '../util.ts';
 import {assert} from 'jsr:@std/assert@1.0.7/assert';
@@ -51,7 +51,7 @@ Deno.test
 				catch (e)
 				{	error = e;
 				}
-				assert(error instanceof TerminatedError);
+				assert(error instanceof AlreadyRespondedError);
 				server.removeListeners();
 			}
 			// read
@@ -534,7 +534,7 @@ Deno.test
 					catch (e)
 					{	error = e;
 					}
-					assert(error instanceof TerminatedError);
+					assert(error instanceof AbortedError);
 					// try logError when terminated
 					error = undefined;
 					try
@@ -543,7 +543,7 @@ Deno.test
 					catch (e)
 					{	error = e;
 					}
-					assert(error instanceof TerminatedError);
+					assert(error instanceof AbortedError);
 				}
 				else
 				{	assertEquals(await req.readable.text(), 'Body '+i);
@@ -709,7 +709,8 @@ Deno.test
 			catch (e)
 			{	error_2 = e;
 			}
-			assert((error || error_2) instanceof TerminatedError);
+			assert(!error);
+			assert(error_2 instanceof AlreadyRespondedError);
 			server.removeListeners();
 		}
 		// check
