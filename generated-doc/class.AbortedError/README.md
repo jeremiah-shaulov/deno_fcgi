@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {AbortedError} from "https://deno.land/x/fcgi@v2.1.0/mod.ts"
+import {AbortedError} from "https://deno.land/x/fcgi@v2.1.1/mod.ts"
 ```
 
 ## This class has

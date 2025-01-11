@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ServerOptions} from "https://deno.land/x/fcgi@v2.1.0/mod.ts"
+import {ServerOptions} from "https://deno.land/x/fcgi@v2.1.1/mod.ts"
 ```
 
 ## This interface has

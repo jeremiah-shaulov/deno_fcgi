@@ -3,14 +3,14 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ServerRequest} from "https://deno.land/x/fcgi@v2.1.0/mod.ts"
+import {ServerRequest} from "https://deno.land/x/fcgi@v2.1.1/mod.ts"
 ```
 
 ## This class has
 
 - [constructor](#-constructorconn-conn-onerror-error-error--void-buffer-uint8array--null-structuredparams-boolean-maxconns-number-maxnamelength-number-maxvaluelength-number-maxfilesize-number)
 - [destructor](#-symboldispose-void)
-- 20 properties:
+- 21 properties:
 [localAddr](#-readonly-localaddr-denoaddr),
 [remoteAddr](#-readonly-remoteaddr-denoaddr),
 [rid](#-readonly-rid-number),
@@ -29,9 +29,10 @@ import {ServerRequest} from "https://deno.land/x/fcgi@v2.1.0/mod.ts"
 [responseStatus](#-responsestatus-number),
 [responseHeaders](#-responseheaders-headers),
 [headersSent](#-headerssent-boolean),
+[terminated](#-get-terminated-boolean),
 [responded](#-get-responded-boolean),
 [conn](#-conn-conn)
-- 10 methods:
+- 9 methods:
 [ref](#-ref-void),
 [unref](#-unref-void),
 [read](#-readbuffer-uint8array-promisenumber),
@@ -40,8 +41,8 @@ import {ServerRequest} from "https://deno.land/x/fcgi@v2.1.0/mod.ts"
 [respond](#-respondresponse-serverresponse-promisevoid),
 [close](#-close-void),
 [closeWrite](#-closewrite-promisevoid),
-[complete](#-complete-promiseserverrequest),
-[isTerminated](#-isterminated-boolean)
+[complete](#-complete-promiseserverrequest)
+- [deprecated symbol](#-deprecated-isterminated-boolean)
 
 
 #### 🔧 `constructor`(conn: [Conn](../interface.Conn/README.md), onerror: (error: Error) => `void`, buffer: Uint8Array | `null`, structuredParams: `boolean`, maxConns: `number`, maxNameLength: `number`, maxValueLength: `number`, maxFileSize: `number`)
@@ -156,6 +157,10 @@ import {ServerRequest} from "https://deno.land/x/fcgi@v2.1.0/mod.ts"
 
 
 
+#### 📄 `get` terminated(): `boolean`
+
+
+
 #### 📄 `get` responded(): `boolean`
 
 > Returns `true` after calling [respond()](../class.ServerRequest/README.md#-respondresponse-serverresponse-promisevoid).
@@ -257,7 +262,15 @@ import {ServerRequest} from "https://deno.land/x/fcgi@v2.1.0/mod.ts"
 
 
 
-#### ⚙ isTerminated(): `boolean`
+<div style="opacity:0.6">
+
+#### ⚙ `deprecated` isTerminated(): `boolean`
+
+> `deprecated`
+> 
+> Use [terminated](../class.ServerRequest/README.md#-get-terminated-boolean) instead.
 
 
+
+</div>
 
