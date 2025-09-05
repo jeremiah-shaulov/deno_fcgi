@@ -20,6 +20,13 @@ const LF = '\n'.charCodeAt(0);
 const SPACE = ' '.charCodeAt(0);
 const QT = '"'.charCodeAt(0);
 const BACKSLASH = '\\'.charCodeAt(0);
+const PLUS = '+'.charCodeAt(0);
+const PERCENT = '%'.charCodeAt(0);
+const ZERO = '0'.charCodeAt(0);
+const NINE = '9'.charCodeAt(0);
+const A_CAP = 'A'.charCodeAt(0);
+const F_CAP = 'F'.charCodeAt(0);
+const A_LOW = 'a'.charCodeAt(0);
 
 debug_assert(MAX_BOUNDARY_LEN+2 <= BUFFER_LEN); // (boundary + "\r\n").length
 
@@ -164,7 +171,8 @@ L:		while (true)
 			}
 
 			// 2. Read param name (if S_NAME) or value (if S_VALUE)
-			const str = decodeURIComponent(decoder.decode(buffer.subarray(buffer_start, i)));
+			const j = decode_uri_component_inplace(buffer, buffer_start, i);
+			const str = decoder.decode(buffer.subarray(buffer_start, j));
 			buffer_start = i + 1; // after '=' or '&'
 			if (i<buffer_end && buffer[i]===EQ)
 			{	debug_assert(state == S_NAME); // i didn't look for EQ in S_VALUE state
@@ -615,4 +623,31 @@ function buffer_index_of_one_of_3(buffer: Uint8Array, start: number, end: number
 		start++;
 	}
 	return -1;
+}
+
+/**	This function does decodeURIComponent() job in-place, so it doesn't allocate memory for decoded string.
+	It does even better, because deno built-in `encodeURIComponent()` can leave '+' as plus, while
+	it must designate space character in `application/x-www-form-urlencoded` content.
+ **/
+function decode_uri_component_inplace(buffer: Uint8Array, start: number, end: number)
+{	let i = start;
+	while (i < end)
+	{	const c = buffer[i];
+		if (c == PLUS)
+		{	buffer[start++] = SPACE;
+			i++;
+		}
+		else if (c==PERCENT && i+2<end)
+		{	i++;
+			let d1 = buffer[i++];
+			let d2 = buffer[i++];
+			d1 = d1<=NINE ? d1-ZERO : d1<=F_CAP ? d1-(A_CAP-10) : d1-(A_LOW-10);
+			d2 = d2<=NINE ? d2-ZERO : d2<=F_CAP ? d2-(A_CAP-10) : d2-(A_LOW-10);
+			buffer[start++] = (d1<<4) | d2;
+		}
+		else
+		{	buffer[start++] = buffer[i++];
+		}
+	}
+	return start;
 }
