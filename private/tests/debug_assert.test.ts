@@ -1,5 +1,5 @@
 import {ASSERTIONS_ENABLED, debug_assert} from '../debug_assert.ts';
-import {assert} from 'jsr:@std/assert@1.0.7/assert';
+import {assert} from 'jsr:@std/assert@1.0.14/assert';
 
 Deno.test
 (	'debug_assert',

@@ -2,7 +2,7 @@ import {MockConn} from './mock_conn.ts';
 import {MockListener} from './mock_listener.ts';
 import {Server} from '../../../server.ts';
 import {pack_nvp} from '../../../server_request.ts';
-import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
+import {assertEquals} from 'jsr:@std/assert@1.0.14/equals';
 
 const FCGI_BEGIN_REQUEST      =  1;
 const FCGI_ABORT_REQUEST      =  2;

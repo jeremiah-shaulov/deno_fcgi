@@ -1,7 +1,7 @@
 import {Post} from '../post.ts';
 import {TEST_CHUNK_SIZES, get_random_string, map_to_obj, MockConn} from './mock/mod.ts';
-import {assert} from 'jsr:@std/assert@1.0.7/assert';
-import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
+import {assert} from 'jsr:@std/assert@1.0.14/assert';
+import {assertEquals} from 'jsr:@std/assert@1.0.14/equals';
 
 /**	File exists? If yes, return it's `stat`.
  **/

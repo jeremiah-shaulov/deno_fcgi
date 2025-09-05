@@ -1,7 +1,7 @@
 import {Cookies} from '../cookies.ts';
 import {CookieError} from '../error.ts';
-import {assert} from 'jsr:@std/assert@1.0.7/assert';
-import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
+import {assert} from 'jsr:@std/assert@1.0.14/assert';
+import {assertEquals} from 'jsr:@std/assert@1.0.14/equals';
 
 Deno.test
 (	'Cookies 1',

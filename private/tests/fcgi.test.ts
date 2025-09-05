@@ -4,8 +4,8 @@ import {ProtocolError} from '../error.ts';
 import {map_to_obj, MockListener, MockFcgiConn, get_random_string} from './mock/mod.ts';
 import {SERVER_SOFTWARE, RequestOptions} from '../client.ts';
 import {RECYCLE_REQUEST_ID_AFTER} from '../fcgi_conn.ts';
-import {assert} from 'jsr:@std/assert@1.0.7/assert';
-import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
+import {assert} from 'jsr:@std/assert@1.0.14/assert';
+import {assertEquals} from 'jsr:@std/assert@1.0.14/equals';
 
 // deno-lint-ignore no-explicit-any
 type Any = any;

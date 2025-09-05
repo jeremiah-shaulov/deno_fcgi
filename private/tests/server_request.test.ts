@@ -3,8 +3,8 @@ import {Server} from '../server.ts';
 import {AlreadyRespondedError, AbortedError, TerminatedError, ProtocolError} from '../error.ts';
 import {TEST_CHUNK_SIZES, get_random_bytes, get_random_string, map_to_obj, MockListener, MockFcgiConn, MockConn} from './mock/mod.ts';
 import {writeAll} from '../util.ts';
-import {assert} from 'jsr:@std/assert@1.0.7/assert';
-import {assertEquals} from 'jsr:@std/assert@1.0.7/equals';
+import {assert} from 'jsr:@std/assert@1.0.14/assert';
+import {assertEquals} from 'jsr:@std/assert@1.0.14/equals';
 
 function *test_connections(only_chunk_sizes?: number[], full_split_stream_records=false): Generator<[MockListener, MockFcgiConn]>
 {	for (const chunk_size of only_chunk_sizes || TEST_CHUNK_SIZES)
