@@ -10,8 +10,8 @@
 [isClosed](#-get-isclosed-boolean),
 [closed](#-get-closed-promiseundefined)
 - 6 methods:
-[getWriter](#-override-getwriter-writablestreamdefaultwriteruint8array--writer),
-[getWriterWhenReady](#-getwriterwhenready-promisewritablestreamdefaultwriteruint8array--writer),
+[getWriter](#-override-getwriter-writablestreamdefaultwriteruint8arrayarraybufferlike--writer),
+[getWriterWhenReady](#-getwriterwhenready-promisewritablestreamdefaultwriteruint8arrayarraybufferlike--writer),
 [abort](#-override-abortreason-unknown-promisevoid),
 [close](#-override-close-promisevoid),
 [write](#-writechunk-uint8array--string-promisevoid),
@@ -41,7 +41,7 @@
 
 
 
-#### ⚙ `override` getWriter(): WritableStreamDefaultWriter\<Uint8Array> \& Writer
+#### ⚙ `override` getWriter(): WritableStreamDefaultWriter\<Uint8Array\<ArrayBufferLike>> \& Writer
 
 > Returns object that allows to write data to the stream.
 > The stream becomes locked till this writer is released by calling `writer.releaseLock()` or `writer[Symbol.dispose]()`.
@@ -50,7 +50,7 @@
 
 
 
-#### ⚙ getWriterWhenReady(): Promise\<WritableStreamDefaultWriter\<Uint8Array> \& Writer>
+#### ⚙ getWriterWhenReady(): Promise\<WritableStreamDefaultWriter\<Uint8Array\<ArrayBufferLike>> \& Writer>
 
 > Like `wrStream.getWriter()`, but waits for the stream to become unlocked before returning the writer (and so locking it again).
 

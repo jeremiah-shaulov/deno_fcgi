@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ProtocolError} from "https://deno.land/x/fcgi@v2.1.1/mod.ts"
+import {ProtocolError} from "https://deno.land/x/fcgi@v2.1.2/mod.ts"
 ```
 
 ## This class has

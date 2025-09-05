@@ -19,9 +19,9 @@ It has the following differences:
 [isClosed](#-get-isclosed-boolean),
 [closed](#-get-closed-promiseundefined)
 - 13 methods:
-[getReader](#-override-getreaderoptions-mode-undefined-readablestreamdefaultreaderuint8array--omitreader-read),
+[getReader](#-override-getreaderoptions-mode-undefined-readablestreamdefaultreaderuint8arrayarraybufferlike--omitreader-read),
 [getReader](#-override-getreaderoptions-mode-byob-readablestreambyobreader--omitreader-read),
-[getReaderWhenReady](#-getreaderwhenreadyoptions-mode-undefined-promisereadablestreamdefaultreaderuint8array--omitreader-read),
+[getReaderWhenReady](#-getreaderwhenreadyoptions-mode-undefined-promisereadablestreamdefaultreaderuint8arrayarraybufferlike--omitreader-read),
 [getReaderWhenReady](#-getreaderwhenreadyoptions-mode-byob-promisereadablestreambyobreader--omitreader-read),
 [cancel](#-override-cancelreason-unknown-promisevoid),
 [unread](#-unreadchunk-uint8array-void),
@@ -29,7 +29,7 @@ It has the following differences:
 [tee](#-override-teeoptions-requireparallelread-boolean-rdstream-rdstream),
 [pipeTo](#-override-pipetodest-writablestreamuint8array-options-streampipeoptionslocal-promisevoid),
 [pipeThrough](#-override-pipethrought-w-extends-writablestreamuint8array-r-extends-readablestreamttransform-readonly-writable-w-readonly-readable-r-options-streampipeoptionslocal-r),
-[uint8Array](#-uint8arrayoptions-lengthlimit-number-promiseuint8array),
+[uint8Array](#-uint8arrayoptions-lengthlimit-number-promiseuint8arrayarraybufferlike),
 [text](#-textlabel-string-options-textdecoderoptions--lengthlimit-number-promisestring),
 [\[Symbol.asyncIterator\]](#-override-symbolasynciteratoroptions-preventcancel-boolean-readablestreamiterator)
 - base class
@@ -83,7 +83,7 @@ It has the following differences:
 
 
 
-#### ⚙ `override` getReader(options?: \{mode?: `undefined`}): ReadableStreamDefaultReader\<Uint8Array> \& Omit\<Reader, <mark>"read"</mark>>
+#### ⚙ `override` getReader(options?: \{mode?: `undefined`}): ReadableStreamDefaultReader\<Uint8Array\<ArrayBufferLike>> \& Omit\<Reader, <mark>"read"</mark>>
 
 > Returns object that allows to read data from the stream.
 > The stream becomes locked till this reader is released by calling `reader.releaseLock()` or `reader[Symbol.dispose]()`.
@@ -96,7 +96,7 @@ It has the following differences:
 
 
 
-#### ⚙ getReaderWhenReady(options?: \{mode?: `undefined`}): Promise\<ReadableStreamDefaultReader\<Uint8Array> \& Omit\<Reader, <mark>"read"</mark>>>
+#### ⚙ getReaderWhenReady(options?: \{mode?: `undefined`}): Promise\<ReadableStreamDefaultReader\<Uint8Array\<ArrayBufferLike>> \& Omit\<Reader, <mark>"read"</mark>>>
 
 > Like `rdStream.getReader()`, but waits for the stream to become unlocked before returning the reader (and so locking it again).
 
@@ -192,7 +192,7 @@ It has the following differences:
 
 
 
-#### ⚙ uint8Array(options?: \{lengthLimit?: `number`}): Promise\<Uint8Array>
+#### ⚙ uint8Array(options?: \{lengthLimit?: `number`}): Promise\<Uint8Array\<ArrayBufferLike>>
 
 > Reads the whole stream to memory.
 > If `lengthLimit` is specified (and is positive number), and the stream happens to be bigger than this number,

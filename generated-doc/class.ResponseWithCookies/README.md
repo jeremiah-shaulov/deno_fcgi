@@ -3,7 +3,7 @@
 [Documentation Index](../README.md)
 
 ```ts
-import {ResponseWithCookies} from "https://deno.land/x/fcgi@v2.1.1/mod.ts"
+import {ResponseWithCookies} from "https://deno.land/x/fcgi@v2.1.2/mod.ts"
 ```
 
 ## This class has
@@ -15,7 +15,7 @@ import {ResponseWithCookies} from "https://deno.land/x/fcgi@v2.1.1/mod.ts"
 [charset](#-get-charset-string)
 - 2 methods:
 [text](#-override-text-promisestring),
-[uint8Array](#-uint8array-promiseuint8array)
+[uint8Array](#-uint8array-promiseuint8arrayarraybufferlike)
 - base class
 
 
@@ -44,7 +44,7 @@ import {ResponseWithCookies} from "https://deno.land/x/fcgi@v2.1.1/mod.ts"
 
 
 
-#### ⚙ uint8Array(): Promise\<Uint8Array>
+#### ⚙ uint8Array(): Promise\<Uint8Array\<ArrayBufferLike>>
 
 
 
