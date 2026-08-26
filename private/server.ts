@@ -22,6 +22,30 @@ class AcceptError
 	}
 }
 
+/**	Errors that `accept()` produces for a reason that concerns only the connection being accepted,
+	not the listening socket: the peer dropped the connection while it sat in the accept queue (or
+	between the `accept` syscall and reading its address), or the syscall was interrupted. Seen in
+	production as `NotConnected: Transport endpoint is not connected (os error 107)` from
+	`Listener.accept` on a host under memory pressure - the listener itself was fine, but treating
+	the error as a listener failure removed the listener and shut the whole server down, while the
+	process lived on refusing connections. Such errors are reported to `onError` and the listener
+	is re-armed; everything else still removes the listener as before.
+ **/
+const TRANSIENT_ACCEPT_ERRORS = ['NotConnected', 'ConnectionAborted', 'ConnectionReset', 'Interrupted'];
+
+/**	`listener.accept()` can not only reject, but also throw synchronously (seen from Deno's
+	`Listener.accept` with os error 107). Both must become an `AcceptError` resolution, or the
+	exception escapes `Server.accept()` and kills the caller's `for await` serve loop.
+ **/
+function accept_or_error(listener: Listener)
+{	try
+	{	return listener.accept().catch((error: unknown) => new AcceptError(listener, error instanceof Error ? error : new Error(error+'')));
+	}
+	catch (error)
+	{	return Promise.resolve(new AcceptError(listener, error instanceof Error ? error : new Error(error+'')));
+	}
+}
+
 export class Server implements Listener
 {	readonly addr: Deno.Addr;
 	readonly rid: number;
@@ -98,14 +122,23 @@ export class Server implements Listener
 	{	if (this.is_accepting)
 		{	throw new Error('Busy: Another accept task is ongoing');
 		}
+		this.is_accepting = true;
+		// try-finally, not manual resets on each exit path: if `do_accept()` throws with the flag
+		// still set, every later `accept()` throws `Busy` forever - the server wedges permanently.
+		try
+		{	return await this.do_accept();
+		}
+		finally
+		{	this.is_accepting = false;
+		}
+	}
 
-		let {listeners, active_listeners, removed_listeners, promises, requests, onerror, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this;
+	private async do_accept(): Promise<ServerRequest>
+	{	let {listeners, active_listeners, removed_listeners, promises, requests, onerror, structuredParams, maxConns, maxNameLength, maxValueLength, maxFileSize} = this;
 
 		if (maxConns < listeners.length)
 		{	maxConns = listeners.length;
 		}
-
-		this.is_accepting = true;
 
 		function find_listener(conn: Conn)
 		{	const {transport} = conn.localAddr;
@@ -156,7 +189,7 @@ export class Server implements Listener
 				for (const listener of listeners)
 				{	if (active_listeners.indexOf(listener) == -1)
 					{	active_listeners.push(listener);
-						promises.push(listener.accept().catch(error => new AcceptError(listener, error)));
+						promises.push(accept_or_error(listener));
 						if (promises.length >= to)
 						{	break;
 						}
@@ -166,7 +199,6 @@ export class Server implements Listener
 			this.clear_removed_listeners();
 			if (promises.length == 0)
 			{	debug_assert(active_listeners.length==0 && listeners.length==0 && removed_listeners.length==0 && requests.length==0);
-				this.is_accepting = false;
 				throw new Error('Server shut down');
 			}
 
@@ -175,9 +207,20 @@ export class Server implements Listener
 
 			const ready = await Promise.race(promises);
 			if (ready instanceof AcceptError)
-			{	if (listeners.indexOf(ready.listener) != -1)
+			{	// Detach the settled promise and its listener first, whatever the error: left in place it
+				// would win every following race with the same result.
+				const i = active_listeners.indexOf(ready.listener);
+				if (i != -1)
+				{	active_listeners.splice(i, 1);
+					promises.splice(requests.length+i, 1);
+				}
+				if (listeners.indexOf(ready.listener) != -1)
 				{	this.onerror(ready.error);
-					this.removeListener(ready.listener.addr);
+					if (TRANSIENT_ACCEPT_ERRORS.indexOf(ready.error.name) == -1)
+					{	this.removeListener(ready.listener.addr);
+					}
+					// On a transient error the listener stays in `listeners`, so the top of the loop
+					// re-arms it with a fresh accept() on the next iteration.
 				}
 				debug_assert(active_listeners.indexOf(ready.listener) == -1);
 			}
@@ -204,7 +247,7 @@ export class Server implements Listener
 					active_listeners.shift();
 					if (j+1+listeners.length < maxConns)
 					{	active_listeners.push(listener);
-						promises.push(listener.accept().catch(error => new AcceptError(listener, error)));
+						promises.push(accept_or_error(listener));
 					}
 				}
 			}
@@ -215,7 +258,6 @@ export class Server implements Listener
 				if (!ready.terminated)
 				{	promises[i] = ready.complete();
 					this.n_processing++;
-					this.is_accepting = false;
 					return ready;
 				}
 				else

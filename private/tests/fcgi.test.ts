@@ -42,6 +42,107 @@ Deno.test
 	}
 );
 
+/**	A transient accept error (the accepted connection died in the accept queue - ENOTCONN and
+	friends) must be reported to `onError` and the listener re-armed, not shut the server down.
+	Before the fix it removed the listener, and the serve loop ended while the process lived on
+	refusing connections (2026-08-26, slave-1).
+ **/
+Deno.test
+(	'Accept transient error',
+	async () =>
+	{	const listener = new MockListener;
+		const conn = listener.pend_accept(1024, -1, 'no');
+		let server_error: Error | undefined;
+		fcgi.onError(e => {server_error = e});
+		// accept() rejects once with a transient error, then works as usual
+		let n_fails = 1;
+		const orig_accept = listener.accept;
+		listener.accept = function()
+		{	if (n_fails > 0)
+			{	n_fails--;
+				const error = new Error('Transport endpoint is not connected (os error 107)');
+				error.name = 'NotConnected';
+				return Promise.reject(error);
+			}
+			return orig_accept.call(this);
+		};
+		// write
+		conn.pend_read_fcgi_begin_request(1, 'responder', false);
+		conn.pend_read_fcgi_params(1, {a: '1'});
+		conn.pend_read_fcgi_stdin(1, 'Body');
+		// accept
+		let n_requests = 0;
+		fcgi.listen
+		(	listener,
+			'',
+			async req =>
+			{	n_requests++;
+				await req.post.parse();
+				await req.respond({body: 'Response body'});
+				fcgi.unlisten();
+			}
+		);
+		await fcgi.onEnd();
+		// read
+		assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\nResponse body');
+		assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+		// check: the request was served despite the failed accept, and the error was reported
+		assertEquals(n_requests, 1);
+		assertEquals(n_fails, 0);
+		assertEquals(server_error?.name, 'NotConnected');
+	}
+);
+
+/**	`Listener.accept()` has been seen to throw SYNCHRONOUSLY (os error 107 from Deno's net
+	internals), bypassing the `.catch()` attached to its promise. That must take the same
+	transient-error path, not escape `Server.accept()` and kill the serve loop.
+ **/
+Deno.test
+(	'Accept sync throw',
+	async () =>
+	{	const listener = new MockListener;
+		const conn = listener.pend_accept(1024, -1, 'no');
+		let server_error: Error | undefined;
+		fcgi.onError(e => {server_error = e});
+		// accept() throws synchronously once, then works as usual
+		let n_fails = 1;
+		const orig_accept = listener.accept;
+		listener.accept = function()
+		{	if (n_fails > 0)
+			{	n_fails--;
+				const error = new Error('Transport endpoint is not connected (os error 107)');
+				error.name = 'NotConnected';
+				throw error;
+			}
+			return orig_accept.call(this);
+		};
+		// write
+		conn.pend_read_fcgi_begin_request(1, 'responder', false);
+		conn.pend_read_fcgi_params(1, {a: '1'});
+		conn.pend_read_fcgi_stdin(1, 'Body');
+		// accept
+		let n_requests = 0;
+		fcgi.listen
+		(	listener,
+			'',
+			async req =>
+			{	n_requests++;
+				await req.post.parse();
+				await req.respond({body: 'Response body'});
+				fcgi.unlisten();
+			}
+		);
+		await fcgi.onEnd();
+		// read
+		assertEquals(conn.take_written_fcgi_stdout(1), 'status: 200\r\n\r\nResponse body');
+		assertEquals(conn.take_written_fcgi_end_request(1), 'request_complete');
+		// check
+		assertEquals(n_requests, 1);
+		assertEquals(n_fails, 0);
+		assertEquals(server_error?.name, 'NotConnected');
+	}
+);
+
 Deno.test
 (	'404',
 	async () =>
